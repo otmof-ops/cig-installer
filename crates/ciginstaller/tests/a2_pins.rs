@@ -619,3 +619,62 @@ fn the_shim_and_which_agree_on_200_generated_layouts() {
     // the generator reaches both kinds of verdict
     assert!(runs.0 >= 40 && runs.1 >= 5, "{runs:?}");
 }
+
+/// After `rollback cig` the machine carton's cig is the old build. The shim and the resolver must
+/// say so alike wherever the chosen carton is the machine carton: no pin, a pin to it, and
+/// CIGI_CARTON set to it; the tools that were not rolled back keep the carton's own build.
+#[test]
+fn a2p_a_rolled_back_tool_agrees_under_a_pin_and_under_cigi_carton() {
+    let fx = base();
+    ok(&cigi(&fx, &["update", "--no-trial"]));
+    ok(&cigi(&fx, &["rollback", "cig"]));
+    let proj = dir(&fx, "rb");
+    fs::write(proj.join(".cig-carton"), "carton 0.2\n").unwrap();
+    let plain = dir(&fx, "rb-plain");
+    let version_of = |o: &Output| {
+        let t = out(o);
+        t.split("/cig/")
+            .nth(1)
+            .and_then(|r| r.split('/').next())
+            .unwrap_or("")
+            .to_string()
+    };
+    for (label, cwd) in [("no pin", &plain), ("pin to the machine carton", &proj)] {
+        let s = shim(&fx, "cig", cwd);
+        assert!(s.status.success(), "{label}: {}", text(&s));
+        assert!(out(&s).starts_with("cig 1.20.0 "), "{label}: {}", text(&s));
+        let w = which(&fx, cwd, &["cig", "--path"]);
+        ok(&w);
+        assert_eq!(version_of(&w), "1.20.0", "{label}: {}", text(&w));
+        let why = which(&fx, cwd, &["cig"]);
+        ok(&why);
+        assert!(
+            text(&why).contains("cig 1.20.0, from carton 0.2.0"),
+            "{label}: the machine carton with the rolled-back build: {}",
+            text(&why)
+        );
+        // cigo was not rolled back
+        let o = shim(&fx, "cigo", cwd);
+        assert!(out(&o).starts_with("cigo 1.17.0 "), "{label}: {}", text(&o));
+    }
+    // CIGI_CARTON names the machine carton: the shim's fast path and the resolver agree
+    let bin = fx.cigscript().join("bin");
+    let mut c = Command::new(bin.join("cig"));
+    c.env_clear()
+        .env("HOME", &fx.user_home)
+        .env("CIGSCRIPT_HOME", fx.cigscript())
+        .env("CIGI_CARTON", "0.2.0")
+        .env("PATH", format!("{}:/usr/bin:/bin", bin.display()))
+        .current_dir(&plain);
+    let s = run_timeout(&mut c, Duration::from_secs(30));
+    assert!(out(&s).starts_with("cig 1.20.0 "), "{}", text(&s));
+    let w = run_timeout(
+        fx.cigi()
+            .env("CIGI_CARTON", "0.2.0")
+            .args(["which", "cig", "--path"])
+            .current_dir(&plain),
+        Duration::from_secs(20),
+    );
+    ok(&w);
+    assert_eq!(version_of(&w), "1.20.0", "{}", text(&w));
+}

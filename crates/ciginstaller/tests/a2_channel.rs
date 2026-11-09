@@ -86,7 +86,7 @@ fn a2_install_channel_is_for_one_run() {
 
 /// A channel's own cache keeps its sequence floor across switches: an older document served for
 /// a channel this machine has seen at a higher sequence is refused, even after it followed
-/// another channel in between (SEC-004 re-review, N2).
+/// another channel in between (the security re-review of PR #37).
 #[test]
 fn a2_channel_keeps_each_channels_floor() {
     let mut fx = fixture();

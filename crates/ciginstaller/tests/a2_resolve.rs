@@ -91,7 +91,7 @@ fn state_bytes(fx: &Fixture) -> Vec<u8> {
     std::fs::read(fx.cigscript().join("installer/state.json")).unwrap()
 }
 
-/// DEV-004 finding 2: carton 0.1.0 {cig 1.5.0, cigar 0.2.0} is the machine's, 0.2.0 {cig 1.20.0,
+/// Review finding (PR #37): carton 0.1.0 {cig 1.5.0, cigar 0.2.0} is the machine's, 0.2.0 {cig 1.20.0,
 /// cigar 0.1.0} is on the channel, and the project pins `cig >=1.6.2` and `cigar >=0.2.0`. The
 /// slow path used to wait on its own lock for 30 s after the stick fetch and fail with E1834.
 #[test]
@@ -186,7 +186,7 @@ fn a2r_use_refuses_partial() {
 }
 
 /// A shim name the shim binary does not serve never gets a file in bin/ (it would be a dead
-/// command first on PATH); the tool's own shim does (SEC-004, PR #37).
+/// command first on PATH); the tool's own shim does (the security review of PR #37).
 #[test]
 fn a2r_only_served_shim_names_get_a_file() {
     let mut fx = fixture();

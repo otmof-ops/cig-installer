@@ -278,7 +278,7 @@ pub fn remove_path_block(
             }
             let rest = format!("{}{}", &text[..start], &text[e..]);
             if rest.is_empty() && !separator {
-                txn.delete(&profile)?;
+                txn.delete_user_file(&profile)?;
             } else {
                 let mode = platform::mode_of(&profile);
                 txn.write_block(&profile, MARKER, rest.as_bytes(), mode)?;

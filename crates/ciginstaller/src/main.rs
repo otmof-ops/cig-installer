@@ -25,7 +25,7 @@ use std::path::Path;
 use cigi_ui::{GlobalFlags, InstallerError, Report, Ui, EXIT_SHIM, EXIT_USAGE};
 use clap::Parser;
 
-use cli::{Cli, Command};
+use cli::{Cli, Command, SelfCmd, SelfSub};
 use cmd::Outcome;
 use cx::{Cx, Globals};
 
@@ -84,6 +84,7 @@ fn dispatch(cli: Cli, ui: Ui) -> i32 {
         yes: cli.yes,
         offline: cli.offline,
         home: cli.home.clone(),
+        self_updated: cli.self_updated.clone(),
     };
     let (name, cwd) = match &cli.command {
         None => ("ciginstaller", None),
@@ -96,7 +97,19 @@ fn dispatch(cli: Cli, ui: Ui) -> i32 {
         Some(Command::List) => ("list", None),
         Some(Command::Which { cwd, .. }) => ("which", cwd.clone()),
         Some(Command::Resolve { cwd, .. }) => ("resolve", Some(cwd.clone())),
+        // ---- the update lifecycle ----
+        Some(Command::Update(_)) => ("update", None),
+        Some(Command::Rollback { .. }) => ("rollback", None),
+        // ---- end of the update lifecycle block ----
+        Some(Command::SelfCmd(_)) => ("self", None),
+        Some(Command::Gc { .. }) => ("gc", None),
+        Some(Command::Check { project, .. }) => ("check", project.clone()),
+        Some(Command::SelfCheck) => ("__selfcheck", None),
     };
+    // the exit code a successful command ends with when it is not 0 (`update --check --exit-code`)
+    let mut exit_override: Option<i32> = None;
+    // kept after the command so `auto_update = notify` can look at the machine once it is done
+    let mut notice_cx: Option<Cx> = None;
     if let Some(Command::Explain { code }) = &cli.command {
         return explain(&ui, code.as_deref(), cli.plain);
     }
@@ -107,7 +120,7 @@ fn dispatch(cli: Cli, ui: Ui) -> i32 {
             ));
         }
         let mut cx = Cx::new(ui_clone(&cli), globals, cwd)?;
-        match &cli.command {
+        let result = match &cli.command {
             Some(Command::Install(c)) => cmd::install::run(&mut cx, c),
             Some(Command::Carton(c)) => cmd::carton::run(&mut cx, c),
             Some(Command::Channel { name }) => cmd::channel::run(&mut cx, name.as_deref()),
@@ -132,10 +145,45 @@ fn dispatch(cli: Cli, ui: Ui) -> i32 {
                     Err(e) => Err(e),
                 }
             }
+            // ---- the update lifecycle ----
+            Some(Command::Update(c)) => flows::update::run(&mut cx, &update_args(c)).map(|u| {
+                if u.exit != 0 {
+                    exit_override = Some(u.exit);
+                }
+                Outcome::Report(u.report)
+            }),
+            Some(Command::Rollback { tool, dry_run }) => flows::rollback::run(
+                &mut cx,
+                &flows::rollback::RollbackArgs {
+                    tool: tool.clone(),
+                    dry_run: *dry_run,
+                },
+            )
+            .map(Outcome::Report),
+            // ---- end of the update lifecycle block ----
+            Some(Command::SelfCmd(SelfCmd {
+                sub: SelfSub::Update { check },
+            })) => cmd::self_cmd::update(&mut cx, *check),
+            Some(Command::Gc { dry_run, keep_days }) => cmd::gc::run(&mut cx, *dry_run, *keep_days),
+            Some(Command::Check { carton, .. }) => cmd::check::run(&mut cx, carton.as_deref()),
+            Some(Command::SelfCheck) => cmd::self_cmd::selfcheck(&mut cx),
             _ => Ok(Outcome::Report(Report::done("nothing to do"))),
+        };
+        // the first good command of a freshly installed build says it is healthy (SPEC 12.4)
+        if result.is_ok()
+            && !matches!(
+                cli.command,
+                Some(Command::Resolve { .. } | Command::SelfCheck)
+            )
+            && !read_only(&cli.command)
+        {
+            flows::self_update::mark_healthy(&cx);
         }
+        notice_cx = Some(cx);
+        result
     })();
-    match (name, result) {
+    let ok = result.is_ok();
+    let code = match (name, result) {
         // the tool ran; its exit code is ours and nothing more is printed
         ("resolve", Err(e)) if e.code == "E1832" && e.message.is_empty() => e.exit,
         (_, Ok(Outcome::Page(text))) => {
@@ -144,6 +192,51 @@ fn dispatch(cli: Cli, ui: Ui) -> i32 {
         }
         (_, Ok(Outcome::Report(r))) => ui.finish(name, &Ok(r)),
         (_, Err(e)) => ui.finish(name, &Err(e)),
+    };
+    // `auto_update = notify`: at most one line a day, after an interactive command went well
+    if ok && code == 0 && !matches!(name, "update" | "rollback" | "resolve" | "explain") {
+        if let Some(cx) = &notice_cx {
+            flows::notice::maybe_notify(cx);
+        }
+    }
+    match (code, exit_override) {
+        (0, Some(o)) => o,
+        (c, _) => c,
+    }
+}
+
+// ---- the update lifecycle ----
+fn update_args(c: &cli::UpdateCmd) -> flows::update::UpdateArgs {
+    flows::update::UpdateArgs {
+        check: c.check,
+        exit_code: c.exit_code,
+        refresh: c.refresh,
+        to: c.to.clone(),
+        allow_downgrade: c.allow_downgrade,
+        no_trial: c.no_trial,
+        trial_only: c.trial_only,
+        yes_differences: c.yes_differences,
+        channel: c.channel.clone(),
+        project: c.project.clone(),
+        dry_run: c.dry_run,
+    }
+}
+// ---- end of the update lifecycle block ----
+
+/// A run that promises to write nothing (`--check`, `--dry-run`, `--trial-only`): it must not be
+/// the one that marks the build healthy either (SPEC 12.2: `--check` writes only the manifest
+/// cache).
+fn read_only(cmd: &Option<Command>) -> bool {
+    match cmd {
+        Some(Command::Update(c)) => c.check || c.dry_run || c.trial_only,
+        Some(Command::Install(c)) => c.dry_run,
+        Some(Command::Use { dry_run, .. })
+        | Some(Command::Rollback { dry_run, .. })
+        | Some(Command::Gc { dry_run, .. }) => *dry_run,
+        Some(Command::SelfCmd(SelfCmd {
+            sub: SelfSub::Update { check },
+        })) => *check,
+        _ => false,
     }
 }
 

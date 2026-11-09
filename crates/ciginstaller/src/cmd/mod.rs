@@ -4,10 +4,13 @@
 
 pub mod carton;
 pub mod channel;
+pub mod check;
+pub mod gc;
 pub mod install;
 pub mod list;
 pub mod pin;
 pub mod resolve;
+pub mod self_cmd;
 pub mod which;
 
 use cigi_ui::Report;

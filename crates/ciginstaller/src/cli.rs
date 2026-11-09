@@ -41,6 +41,10 @@ pub struct Cli {
     /// The home directory (same as CIGSCRIPT_HOME).
     #[arg(long, global = true, value_name = "DIR")]
     pub home: Option<PathBuf>,
+    /// Set by the installer itself when it starts its new build after a self-update: the version
+    /// that build is. Only that run, of that build, skips the self-update step (one hop).
+    #[arg(long, global = true, hide = true, value_name = "VERSION")]
+    pub self_updated: Option<String>,
     #[command(subcommand)]
     pub command: Option<Command>,
 }
@@ -94,6 +98,41 @@ pub enum Command {
         #[arg(long, value_name = "DIR")]
         cwd: Option<PathBuf>,
     },
+    // ---- the update lifecycle: update, rollback ----
+    /// Check, choose, verify, trial and switch to a newer carton (SPEC 12.2).
+    Update(UpdateCmd),
+    /// Back to the previous carton, or one tool's build in it (SPEC 12.3).
+    Rollback {
+        /// Switch only this tool's build (the machine becomes a mix, recorded as a stick).
+        tool: Option<String>,
+        /// Print the plan and write nothing.
+        #[arg(long)]
+        dry_run: bool,
+    },
+    // ---- end of the update lifecycle block ----
+    /// Update ciginstaller itself.
+    #[command(name = "self")]
+    SelfCmd(SelfCmd),
+    /// Remove cartons unused for `keep_days`, and the store objects nothing references.
+    Gc {
+        /// Say what would go and what it would free; change nothing.
+        #[arg(long)]
+        dry_run: bool,
+        /// Remove what has been unused for longer than this many days (default: the `keep_days` setting).
+        #[arg(long, value_name = "N")]
+        keep_days: Option<u32>,
+    },
+    /// The marry-up matrix: this machine's combination, or one carton's.
+    Check {
+        /// Check this carton (an exact version or a pin) instead of the machine's.
+        #[arg(long, value_name = "V")]
+        carton: Option<String>,
+        /// Also check the pins of the project in this directory.
+        #[arg(long, value_name = "DIR")]
+        project: Option<PathBuf>,
+    },
+    #[command(name = "__selfcheck", hide = true)]
+    SelfCheck,
     #[command(name = "__resolve", hide = true)]
     Resolve {
         #[arg(long)]
@@ -167,4 +206,58 @@ pub enum CartonSub {
     },
     /// What is inside one carton.
     Show { version: String },
+}
+
+// ---- the update lifecycle ----
+#[derive(Args)]
+pub struct UpdateCmd {
+    /// Only look: nothing is installed, fetched beyond the manifest, or written beyond its cache.
+    #[arg(long)]
+    pub check: bool,
+    /// With --check: exit 10 when a newer carton exists.
+    #[arg(long, requires = "check")]
+    pub exit_code: bool,
+    /// With --check: fetch the manifest even when the cached one is under a day old.
+    #[arg(long, requires = "check")]
+    pub refresh: bool,
+    /// An exact carton or a pin such as 0.2 (default: the newest that is not yanked).
+    #[arg(long, value_name = "CARTON")]
+    pub to: Option<String>,
+    /// Allow --to to name a carton older than the one installed.
+    #[arg(long)]
+    pub allow_downgrade: bool,
+    /// Skip the trial of the new tools on this project.
+    #[arg(long)]
+    pub no_trial: bool,
+    /// Run the trial and show the result; switch nothing and keep nothing.
+    #[arg(long)]
+    pub trial_only: bool,
+    /// Accept a trial that found differences (`--yes` accepts identical results only).
+    #[arg(long)]
+    pub yes_differences: bool,
+    /// Use this channel for this run.
+    #[arg(long, value_name = "CHANNEL")]
+    pub channel: Option<String>,
+    /// The project the trial runs on and whose pins are respected (default: the working directory's).
+    #[arg(long, value_name = "DIR")]
+    pub project: Option<PathBuf>,
+    /// Print the plan and write nothing.
+    #[arg(long)]
+    pub dry_run: bool,
+}
+
+#[derive(Args)]
+pub struct SelfCmd {
+    #[command(subcommand)]
+    pub sub: SelfSub,
+}
+
+#[derive(Subcommand)]
+pub enum SelfSub {
+    /// Update ciginstaller itself to the newest build on the channel.
+    Update {
+        /// Say whether a newer ciginstaller exists; change nothing.
+        #[arg(long, alias = "dry-run")]
+        check: bool,
+    },
 }

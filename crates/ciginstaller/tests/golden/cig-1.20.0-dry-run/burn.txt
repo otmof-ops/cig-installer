@@ -1,0 +1,7 @@
+exit: 0
+--- stdout
+done
+--- stderr
+dry-run plan: 1 op
+     1  reversible    write out.json
+nothing was changed

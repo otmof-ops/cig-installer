@@ -214,6 +214,19 @@ impl Fault {
     }
 }
 
+/// A named point outside any transaction where a test build may stop the process
+/// (`CIGI_FAULT=<point>:1`): the moments a journal cannot see, such as after a commit and before
+/// the cleanup that follows it. Nothing at all without fault injection.
+#[allow(unused_variables)]
+pub fn fault_after(point: &str) {
+    #[cfg(feature = "fault-injection")]
+    if let Some(f) = Fault::from_env() {
+        if f.phase == point && f.n <= 1 {
+            std::process::abort();
+        }
+    }
+}
+
 // ------------------------------------------------------------------- Txn
 
 /// An open transaction. See the module docs.
@@ -616,6 +629,30 @@ impl Txn {
     /// Delete a file or directory tree by moving it into the txn directory,
     /// so rollback can put it back exactly.
     pub fn delete(&mut self, path: &Path) -> Result<(), JournalError> {
+        let root = self.home.root();
+        self.delete_within(path, &root)
+    }
+
+    /// As [`Txn::delete`] for a file in the user's own home (a profile file the installer made).
+    pub fn delete_user_file(&mut self, path: &Path) -> Result<(), JournalError> {
+        let base = self.home.user_home();
+        self.delete_within(path, &base)
+    }
+
+    /// A path reaches a remove only when it lies inside `base` and has no `..` component: names
+    /// read from files on disk (`state.json`) end up in these paths, and a name is not trusted
+    /// to stay in its place. Refused before anything is looked at or changed.
+    fn delete_within(&mut self, path: &Path, base: &Path) -> Result<(), JournalError> {
+        let plain = path
+            .components()
+            .all(|c| !matches!(c, std::path::Component::ParentDir));
+        if !plain || !path.starts_with(base) || path == base {
+            return Err(JournalError::Misuse(format!(
+                "refusing to delete {}: not a path inside {}",
+                path.display(),
+                base.display()
+            )));
+        }
         let md = match fs::symlink_metadata(path) {
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(()),
             Err(e) => return Err(jio(path)(e)),

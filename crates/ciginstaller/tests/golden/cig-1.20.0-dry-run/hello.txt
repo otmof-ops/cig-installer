@@ -1,0 +1,6 @@
+exit: 0
+--- stdout
+hello, world
+--- stderr
+dry-run plan: 0 ops
+nothing was changed

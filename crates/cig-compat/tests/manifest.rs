@@ -427,7 +427,7 @@ fn rule_shim_paths_are_plain_relative_paths() {
 
 #[test]
 fn rule_shim_names_are_plain_command_names() {
-    // a shim's name becomes a file in bin/, first on PATH (SEC-004, PR #37)
+    // a shim's name becomes a file in bin/, first on PATH (the security review of PR #37)
     for bad in [
         "../../victim",
         "a/b",
