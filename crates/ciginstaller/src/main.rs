@@ -174,6 +174,7 @@ fn dispatch(cli: Cli, ui: Ui) -> i32 {
                 cli.command,
                 Some(Command::Resolve { .. } | Command::SelfCheck)
             )
+            && !read_only(&cli.command)
         {
             flows::self_update::mark_healthy(&cx);
         }
@@ -220,6 +221,23 @@ fn update_args(c: &cli::UpdateCmd) -> flows::update::UpdateArgs {
     }
 }
 // ---- end of the update lifecycle block ----
+
+/// A run that promises to write nothing (`--check`, `--dry-run`, `--trial-only`): it must not be
+/// the one that marks the build healthy either (SPEC 12.2: `--check` writes only the manifest
+/// cache).
+fn read_only(cmd: &Option<Command>) -> bool {
+    match cmd {
+        Some(Command::Update(c)) => c.check || c.dry_run || c.trial_only,
+        Some(Command::Install(c)) => c.dry_run,
+        Some(Command::Use { dry_run, .. })
+        | Some(Command::Rollback { dry_run, .. })
+        | Some(Command::Gc { dry_run, .. }) => *dry_run,
+        Some(Command::SelfCmd(SelfCmd {
+            sub: SelfSub::Update { check },
+        })) => *check,
+        _ => false,
+    }
+}
 
 fn ui_clone(cli: &Cli) -> Ui {
     let ui = Ui::from_env_and_flags(&GlobalFlags {

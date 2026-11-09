@@ -227,10 +227,7 @@ impl Cx {
     /// The admitted manifest of the channel, fetched at most once per command.
     /// The manifest of `channel`, fetched and admitted now, with the fetch error as it came
     /// (`channel <name>` tells a channel with no manifest from a failed download).
-    pub fn fetch_manifest(
-        &self,
-        channel: &str,
-    ) -> Result<Admitted<Manifest>, cigi_source::FetchError> {
+    pub fn fetch_manifest(&self, channel: &str) -> Result<Admitted<Manifest>, FetchRefused> {
         let seen = self.seen_sequence(channel);
         let opts = ManifestOpts {
             offline: self.globals.offline,
@@ -238,13 +235,22 @@ impl Cx {
             now: now_override(),
             fetch_attestation: GhAttest.available_cached(),
         };
-        get_manifest_with(
+        let kept = CacheCopy::take(&self.home, channel);
+        let admitted = get_manifest_with(
             self.source.as_ref(),
             &self.trust,
             &self.home,
             channel,
             &opts,
         )
+        .map_err(FetchRefused::Fetch)?;
+        // A different document at a sequence already seen is refused, and the cache goes back to
+        // the document it held (the fetch has already written the new one).
+        if let Err(e) = self.check_digest_record(channel, &admitted) {
+            kept.restore();
+            return Err(FetchRefused::Replay(e));
+        }
+        Ok(admitted)
     }
 
     pub fn manifest(&self, mode: ManifestMode) -> Result<&Manifest, InstallerError> {
@@ -252,6 +258,7 @@ impl Cx {
             return Ok(m);
         }
         let channel = self.channel();
+        let kept = CacheCopy::take(&self.home, &channel);
         let seen = self.seen_sequence(&channel);
         let opts = |offline: bool| ManifestOpts {
             offline,
@@ -292,7 +299,10 @@ impl Cx {
                 }
             }
         };
-        self.check_digest_record(&channel, &admitted)?;
+        if let Err(e) = self.check_digest_record(&channel, &admitted) {
+            kept.restore();
+            return Err(e);
+        }
         for n in admitted.notes() {
             self.ui.say(&Report::new(Icon::Note, n.clone()));
         }
@@ -317,15 +327,18 @@ impl Cx {
             now: now_override(),
             fetch_attestation: false,
         };
-        get_manifest_with(
+        let admitted = get_manifest_with(
             self.source.as_ref(),
             &self.trust,
             &self.home,
             &channel,
             &opts,
         )
-        .ok()
-        .map(|a| a.get().clone())
+        .ok()?;
+        // the resolver, the switch checks and `check` read this: a cached document that is not
+        // the one recorded for its sequence is not read at all
+        self.check_digest_record(&channel, &admitted).ok()?;
+        Some(admitted.get().clone())
     }
 
     /// The lowest sequence a fetched manifest of `channel` may have (SPEC 7.2): the higher of what
@@ -420,4 +433,59 @@ pub const DIGESTS_KEY: &str = "manifest_digests";
 
 pub fn digest_key(channel: &str, sequence: u64) -> String {
     format!("{channel}:{sequence}")
+}
+
+/// Why `fetch_manifest` gave nothing.
+#[derive(Debug)]
+pub enum FetchRefused {
+    /// The fetch itself failed, as the source reported it.
+    Fetch(cigi_source::FetchError),
+    /// The document came, and is not the one recorded for its sequence (E1824).
+    Replay(InstallerError),
+}
+
+impl FetchRefused {
+    pub fn into_error(self) -> InstallerError {
+        match self {
+            FetchRefused::Fetch(e) => ie(e),
+            FetchRefused::Replay(e) => e,
+        }
+    }
+}
+
+/// The three files of a channel's manifest cache as they were, to put back when a document
+/// that was fetched and written turns out to be a replay.
+struct CacheCopy {
+    dir: PathBuf,
+    files: Vec<(&'static str, Option<Vec<u8>>)>,
+}
+
+impl CacheCopy {
+    const NAMES: [&'static str; 3] = ["manifest.toml", "manifest.toml.sha256", "fetched.json"];
+
+    fn take(home: &Home, channel: &str) -> CacheCopy {
+        let dir = cigi_source::fetch::manifest_cache_dir(home, channel);
+        let files = Self::NAMES
+            .iter()
+            .map(|n| (*n, std::fs::read(dir.join(n)).ok()))
+            .collect();
+        CacheCopy { dir, files }
+    }
+
+    fn restore(&self) {
+        for (name, bytes) in &self.files {
+            let p = self.dir.join(name);
+            match bytes {
+                Some(b) => {
+                    let tmp = self.dir.join(format!(".{name}.restore"));
+                    if std::fs::write(&tmp, b).is_ok() && std::fs::rename(&tmp, &p).is_err() {
+                        let _ = std::fs::remove_file(&tmp);
+                    }
+                }
+                None => {
+                    let _ = std::fs::remove_file(&p);
+                }
+            }
+        }
+    }
 }

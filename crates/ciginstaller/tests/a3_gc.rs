@@ -370,6 +370,14 @@ fn a3_gc_killed_at_every_point_then_replayed() {
             }
             crashes += 1;
             let tag = format!("{phase}:{n}");
+            // no shim can find an index that names a toolchain already deleted
+            let idx = std::fs::read_to_string(fx.cigscript().join("installer/shim-index")).unwrap();
+            let root = fx.cigscript().display().to_string();
+            for word in idx.split(|c: char| c.is_whitespace()) {
+                if word.starts_with(&root) {
+                    assert!(Path::new(word).exists(), "{tag}: the index names {word}");
+                }
+            }
             // the machine still runs whatever the kill left
             assert_eq!(
                 out(&fx.run_shim("cigo", &fx.project, &[])),

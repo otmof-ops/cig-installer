@@ -16,7 +16,7 @@ use std::path::Path;
 
 use cig_compat::{rfc3339_to_epoch, Version};
 use cigi_home::state::HistoryEntry;
-use cigi_home::toolchain::{referenced_objects, remove_toolchain};
+use cigi_home::toolchain::{referenced_objects, remove_toolchain_now};
 use cigi_home::{
     installed, now_rfc3339, read_receipt, remove_humidor_mirror, remove_shims, Home, ObjectId,
     State,
@@ -28,6 +28,9 @@ use super::{cached_yanked, save_and_flip, settle};
 use crate::cx::{now_override, Cx};
 use crate::errors::ie;
 
+/// `state.json` key: the toolchains a committed `gc` is about to delete (SPEC 12: the index no
+/// longer names them; the delete itself follows the commit).
+const PENDING_KEY: &str = "gc_pending";
 const DAY: i64 = 24 * 3600;
 /// A run record is a small JSON file; anything larger is not one.
 const RUN_JSON_MAX: u64 = 1024 * 1024;
@@ -197,6 +200,20 @@ pub fn plan(cx: &Cx, keep_days: u32) -> Plan {
         .filter_map(|n| state.cartons.get(*n))
         .flat_map(|r| r.tools.iter().map(|(t, v)| (t.clone(), canonical(v))))
         .collect();
+    // what an earlier `gc` committed to remove and was cut off before it did
+    let pending: HashSet<(String, String)> = state
+        .extra
+        .get(PENDING_KEY)
+        .and_then(|v| v.as_array())
+        .into_iter()
+        .flatten()
+        .filter_map(|e| {
+            Some((
+                e.get(0)?.as_str()?.to_string(),
+                e.get(1)?.as_str()?.to_string(),
+            ))
+        })
+        .collect();
     for (tool, v) in installed(home) {
         let key = (tool.clone(), v.to_string());
         if needed.contains(&key) || (tool == "cig" && runs.contains(&key.1)) {
@@ -206,7 +223,7 @@ pub fn plan(cx: &Cx, keep_days: u32) -> Plan {
             .ok()
             .and_then(|r| rfc3339_to_epoch(&r.installed_at))
             .is_some_and(|t| t < cutoff);
-        if of_gone.contains(&key) || old_orphan {
+        if of_gone.contains(&key) || old_orphan || pending.contains(&key) {
             p.toolchains.push((tool, v));
         }
     }
@@ -344,13 +361,22 @@ pub fn run_locked(cx: &mut Cx, a: &GcArgs) -> Result<Report, InstallerError> {
             if t == "cig" {
                 remove_humidor_mirror(&mut txn, &home, v).map_err(ie)?;
             }
-            remove_toolchain(&mut txn, &home, t, v).map_err(ie)?;
         }
         let dead: Vec<&str> = before_names
             .difference(&after_names)
             .map(String::as_str)
             .collect();
         remove_shims(&mut txn, &home, &dead).map_err(ie)?;
+        // the index flip below stops naming these; the directories go after the commit, so no
+        // shim ever finds an index that points at a toolchain already deleted
+        state.extra.insert(
+            PENDING_KEY.to_string(),
+            json!(p
+                .toolchains
+                .iter()
+                .map(|(t, v)| json!([t, v.to_string()]))
+                .collect::<Vec<_>>()),
+        );
         let now = now_rfc3339();
         state.gc.last_run = Some(now.clone());
         state.push_history(HistoryEntry {
@@ -369,6 +395,9 @@ pub fn run_locked(cx: &mut Cx, a: &GcArgs) -> Result<Report, InstallerError> {
     // After the commit: free what nothing references now (idempotent; a crash here is garbage
     // for the next run), then drop this transaction's saved copies, which still hold the bytes of
     // the toolchains it removed.
+    for (t, v) in &p.toolchains {
+        let _ = remove_toolchain_now(&home, t, v);
+    }
     let store = home.object_store();
     let keep: HashSet<ObjectId> = referenced_objects(&home).into_keys().collect();
     let (mut freed, mut bytes) = (0usize, 0u64);
