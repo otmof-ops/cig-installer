@@ -524,7 +524,7 @@ remedy = "`ciginstaller install carton --carton <version>`, then `ciginstaller u
 [[code]]
 code = "E1818"
 title = "carton lacks a tool this machine has"
-meaning = "The carton named has no build of a tool the machine's carton has, so switching would leave that shim with nothing to run."
+meaning = "The carton named is meant to have a tool the machine's carton has (by the manifest), and its record here does not, so switching would leave that shim with nothing to run. A carton that does not have the tool at all is switched to with a warning instead."
 fix = "`ciginstaller install carton --carton <version>`"
 no = "dont-have-any"
 arises = ["any"]

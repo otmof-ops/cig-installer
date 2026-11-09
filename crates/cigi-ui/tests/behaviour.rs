@@ -670,7 +670,7 @@ fn results_go_to_stdout_and_chatter_to_stderr() {
 
 // ---- the registry -----------------------------------------------------------------------
 
-const SPEC_CODES: [(u32, &str); 58] = [
+const SPEC_CODES: [(u32, &str); 59] = [
     (1800, "combination refused"),
     (1801, "a product needs another"),
     (1802, "a stick does not fit its carton"),

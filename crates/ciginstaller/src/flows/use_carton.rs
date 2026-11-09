@@ -119,31 +119,48 @@ fn switch_checks(cx: &Cx, target: &str, old: Option<&str>) -> Result<Vec<String>
         .with_fix(whole)
         .with_exit(EXIT_REFUSED));
     }
-    if let Some(mrec) = old.and_then(|o| cx.state.cartons.get(o)) {
+    let mut warnings = Vec::new();
+    let manifest = cx.peek_manifest();
+    if let (Some(o), Some(mrec)) = (old, old.and_then(|o| cx.state.cartons.get(o))) {
         let missing: Vec<&String> = mrec
             .tools
             .keys()
             .filter(|t| !rec.tools.contains_key(*t))
             .collect();
-        if !missing.is_empty() {
+        // A tool the carton is meant to have but its record lacks: installing the whole carton
+        // fills it in, so refuse until then. A tool the carton does not have at all (by the
+        // cached manifest) is the carton's design: warn, and name the stick that keeps it.
+        let meant = |t: &str| {
+            let cv = Version::parse(target).ok();
+            match (&manifest, cv) {
+                (Some(m), Some(cv)) => m.carton(&cv).is_some_and(|c| c.products.contains_key(t)),
+                // no cache to tell: treat it as the record's gap, which the fix repairs
+                _ => true,
+            }
+        };
+        let (fill, by_design): (Vec<&String>, Vec<&String>) =
+            missing.into_iter().partition(|t| meant(t));
+        if !fill.is_empty() {
+            let names: Vec<&str> = fill.iter().map(|t| t.as_str()).collect();
             return Err(InstallerError::new(
                 "E1818",
                 format!(
-                    "carton {target} has no {}, which this machine's carton has",
-                    missing
-                        .iter()
-                        .map(|t| t.as_str())
-                        .collect::<Vec<_>>()
-                        .join(", ")
+                    "carton {target} is meant to have {}, and its record here does not",
+                    names.join(", ")
                 ),
             )
             .with_hint("switching would leave those shims with nothing to run")
             .with_fix(whole)
             .with_exit(EXIT_REFUSED));
         }
+        for t in by_design {
+            warnings.push(format!(
+                "carton {target} has no {t}, so the {t} shim has nothing to run after the switch; \
+                 keep it with `ciginstaller install stick {t} --carton {o}`"
+            ));
+        }
     }
-    let mut warnings = Vec::new();
-    if let (Some(m), Ok(cv)) = (cx.peek_manifest(), Version::parse(target)) {
+    if let (Some(m), Ok(cv)) = (manifest, Version::parse(target)) {
         let items: Vec<(String, Version)> = rec
             .tools
             .iter()

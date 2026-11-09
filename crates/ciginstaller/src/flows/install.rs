@@ -766,7 +766,14 @@ fn apply(cx: &mut Cx, txn: &mut Txn, p: &Plan<'_>) -> Result<Applied, InstallerE
     for (t, v) in &builds {
         if let Ok(v) = Version::parse(v) {
             if let Ok(r) = read_receipt(&home, t, &v) {
-                names.extend(r.shims.iter().map(|s| s.name.clone()));
+                // only the names the shim binary serves get a file in bin/: any other would be
+                // a dead command first on PATH (the shim refuses it with E1844)
+                names.extend(
+                    r.shims
+                        .iter()
+                        .map(|s| s.name.clone())
+                        .filter(|n| cigi_shim::TOOLS.contains(&n.as_str())),
+                );
             }
         }
     }

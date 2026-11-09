@@ -146,14 +146,54 @@ fn a2r_use_refuses_partial() {
     assert_eq!(state_bytes(&fx), before, "a refusal changes nothing");
     let o = cigi(&fx, &["carton", "0.2.0"]);
     ok(&o); // `carton <v>` installs the whole carton first
-            // the whole carton can be used; a whole carton without the machine's cigo cannot
+            // the whole carton can be used
     ok(&cigi(&fx, &["use", "0.1.0"]));
+    // a carton that has no cigo by design (the manifest's 0.3.0 is cig alone): switched, with a
+    // warning that names the stick that keeps cigo
     ok(&install(&fx, &["carton", "--carton", "0.3.0"]));
-    let o = cigi(&fx, &["use", "0.3.0"]);
+    let o = cigi(&fx, &["--plain", "use", "0.3.0"]);
+    ok(&o);
+    assert!(text(&o).contains("has no cigo"), "{}", text(&o));
+    assert!(
+        text(&o).contains("ciginstaller install stick cigo --carton 0.1.0"),
+        "{}",
+        text(&o)
+    );
+    ok(&cigi(&fx, &["use", "0.1.0"]));
+    // a record that lacks a tool its carton is meant to have (by the manifest): refused, E1818
+    let state = fx.cigscript().join("installer/state.json");
+    let mut j: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(&state).unwrap()).unwrap();
+    j["cartons"]["0.2.0"]["tools"]
+        .as_object_mut()
+        .unwrap()
+        .remove("cigo");
+    std::fs::write(&state, serde_json::to_string_pretty(&j).unwrap()).unwrap();
+    let o = cigi(&fx, &["use", "0.2.0"]);
     assert_eq!(o.status.code(), Some(2), "{}", text(&o));
     assert!(text(&o).contains("E1818"), "{}", text(&o));
-    let o = cigi(&fx, &["use", "0.2.0"]);
-    ok(&o);
+    assert!(
+        text(&o).contains("ciginstaller install carton --carton 0.2.0"),
+        "{}",
+        text(&o)
+    );
+}
+
+/// A shim name the shim binary does not serve never gets a file in bin/ (it would be a dead
+/// command first on PATH); the tool's own shim does (SEC-004, PR #37).
+#[test]
+fn a2r_only_served_shim_names_get_a_file() {
+    let mut fx = fixture();
+    fx.extra_cigo_shim = Some("cigx".into());
+    fx.carton("0.1.0", &[("cig", "1.20.0"), ("cigo", "1.17.0")]);
+    fx.publish("stable");
+    ok(&install(&fx, &["carton", "--carton", "0.1.0"]));
+    let bin = fx.cigscript().join("bin");
+    assert!(bin.join("cigo").is_file());
+    assert!(
+        !bin.join("cigx").exists(),
+        "a shim for a name the shim refuses"
+    );
 }
 
 /// Finding 4: a stick of another carton, after that carton was installed whole, is installed

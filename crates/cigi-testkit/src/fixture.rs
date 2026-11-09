@@ -54,6 +54,9 @@ pub struct Fixture {
     pub project: PathBuf,
     /// A flat mirror directory: `manifest-<channel>.toml`, assets and sidecars by file name.
     pub releases: PathBuf,
+    /// A second shim name on cigo's tool definition (`cigo` is an archive, which may have several):
+    /// for proving what the installer does with a name the shim binary does not serve.
+    pub extra_cigo_shim: Option<String>,
     products: Vec<ProductBuilder>,
     cartons: Vec<CartonSpec>,
     sequences: BTreeMap<String, u64>,
@@ -86,6 +89,7 @@ impl Fixture {
             user_home,
             project,
             releases,
+            extra_cigo_shim: None,
             products: Vec::new(),
             cartons: Vec::new(),
             sequences: BTreeMap::new(),
@@ -239,7 +243,16 @@ impl Fixture {
         tools.sort_unstable();
         tools.dedup();
         for t in &tools {
-            o.push_str(&tool_def(t, &host));
+            let mut def = tool_def(t, &host);
+            if let (true, Some(extra)) = (*t == "cigo", &self.extra_cigo_shim) {
+                def = def.replace(
+                    "windows_path = \"bin/cigo.cmd\" } ]",
+                    &format!(
+                        "windows_path = \"bin/cigo.cmd\" }}, {{ name = \"{extra}\", path = \"bin/cigo\" }} ]"
+                    ),
+                );
+            }
+            o.push_str(&def);
         }
         // builds
         let mut by_tool: BTreeMap<&str, Vec<&(ProductBuilder, crate::products::Built)>> =
