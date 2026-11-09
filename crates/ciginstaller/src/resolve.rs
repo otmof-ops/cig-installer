@@ -352,7 +352,22 @@ fn resolve_inner(
     }
     steps.push("3. no legacy pin files".to_string());
 
-    // 4. the machine carton
+    // 4. the machine carton, except for a tool `rollback <tool>` put back one build
+    if let Some(s) = cx
+        .state
+        .sticks
+        .iter()
+        .find(|s| s.tool == tool && s.is_rollback())
+    {
+        if let Some(b) = parsed(&s.version) {
+            steps.push(format!(
+                "4. {tool} was rolled back to {b} (from carton {}), which runs instead of the machine carton's",
+                s.from_carton
+            ));
+            return found(cx, tool, parsed(&s.from_carton), b, Why::Stick, steps);
+        }
+    }
+    // 4. the machine carton (rolled-back tools were handled above)
     if let Some(mc) = cx.state.machine_carton.clone().and_then(|c| parsed(&c)) {
         let b = cx
             .state

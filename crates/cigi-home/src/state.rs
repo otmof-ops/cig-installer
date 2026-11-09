@@ -39,6 +39,18 @@ pub struct Stick {
     pub reason: String,
 }
 
+/// `reason` of a stick that `rollback <tool>` made. Unlike other sticks, which only fill in a tool
+/// the machine carton lacks, it also runs in place of the machine carton's own build of the tool:
+/// that is the whole point of rolling one tool back.
+pub const ROLLBACK_STICK_PREFIX: &str = "rollback ";
+
+impl Stick {
+    /// Made by `rollback <tool>`: it takes the place of the machine carton's build of its tool.
+    pub fn is_rollback(&self) -> bool {
+        self.reason.starts_with(ROLLBACK_STICK_PREFIX)
+    }
+}
+
 /// Where `rollback` goes.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Previous {

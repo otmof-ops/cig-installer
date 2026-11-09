@@ -94,6 +94,18 @@ pub enum Command {
         #[arg(long, value_name = "DIR")]
         cwd: Option<PathBuf>,
     },
+    // ---- phase 3, the update lifecycle (drafter DEV-002): update, rollback ----
+    /// Check, choose, verify, trial and switch to a newer carton (SPEC 12.2).
+    Update(UpdateCmd),
+    /// Back to the previous carton, or one tool's build in it (SPEC 12.3).
+    Rollback {
+        /// Switch only this tool's build (the machine becomes a mix, recorded as a stick).
+        tool: Option<String>,
+        /// Print the plan and write nothing.
+        #[arg(long)]
+        dry_run: bool,
+    },
+    // ---- end of the update lifecycle block ----
     #[command(name = "__resolve", hide = true)]
     Resolve {
         #[arg(long)]
@@ -167,4 +179,42 @@ pub enum CartonSub {
     },
     /// What is inside one carton.
     Show { version: String },
+}
+
+// ---- phase 3, the update lifecycle (drafter DEV-002) ----
+#[derive(Args)]
+pub struct UpdateCmd {
+    /// Only look: nothing is installed, fetched beyond the manifest, or written beyond its cache.
+    #[arg(long)]
+    pub check: bool,
+    /// With --check: exit 10 when a newer carton exists.
+    #[arg(long, requires = "check")]
+    pub exit_code: bool,
+    /// With --check: fetch the manifest even when the cached one is under a day old.
+    #[arg(long, requires = "check")]
+    pub refresh: bool,
+    /// An exact carton or a pin such as 0.2 (default: the newest that is not yanked).
+    #[arg(long, value_name = "CARTON")]
+    pub to: Option<String>,
+    /// Allow --to to name a carton older than the one installed.
+    #[arg(long)]
+    pub allow_downgrade: bool,
+    /// Skip the trial of the new tools on this project.
+    #[arg(long)]
+    pub no_trial: bool,
+    /// Run the trial and show the result; switch nothing and keep nothing.
+    #[arg(long)]
+    pub trial_only: bool,
+    /// Accept a trial that found differences (`--yes` accepts identical results only).
+    #[arg(long)]
+    pub yes_differences: bool,
+    /// Use this channel for this run.
+    #[arg(long, value_name = "CHANNEL")]
+    pub channel: Option<String>,
+    /// The project the trial runs on and whose pins are respected (default: the working directory's).
+    #[arg(long, value_name = "DIR")]
+    pub project: Option<PathBuf>,
+    /// Print the plan and write nothing.
+    #[arg(long)]
+    pub dry_run: bool,
 }
