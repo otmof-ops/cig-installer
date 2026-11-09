@@ -1,0 +1,17 @@
+# REUSE specification (https://reuse.software). One license per path.
+version = 1
+SPDX-PackageName = "cig-installer"
+SPDX-PackageSupplier = "Jay Taylor"
+SPDX-PackageDownloadLocation = "https://github.com/otmof-ops/cig-installer"
+
+[[annotations]]
+path = ["src/**", "crates/**", "tests/**", "bench/**", "ci/**", "packaging/**", "build.rs", "Cargo.toml", "Cargo.lock", ".github/**", ".gitignore", "REUSE.toml"]
+precedence = "aggregate"
+SPDX-FileCopyrightText = "2026 Jay Taylor (https://github.com/otmof-ops/cig-installer)"
+SPDX-License-Identifier = "Apache-2.0"
+
+[[annotations]]
+path = ["docs/**", "design/**", "README.md", "CONTRIBUTING.md", "SECURITY.md", "TRADEMARKS.md", "THIRD-PARTY-NOTICES.md", "NOTICE"]
+precedence = "aggregate"
+SPDX-FileCopyrightText = "2026 Jay Taylor (https://github.com/otmof-ops/cig-installer)"
+SPDX-License-Identifier = "CC-BY-4.0"
