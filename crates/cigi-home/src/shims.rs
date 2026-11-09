@@ -17,6 +17,21 @@ pub fn shim_path(home: &Home, name: &str) -> PathBuf {
     home.bin().join(format!("{name}{}", platform::exe_suffix()))
 }
 
+/// A name that may become a file in `bin/`: `[a-z][a-z0-9-]*`. Names reach here from manifests
+/// and from receipts on disk, so they are checked again before any file is made or removed.
+pub fn shim_name_ok(name: &str) -> bool {
+    let mut c = name.chars();
+    matches!(c.next(), Some('a'..='z'))
+        && c.all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-')
+}
+
+fn checked_path(home: &Home, name: &str) -> Result<PathBuf, ShimError> {
+    if !shim_name_ok(name) {
+        return Err(ShimError::BadName(name.to_string()));
+    }
+    Ok(shim_path(home, name))
+}
+
 /// Make every `names` shim a hard link of `shim_object` (copy when linking is
 /// impossible). A shim that already is the same file is left alone; a
 /// different file (an older shim, a stray) is replaced by rename, its old
@@ -35,7 +50,7 @@ pub fn sync_shims(
     let obj = store.object_path(shim_object);
     txn.mkdir_all(&home.bin())?;
     for name in names {
-        txn.link(&obj, &shim_path(home, name))?;
+        txn.link(&obj, &checked_path(home, name)?)?;
     }
     Ok(())
 }
@@ -43,7 +58,7 @@ pub fn sync_shims(
 /// Remove the shims for `names` (journaled); absent ones are skipped.
 pub fn remove_shims(txn: &mut Txn, home: &Home, names: &[&str]) -> Result<(), ShimError> {
     for name in names {
-        txn.delete(&shim_path(home, name))?;
+        txn.delete(&checked_path(home, name)?)?;
     }
     Ok(())
 }
@@ -54,6 +69,9 @@ pub fn shims_present(home: &Home, shim_object: &ObjectId, names: &[&str]) -> Vec
     let obj = home.object_store().object_path(shim_object);
     let mut out = Vec::new();
     for n in names {
+        if !shim_name_ok(n) {
+            continue;
+        }
         let p = shim_path(home, n);
         if !fs::metadata(&p).map(|m| m.is_file()).unwrap_or(false) {
             continue;

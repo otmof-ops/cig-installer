@@ -307,8 +307,13 @@ from_impl!(StateError::Journal(JournalError));
 /// Shims in `bin/`.
 #[derive(Debug)]
 pub enum ShimError {
-    Io { path: PathBuf, source: io::Error },
+    Io {
+        path: PathBuf,
+        source: io::Error,
+    },
     Journal(JournalError),
+    /// A shim name that is not a plain command name (from a manifest or a receipt).
+    BadName(String),
 }
 
 impl ShimError {
@@ -316,6 +321,7 @@ impl ShimError {
         match self {
             ShimError::Io { source, .. } => io_code(source, "E1835"),
             ShimError::Journal(e) => e.code(),
+            ShimError::BadName(_) => "E1825",
         }
     }
 }
@@ -325,6 +331,10 @@ impl fmt::Display for ShimError {
         match self {
             ShimError::Io { path, source } => write!(f, "{}: {source}", path.display()),
             ShimError::Journal(e) => e.fmt(f),
+            ShimError::BadName(n) => write!(
+                f,
+                "the shim name {n:?} is not a plain command name; no file was made for it"
+            ),
         }
     }
 }

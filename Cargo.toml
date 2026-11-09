@@ -46,3 +46,7 @@ panic = "abort"
 [profile.release.package.cigi-shim]
 opt-level = "s"
 strip = "symbols"
+
+# Hashing a debug build of the installer at install time is slow unoptimised.
+[profile.dev.package.sha2]
+opt-level = 3

@@ -670,7 +670,7 @@ fn results_go_to_stdout_and_chatter_to_stderr() {
 
 // ---- the registry -----------------------------------------------------------------------
 
-const SPEC_CODES: [(u32, &str); 52] = [
+const SPEC_CODES: [(u32, &str); 59] = [
     (1800, "combination refused"),
     (1801, "a product needs another"),
     (1802, "a stick does not fit its carton"),
@@ -687,6 +687,8 @@ const SPEC_CODES: [(u32, &str); 52] = [
     (1814, "no such tool"),
     (1815, "no build for this platform"),
     (1816, "carton not installed"),
+    (1817, "carton is only partly installed"),
+    (1818, "carton lacks a tool this machine has"),
     (1820, "download failed"),
     (1821, "digest or size mismatch"),
     (1822, "trust floor not met"),
@@ -709,11 +711,19 @@ const SPEC_CODES: [(u32, &str); 52] = [
     (1843, "no per-tool pin file for this tool"),
     (1844, "shim misnamed or shadowed"),
     (1845, "PATH block missing or hand-edited"),
+    (1846, "pin target is a link or not a regular file"),
+    (
+        1847,
+        "another pin file in this directory would outrank the one being written",
+    ),
+    (1848, "the edited pin file would not read back"),
     (1850, "downgrade refused"),
     (1851, "trial found differences and was declined"),
     (1852, "nothing to roll back to"),
     (1853, "self-update failed and the old binary was restored"),
     (1854, "update blocked by this project's pins"),
+    (1855, "pinned carton was yanked"),
+    (1856, "fetching did not satisfy the pin"),
     (1860, "repair could not restore a file"),
     (1861, "--purge needs OS authentication"),
     (1862, "a profile block was edited and is left alone"),
@@ -943,4 +953,44 @@ fn errors_get_kind_exit_and_catchphrase_from_the_registry() {
         err.contains("  = explain: ciginstaller explain E1811\n")
             && err.contains("  = fix: `ciginstaller carton list`\n")
     );
+}
+
+#[test]
+fn text_from_outside_never_reaches_the_terminal_as_control_codes() {
+    // a hostile pin file or manifest field (SEC-004, PR #37): clear screen, title, BEL, a
+    // fake line, a bidi override
+    let evil = "carton \x1b[2J\x1b]0;pwned\x07 x\n[ok] fake \u{202e}txt\u{9b}";
+    for env in [tty(), Env::default()] {
+        let (ui, cap) = Ui::from_env(&flags(), &env).captured();
+        ui.say(&Report::new(Icon::Note, evil).detail(evil).next(evil));
+        ui.error(
+            &InstallerError::new("E1841", evil)
+                .with_hint(evil)
+                .with_fix(evil),
+        );
+        let all = cap.out() + &cap.err();
+        for bad in ['\x07', '\u{202e}', '\u{9b}'] {
+            assert!(!all.contains(bad), "{bad:?} leaked: {all:?}");
+        }
+        // our own colour codes are the only escapes, and none of them is the hostile one
+        assert!(
+            !all.contains("\x1b[2J") && !all.contains("\x1b]0"),
+            "{all:?}"
+        );
+        // the text is still there, written out
+        assert!(all.contains("\\u{1b}[2J"), "{all:?}");
+        assert!(!all.contains("\n[ok] fake"), "{all:?}");
+    }
+    // JSON escapes control characters on its own
+    let (ui, cap) = Ui::from_env(
+        &GlobalFlags {
+            json: true,
+            ..flags()
+        },
+        &tty(),
+    )
+    .captured();
+    ui.error(&InstallerError::new("E1841", evil));
+    assert!(!cap.out().contains('\x1b') && !cap.out().contains('\x07'));
+    assert_eq!(clean("plain\ttext"), "plain\ttext");
 }

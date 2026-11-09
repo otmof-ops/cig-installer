@@ -24,4 +24,4 @@ pub use prompt::{Answer, Choice, How, Question};
 pub use registry::{explain, explain_list, explain_with};
 pub use table::{Align, Cell, Column, Table};
 pub use tokens::{ColorMode, Role, Theme};
-pub use ui::{Capture, Env, GlobalFlags, Mode, ThemeChoice, Ui};
+pub use ui::{clean, Capture, Env, GlobalFlags, Mode, ThemeChoice, Ui};

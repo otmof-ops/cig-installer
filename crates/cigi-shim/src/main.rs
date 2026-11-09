@@ -8,21 +8,16 @@
 #![forbid(unsafe_code)]
 
 use std::ffi::OsString;
-use std::fs::{self, File};
+use std::fs;
 use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::process::{exit, Command};
 use std::time::Instant;
 
-mod pins;
 #[cfg(test)]
 mod tests;
 
-use pins::{pin_from_carton_file, pin_from_json, pin_from_toml};
-
-const TOOLS: [&str; 4] = ["cig", "cigo", "cigcompile", "cigar"];
-const MAX_DEPTH: usize = 40;
-const MAX_FILE: u64 = 64 * 1024;
+use cigi_shim::{find, trusted_for, Found, MAX_FILE, TOOLS};
 
 /// What the walk up from the working directory found.
 #[derive(Debug, PartialEq)]
@@ -33,17 +28,6 @@ enum Pin {
     /// read error): the slow path decides, and says so. The text names the file.
     Unreadable(String),
     None,
-}
-
-/// The outcome of reading one pin file.
-#[derive(Debug, PartialEq)]
-enum Reading {
-    /// No such file, or not one the shim may trust (a link, another owner):
-    /// the same as no file.
-    Absent,
-    Text(String),
-    /// It exists and is ours to read, but not within the cap or not text.
-    Unusable,
 }
 
 /// What the index says to run.
@@ -63,63 +47,6 @@ fn die(code: &str, msg: &str, fix: &str) -> ! {
     exit(127)
 }
 
-/// Who may own a project pin file: the owner of CIGSCRIPT_HOME, or root. `None` off Unix.
-#[derive(Debug, Clone, Copy, Default)]
-struct Trusted {
-    uid: Option<u32>,
-    /// The check is on (Unix); a home whose owner cannot be read then trusts no pin file.
-    on: bool,
-}
-
-#[cfg(unix)]
-fn trusted_for(home: &Path) -> Trusted {
-    use std::os::unix::fs::MetadataExt;
-    Trusted {
-        uid: fs::metadata(home).ok().map(|m| m.uid()),
-        on: true,
-    }
-}
-#[cfg(not(unix))]
-fn trusted_for(_home: &Path) -> Trusted {
-    Trusted::default()
-}
-
-#[cfg(unix)]
-fn owner_ok(md: &fs::Metadata, t: Trusted) -> bool {
-    use std::os::unix::fs::MetadataExt;
-    !t.on || md.uid() == 0 || Some(md.uid()) == t.uid
-}
-#[cfg(not(unix))]
-fn owner_ok(_md: &fs::Metadata, _t: Trusted) -> bool {
-    true
-}
-
-/// Read a pin file: only a regular file (never a link, fifo or device, checked before opening and
-/// again on the opened file), owned by a trusted user, at most `MAX_FILE` bytes.
-fn read_capped(path: &Path, t: Trusted) -> Reading {
-    let Ok(before) = fs::symlink_metadata(path) else {
-        return Reading::Absent;
-    };
-    if !before.file_type().is_file() || !owner_ok(&before, t) {
-        return Reading::Absent;
-    }
-    let Ok(f) = File::open(path) else {
-        return Reading::Unusable;
-    };
-    let Ok(after) = f.metadata() else {
-        return Reading::Unusable;
-    };
-    if !after.is_file() || !owner_ok(&after, t) {
-        return Reading::Absent;
-    }
-    // one byte past the cap tells "exactly at the cap" from "over it"
-    let mut bytes = Vec::new();
-    if f.take(MAX_FILE + 1).read_to_end(&mut bytes).is_err() || bytes.len() as u64 > MAX_FILE {
-        return Reading::Unusable;
-    }
-    String::from_utf8(bytes).map_or(Reading::Unusable, Reading::Text)
-}
-
 /// The index is the installer's own file: read it as before, but never through a link.
 fn read_index(path: &Path) -> Option<String> {
     let md = fs::symlink_metadata(path).ok()?;
@@ -127,7 +54,7 @@ fn read_index(path: &Path) -> Option<String> {
         return None;
     }
     let mut text = String::new();
-    File::open(path)
+    cigi_shim::open_nonblocking(path)
         .ok()?
         .take(MAX_FILE)
         .read_to_string(&mut text)
@@ -146,52 +73,16 @@ fn legacy_names(index: &str) -> Vec<&str> {
     names
 }
 
-/// Walk up from `start` (at most 40 levels): the first directory with a verdict decides.
-///
-/// `stop`: the user's home directory. A project inside it is searched up to and including the home
-/// and no further, so `/home/.cig-carton` or `/tmp/.cig-carton` never reaches into it.
-fn find_pin(start: &Path, legacy: &[&str], t: Trusted, stop: Option<&Path>) -> Pin {
-    let stop = stop.filter(|h| start.starts_with(h));
-    let mut dir = Some(start);
-    for _ in 0..MAX_DEPTH {
-        let Some(d) = dir else { break };
-        for (file, parse) in [
-            (".cig-carton", None),
-            (
-                "cig-tasks.json",
-                Some(pin_from_json as fn(&str) -> Option<String>),
-            ),
-            (
-                "cigar.toml",
-                Some(pin_from_toml as fn(&str) -> Option<String>),
-            ),
-        ] {
-            match read_capped(&d.join(file), t) {
-                Reading::Absent => {}
-                Reading::Unusable => return Pin::Unreadable(d.join(file).display().to_string()),
-                Reading::Text(text) => match parse {
-                    // a `.cig-carton` is a verdict by itself
-                    None => return pin_from_carton_file(&text).map_or(Pin::Slow, Pin::Carton),
-                    Some(f) => {
-                        if let Some(p) = f(&text) {
-                            return Pin::Carton(p);
-                        }
-                    }
-                },
-            }
-        }
-        if legacy
-            .iter()
-            .any(|n| fs::symlink_metadata(d.join(n)).is_ok_and(|m| m.file_type().is_file()))
-        {
-            return Pin::Slow;
-        }
-        if stop == Some(d) {
-            break;
-        }
-        dir = d.parent();
+/// Walk up from `start` with the shared reader (`cigi_shim::find`) and say what the shim does
+/// with what it found.
+fn find_pin(start: &Path, legacy: &[&str], t: cigi_shim::Trusted, stop: Option<&Path>) -> Pin {
+    match find(start, legacy, t, stop, MAX_FILE) {
+        // a `.cig-carton` is a verdict by itself: one with no pin in it is the resolver's to explain
+        Found::Pin { pin: None, .. } | Found::Legacy { .. } => Pin::Slow,
+        Found::Pin { pin: Some(p), .. } => Pin::Carton(p),
+        Found::Unusable { file, .. } => Pin::Unreadable(file.display().to_string()),
+        Found::Nothing => Pin::None,
     }
-    Pin::None
 }
 
 /// Look the pin up in the index. `>=` and anything unusual goes to the slow path.
@@ -320,7 +211,9 @@ fn main() {
              the installer will read it (slower)"
         );
     }
-    let (mut cmd, carton) = match pick(&index, &name, forced.as_deref(), &pin) {
+    // A tool runs under its own name; the installer, on the slow path, under its own, so its
+    // misnamed-binary guard (E1844) holds.
+    let (mut cmd, carton, run_as) = match pick(&index, &name, forced.as_deref(), &pin) {
         Pick::Run { carton, path } => {
             let target = Path::new(&path);
             if !target.is_absolute()
@@ -343,7 +236,7 @@ fn main() {
             }
             let mut c = Command::new(path);
             c.args(&rest);
-            (c, carton)
+            (c, carton, name.as_str())
         }
         Pick::Slow => {
             let installer = home.join("bin").join(if cfg!(windows) {
@@ -364,7 +257,7 @@ fn main() {
                 .arg(cwd)
                 .arg("--")
                 .args(&rest);
-            (c, None)
+            (c, None, "ciginstaller")
         }
     };
     cmd.env("CIGI_MANAGED", "1");
@@ -374,7 +267,7 @@ fn main() {
     if std::env::var_os("CIGI_SHIM_TIMING").is_some_and(|v| v == "1") {
         eprintln!("cigi-shim-timing-ns: {}", t0.elapsed().as_nanos());
     }
-    let err = launch(cmd, &name);
+    let err = launch(cmd, run_as);
     if err.kind() == std::io::ErrorKind::NotFound {
         die(
             "E1840",

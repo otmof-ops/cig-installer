@@ -111,6 +111,8 @@ pub struct Ui {
     pub yes_irreversible: bool,
     noticed: AtomicBool,
     io: Io,
+    /// Everything goes to stderr: the shim's slow path, where stdout is the tool's.
+    err_only: bool,
 }
 
 impl Default for Ui {
@@ -133,6 +135,7 @@ impl Default for Ui {
             yes_irreversible: false,
             noticed: AtomicBool::new(false),
             io: Io::Std,
+            err_only: false,
         }
     }
 }
@@ -246,6 +249,7 @@ impl Ui {
             yes_irreversible: flags.yes_irreversible,
             noticed: AtomicBool::new(false),
             io: Io::Std,
+            err_only: false,
         }
     }
 
@@ -268,7 +272,17 @@ impl Ui {
             yes_irreversible: self.yes_irreversible,
             noticed: AtomicBool::new(self.noticed.load(Ordering::SeqCst)),
             io: self.io.clone(),
+            err_only: self.err_only,
         }
+    }
+
+    /// Send everything to stderr, results included, painted for stderr: the shim's slow path,
+    /// where stdout belongs to the tool it starts and a note there would reach the tool's reader.
+    pub fn all_to_stderr(mut self) -> Ui {
+        self.err_only = true;
+        self.color = self.color_err;
+        self.tty_out = self.tty_err;
+        self
     }
 
     /// Attach a capture: everything this `Ui` prints is kept instead of written.
@@ -291,6 +305,7 @@ impl Ui {
 
     /// Write already-rendered text (it carries its own newlines).
     pub(crate) fn write(&self, s: Stream, text: &str) {
+        let s = if self.err_only { Stream::Err } else { s };
         match &self.io {
             Io::Std => {
                 // A closed pipe is the reader's choice; never fail a command over it.
@@ -334,9 +349,12 @@ impl Ui {
     }
 
     /// Text with the glyphs the terminal cannot show swapped for ASCII.
+    /// Every piece of text on its way to the terminal passes here: control characters are made
+    /// visible first (see [`clean`]), then the glyphs become ASCII when the terminal needs it.
     pub(crate) fn glyphs(&self, text: &str) -> String {
+        let text = clean(text);
         if !self.ascii {
-            return text.to_string();
+            return text.into_owned();
         }
         text.replace('→', "->")
             .replace('—', "-")
@@ -353,4 +371,28 @@ impl Ui {
             "→"
         }
     }
+}
+
+/// Text from outside the installer (a project's pin file, a manifest's notes, a path) can hold
+/// escape sequences: a clear-screen, a new title, a clipboard write, a fake `[ok]` line. Every
+/// control character but tab, and the bidirectional overrides that reorder what is shown, is
+/// written out as its escape (`\u{1b}`), so the terminal shows it instead of obeying it. JSON
+/// output needs none of this: serde escapes control characters itself.
+pub fn clean(text: &str) -> std::borrow::Cow<'_, str> {
+    fn unsafe_char(c: char) -> bool {
+        (c.is_control() && c != '\t')
+            || matches!(c, '\u{200e}' | '\u{200f}' | '\u{202a}'..='\u{202e}' | '\u{2066}'..='\u{2069}')
+    }
+    if !text.chars().any(unsafe_char) {
+        return std::borrow::Cow::Borrowed(text);
+    }
+    let mut out = String::with_capacity(text.len() + 8);
+    for c in text.chars() {
+        if unsafe_char(c) {
+            out.extend(c.escape_unicode());
+        } else {
+            out.push(c);
+        }
+    }
+    std::borrow::Cow::Owned(out)
 }

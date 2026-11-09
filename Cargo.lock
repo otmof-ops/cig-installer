@@ -595,11 +595,14 @@ version = "0.1.0"
 dependencies = [
  "cig-compat",
  "cigi-home",
+ "cigi-shim",
+ "cigi-source",
  "cigi-testkit",
  "cigi-ui",
  "clap",
  "serde_json",
  "tempfile",
+ "toml_edit 0.22.27",
 ]
 
 [[package]]

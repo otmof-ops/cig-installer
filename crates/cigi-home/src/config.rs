@@ -135,6 +135,14 @@ impl Config {
         spec(key).map(|s| s.default.to_string()).unwrap_or_default()
     }
 
+    /// A command-line flag for this run only (`install --channel beta`): validated like a
+    /// setting, above the environment and the file, and never written.
+    pub fn set_for_run(&mut self, key: &str, value: &str) -> Result<(), StateError> {
+        Config::validate(key, value)?;
+        self.env.insert(key.to_string(), value.to_string());
+        Ok(())
+    }
+
     /// The value in the file itself, ignoring the environment.
     pub fn get_file(&self, key: &str) -> Option<String> {
         self.values.get(key).cloned()

@@ -940,3 +940,27 @@ fn removing_a_toolchain_is_journaled() {
     assert_eq!(snapshot(&fx.home.root()), before);
     assert!(verify_toolchain(&fx.home, "cigo", &v("1.17.0")).is_empty());
 }
+
+#[test]
+fn a_shim_name_that_is_a_path_makes_no_file_anywhere() {
+    // names come from manifests and receipts: `../../victim` must not reach outside bin/
+    let fx = fx();
+    let victim = fx.home.root().join("victim");
+    fs::write(&victim, b"PRECIOUS").unwrap();
+    let mut t = fx.txn("bad shim");
+    let id = t
+        .store_file(
+            &fx.home.object_store(),
+            &fx.src("shim", b"\x7fELF shim"),
+            true,
+        )
+        .unwrap();
+    for bad in ["../victim", "../../victim", "a/b", "", "Cig", ".hidden"] {
+        let e = sync_shims(&mut t, &fx.home, &[bad], &id).expect_err(bad);
+        assert_eq!(e.code(), "E1825", "{bad:?}");
+        assert!(remove_shims(&mut t, &fx.home, &[bad]).is_err(), "{bad:?}");
+    }
+    t.rollback().unwrap();
+    assert_eq!(fs::read(&victim).unwrap(), b"PRECIOUS");
+    assert!(shims::shims_present(&fx.home, &id, &["../victim"]).is_empty());
+}

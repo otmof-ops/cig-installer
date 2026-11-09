@@ -342,6 +342,9 @@ pub struct Manifest {
 
 // ---------------------------------------------------------------- parsing helpers
 
+/// Shim names a manifest may never claim: `bin/ciginstaller` and `bin/cigi` are the installer's.
+pub const RESERVED_SHIM_NAMES: &[&str] = &["ciginstaller", "cigi"];
+
 fn name_ok(s: &str) -> bool {
     let mut c = s.chars();
     matches!(c.next(), Some('a'..='z'))
@@ -461,6 +464,15 @@ fn parse_tool(name: &str, v: &Value) -> Result<ToolDef, ManifestError> {
                     path: req_str(st, "path", &sp)?,
                     windows_path: opt_str(st, "windows_path", &sp)?,
                 };
+                // the name becomes a file in the home's bin/, first on PATH: a plain command
+                // name, never a path, and never the installer's own
+                if !name_ok(&def.name) || RESERVED_SHIM_NAMES.contains(&def.name.as_str()) {
+                    return err(format!(
+                        "{sp}.name {:?} must be a command name of [a-z][a-z0-9-]*, and not {}",
+                        def.name,
+                        RESERVED_SHIM_NAMES.join(" or ")
+                    ));
+                }
                 for (key, val) in [
                     ("path", Some(&def.path)),
                     ("windows_path", def.windows_path.as_ref()),
@@ -691,9 +703,19 @@ impl Manifest {
         }
 
         let mut tools = BTreeMap::new();
+        let mut shim_owner: BTreeMap<String, String> = BTreeMap::new();
         if let Some(v) = root.get("tool") {
             for (name, def) in as_table(v, "tool")? {
-                tools.insert(name.clone(), parse_tool(name, def)?);
+                let def = parse_tool(name, def)?;
+                for s in &def.shims {
+                    if let Some(other) = shim_owner.insert(s.name.clone(), name.clone()) {
+                        return err(format!(
+                            "tool.{name}: the shim `{}` is already tool.{other}'s",
+                            s.name
+                        ));
+                    }
+                }
+                tools.insert(name.clone(), def);
             }
         }
 
