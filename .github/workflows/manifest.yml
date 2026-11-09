@@ -1,0 +1,91 @@
+name: manifest
+
+# Assembles the next manifest (SPEC 6) with `cargo xtask manifest assemble` and keeps it as a
+# workflow ARTIFACT for review. It is not uploaded to any release: publishing it to the rolling
+# `manifest` release stays the operator's act, after reading the report in the job log.
+on:
+  workflow_dispatch:
+    inputs:
+      carton:
+        description: "Carton number, for example 0.1.0"
+        required: true
+      cig:
+        description: "cig version (empty: not in this carton)"
+        required: false
+      cigo:
+        description: "cigo version"
+        required: false
+      cigcompile:
+        description: "cigcompile version"
+        required: false
+      installer:
+        description: "ciginstaller version"
+        required: false
+      packs:
+        description: "Packs, one per line: name=tool,tool"
+        required: false
+        type: string
+      notes:
+        description: "Carton notes"
+        required: false
+        default: ""
+      channel:
+        description: "Channel"
+        required: true
+        default: stable
+
+permissions:
+  contents: read
+
+jobs:
+  manifest:
+    name: assemble manifest
+    runs-on: ubuntu-latest
+    env:
+      CARGO_TERM_COLOR: always
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      # inputs reach the shell as data, never as script text
+      IN_CARTON: ${{ inputs.carton }}
+      IN_CIG: ${{ inputs.cig }}
+      IN_CIGO: ${{ inputs.cigo }}
+      IN_CIGCOMPILE: ${{ inputs.cigcompile }}
+      IN_INSTALLER: ${{ inputs.installer }}
+      IN_PACKS: ${{ inputs.packs }}
+      IN_NOTES: ${{ inputs.notes }}
+      IN_CHANNEL: ${{ inputs.channel }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Rust (stable)
+        run: |
+          rustup update stable --no-self-update
+          rustup default stable
+      - name: the current manifest of the channel, if there is one
+        run: |
+          [[ "$IN_CHANNEL" =~ ^[a-z0-9][a-z0-9-]*$ ]] || { echo "::error::channel must be lowercase letters, digits and dashes"; exit 1; }
+          mkdir -p previous out
+          if gh release view manifest -R "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            # a release that exists but lacks the file is an error: the previous manifest is never guessed
+            gh release download manifest -R "$GITHUB_REPOSITORY" -p "manifest-$IN_CHANNEL.toml" -D previous \
+              || { echo "::error::the manifest release has no manifest-$IN_CHANNEL.toml"; exit 1; }
+            echo "PREVIOUS=previous/manifest-$IN_CHANNEL.toml" >> "$GITHUB_ENV"
+          else
+            echo "::notice::no manifest release yet: assembling the first manifest of this channel"
+          fi
+      - name: cargo xtask manifest assemble
+        run: |
+          args=(--carton "$IN_CARTON" --channel "$IN_CHANNEL" --notes "$IN_NOTES" --out "out/manifest-$IN_CHANNEL.toml")
+          [[ -n "$IN_CIG" ]]        && args+=(--cig "$IN_CIG")
+          [[ -n "$IN_CIGO" ]]       && args+=(--cigo "$IN_CIGO")
+          [[ -n "$IN_CIGCOMPILE" ]] && args+=(--cigcompile "$IN_CIGCOMPILE")
+          [[ -n "$IN_INSTALLER" ]]  && args+=(--installer "$IN_INSTALLER")
+          [[ -n "${PREVIOUS:-}" ]]  && args+=(--previous "$PREVIOUS")
+          while IFS= read -r pack; do
+            if [[ -n "${pack//[[:space:]]/}" ]]; then args+=(--pack "$pack"); fi
+          done <<< "$IN_PACKS"
+          cargo xtask manifest assemble "${args[@]}" | tee out/report.txt
+          cat "out/manifest-$IN_CHANNEL.toml.sha256"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: manifest-${{ inputs.channel }}
+          path: out/*
+          if-no-files-found: error
