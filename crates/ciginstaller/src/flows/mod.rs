@@ -7,7 +7,7 @@ pub mod use_carton;
 
 use std::path::PathBuf;
 
-use cig_compat::Version;
+use cig_compat::{Manifest, Version, Yankable};
 use cigi_home::{read_receipt, verify_toolchain, FlipIntent, Home, Journal, ShimIndex, State, Txn};
 use cigi_ui::InstallerError;
 
@@ -30,9 +30,17 @@ pub fn tool_exe(home: &Home, tool: &str, v: &Version) -> Option<PathBuf> {
 
 /// The last steps of every flow that changes what runs: `state.json`, then the `shim-index` flip.
 /// The caller commits (or rolls back on an error).
-pub fn save_and_flip(txn: &mut Txn, home: &Home, state: &State) -> Result<(), InstallerError> {
+///
+/// `yanked` names the cartons the manifest at hand (or the cached one) yanks: the index never
+/// names one for a `0.1` or `0` pin, so the shim's fast path and the resolver agree (SPEC 8).
+pub fn save_and_flip(
+    txn: &mut Txn,
+    home: &Home,
+    state: &State,
+    yanked: Vec<String>,
+) -> Result<(), InstallerError> {
     state.save_in(txn).map_err(ie)?;
-    let index = ShimIndex::from_state(home, state);
+    let index = ShimIndex::from_state(home, state).with_yanked(yanked);
     index.check().map_err(ie)?;
     txn.flip(FlipIntent {
         index: index.render(),
@@ -63,4 +71,22 @@ pub fn settle<T>(txn: Txn, result: Result<T, InstallerError>) -> Result<T, Insta
             }
         }
     }
+}
+
+/// The cartons a manifest yanks, as version strings.
+pub fn yanked_in(m: &Manifest) -> Vec<String> {
+    m.yanked
+        .iter()
+        .filter_map(|y| match &y.what {
+            Yankable::Carton(v) => Some(v.to_string()),
+            _ => None,
+        })
+        .collect()
+}
+
+/// The yanked cartons of the cached manifest (none when there is no cache).
+pub fn cached_yanked(cx: &crate::cx::Cx) -> Vec<String> {
+    cx.peek_manifest()
+        .map(|m| yanked_in(&m))
+        .unwrap_or_default()
 }

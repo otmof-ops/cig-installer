@@ -506,6 +506,38 @@ probe = "installed-cartons"
 remedy = "`ciginstaller install carton --carton <version>`"
 
 [[code]]
+code = "E1817"
+title = "carton is only partly installed"
+meaning = "The carton named is installed with only some of its tools (a stick or a pick put it there), so making it the machine's carton would leave the rest of the machine's tools without a build."
+fix = "`ciginstaller install carton --carton <version>`"
+no = "dont-have-any"
+arises = ["any"]
+tags = ["installer", "ci-likely"]
+since = "0.1.0"
+related = ["E1816", "E1818"]
+[[code.cause]]
+why = "only a stick or a pack of this carton was installed"
+no = "dont-have-any"
+probe = "installed-cartons"
+remedy = "`ciginstaller install carton --carton <version>`, then `ciginstaller use <version>`"
+
+[[code]]
+code = "E1818"
+title = "carton lacks a tool this machine has"
+meaning = "The carton named has no build of a tool the machine's carton has, so switching would leave that shim with nothing to run."
+fix = "`ciginstaller install carton --carton <version>`"
+no = "dont-have-any"
+arises = ["any"]
+tags = ["installer"]
+since = "0.1.0"
+related = ["E1817", "E1840"]
+[[code.cause]]
+why = "the carton's record was made before the tool was added to it, or the tool was uninstalled"
+no = "dont-have-any"
+probe = "installed-cartons"
+remedy = "`ciginstaller install carton --carton <version>` fills the carton in"
+
+[[code]]
 code = "E1820"
 title = "download failed"
 meaning = "A file could not be fetched from the source after retries. Nothing partial was kept."
@@ -1093,6 +1125,38 @@ why = "the project pins a carton older than the target"
 no = "these-are-mine"
 probe = "project-pins"
 remedy = "change the pin with `ciginstaller pin carton <pin>`, or update with `--project <other-dir>`"
+
+[[code]]
+code = "E1855"
+title = "pinned carton was yanked"
+meaning = "The project pins exactly a carton the channel has yanked. It runs because the pin is exact; a range pin (0.1, 0, >=0.1.0) would have passed over it."
+fix = "`ciginstaller pin carton <version>` with a carton that is not yanked"
+no = "none"
+arises = ["any"]
+tags = ["installer"]
+since = "0.1.0"
+related = ["E1803", "E1854"]
+[[code.cause]]
+why = "the carton was yanked after the project pinned it"
+no = "none"
+probe = "release-manifest"
+remedy = "`ciginstaller carton show <version>` gives the reason; pin a newer carton"
+
+[[code]]
+code = "E1856"
+title = "fetching did not satisfy the pin"
+meaning = "The slow path fetched what a pin called for, once, and the pin is still not met. It stops instead of fetching again."
+fix = "`ciginstaller carton list`"
+no = "none"
+arises = ["any"]
+tags = ["installer"]
+since = "0.1.0"
+related = ["E1801", "E1842"]
+[[code.cause]]
+why = "the carton fetched does not hold a build that satisfies every pin"
+no = "none"
+probe = "installed-cartons"
+remedy = "change the pins with `ciginstaller pin carton <pin>`, or install a carton that has the build"
 
 [[code]]
 code = "E1860"

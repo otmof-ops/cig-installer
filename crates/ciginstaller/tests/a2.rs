@@ -254,14 +254,16 @@ fn a2_interrupted_install() {
                 break; // this phase has fewer than n lines
             }
             crashes += 1;
-            // the next mutating command recovers and says so once
+            // the next mutating command recovers and says so exactly once, unless the crash came
+            // after the commit line was durable: then there is nothing left to recover
+            let done = committed_txns(&fx) > 1;
             let o = cigi(
                 &fx,
                 &["install", "carton", "--carton", "0.2.0", "--dry-run"],
             );
             ok(&o);
             let notes = text(&o).matches("E1832").count();
-            assert!(notes <= 1, "{phase}:{n}: {}", text(&o));
+            assert_eq!(notes, usize::from(!done), "{phase}:{n}: {}", text(&o));
             let state =
                 std::fs::read_to_string(fx.cigscript().join("installer/state.json")).unwrap();
             if state.contains("\"0.2.0\"") {
@@ -302,6 +304,76 @@ fn a2_interrupted_install() {
     assert!(
         pre_seen > 0 && post_seen > 0,
         "pre {pre_seen}, post {post_seen}"
+    );
+}
+
+/// A FIRST install killed at every fault point: the next command recovers (one note), and the
+/// home is either empty (no bin, toolchains, objects, humidor, shim-index, PATH block) or whole.
+#[test]
+fn a2_interrupted_first_install() {
+    let mut crashes = 0;
+    let mut empty_seen = 0;
+    let mut whole_seen = 0;
+    for phase in [
+        "mkdir", "store", "link", "move", "write", "block", "flip", "flipped", "commit",
+    ] {
+        for n in 1..80 {
+            let mut fx = fixture();
+            fx.carton("0.1.0", &[("cig", "1.20.0"), ("cigo", "1.16.0")]);
+            fx.publish("stable");
+            let o = fx
+                .cigi()
+                .env("CIGI_ALLOW_SINGLE_SOURCE", "true")
+                .env("CIGI_FAULT", format!("{phase}:{n}"))
+                .args(["--yes", "install", "carton"])
+                .output()
+                .unwrap();
+            if o.status.code().is_some() {
+                break; // this phase has fewer than n lines
+            }
+            crashes += 1;
+            let done = committed_txns(&fx) > 0;
+            let o = cigi(&fx, &["install", "carton", "--dry-run"]);
+            ok(&o);
+            assert_eq!(
+                text(&o).matches("E1832").count(),
+                usize::from(!done),
+                "{phase}:{n}: {}",
+                text(&o)
+            );
+            let state = std::fs::read_to_string(fx.cigscript().join("installer/state.json"))
+                .unwrap_or_default();
+            let profile =
+                std::fs::read_to_string(fx.user_home.join(".profile")).unwrap_or_default();
+            if state.contains("\"0.1.0\"") {
+                whole_seen += 1;
+                assert_eq!(
+                    shim_out(&fx, "cigo", &fx.project),
+                    "cigo 1.16.0 uses cig 1.20.0",
+                    "{phase}:{n}"
+                );
+                let idx =
+                    std::fs::read_to_string(fx.cigscript().join("installer/shim-index")).unwrap();
+                assert!(idx.contains("carton\t0.1.0\tcigo"), "{phase}:{n}");
+            } else {
+                empty_seen += 1;
+                let now = installed_view(&fx);
+                let files: Vec<&String> = now
+                    .entries
+                    .iter()
+                    .filter(|(_, e)| !format!("{e:?}").contains("Dir"))
+                    .map(|(k, _)| k)
+                    .collect();
+                assert!(files.is_empty(), "{phase}:{n}: {files:?}");
+                assert!(!profile.contains("cigscript"), "{phase}:{n}: {profile}");
+                no_partials(&fx);
+            }
+        }
+    }
+    assert!(crashes >= 10, "only {crashes} fault points reached");
+    assert!(
+        empty_seen > 0 && whole_seen > 0,
+        "empty {empty_seen}, whole {whole_seen}"
     );
 }
 
