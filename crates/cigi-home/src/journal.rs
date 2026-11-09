@@ -214,6 +214,19 @@ impl Fault {
     }
 }
 
+/// A named point outside any transaction where a test build may stop the process
+/// (`CIGI_FAULT=<point>:1`): the moments a journal cannot see, such as after a commit and before
+/// the cleanup that follows it. Nothing at all without fault injection.
+#[allow(unused_variables)]
+pub fn fault_after(point: &str) {
+    #[cfg(feature = "fault-injection")]
+    if let Some(f) = Fault::from_env() {
+        if f.phase == point && f.n <= 1 {
+            std::process::abort();
+        }
+    }
+}
+
 // ------------------------------------------------------------------- Txn
 
 /// An open transaction. See the module docs.

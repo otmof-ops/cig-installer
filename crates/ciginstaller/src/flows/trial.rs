@@ -425,6 +425,24 @@ fn drain<R: Read + Send + 'static>(r: Option<R>) -> std::sync::mpsc::Receiver<Ve
 
 /// `<exe> run --dry-run --plain --no-color --no-doctor <script>` in the script's directory, with
 /// a scratch home, stdin closed and a time limit.
+/// The command that starts a cig for the trial. On Unix it runs under `sh`'s limits (CPU seconds
+/// and address space, so a hostile project cannot make a dry run eat the machine) and `exec`s
+/// itself, so the process the deadline kills is cig itself, not a shell above it. Without
+/// `/bin/sh`, cig is started directly.
+fn limited(cig: &Path) -> Command {
+    #[cfg(unix)]
+    {
+        if Path::new("/bin/sh").is_file() {
+            let mut c = Command::new("/bin/sh");
+            c.arg("-c")
+                .arg(r#"ulimit -t 60 2>/dev/null; ulimit -v 4194304 2>/dev/null; exec "$0" "$@""#)
+                .arg(cig);
+            return c;
+        }
+    }
+    Command::new(cig)
+}
+
 fn run_one(
     who: &Resolved,
     script: &Path,
@@ -436,7 +454,7 @@ fn run_one(
         .file_name()
         .map(|n| n.to_string_lossy().to_string())
         .unwrap_or_default();
-    let mut cmd = Command::new(&who.path);
+    let mut cmd = limited(&who.path);
     cmd.env_clear();
     // a short allow-list from the parent; everything else of the user's environment stays out
     for k in ["PATH", "LANG", "LC_ALL", "TZ"] {

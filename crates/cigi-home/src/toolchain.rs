@@ -495,14 +495,48 @@ fn check_toolchain_name(tool: &str, v: &Version) -> Result<(), ToolchainError> {
 pub fn remove_toolchain_now(home: &Home, tool: &str, v: &Version) -> Result<(), ToolchainError> {
     check_toolchain_name(tool, v)?;
     let dir = home.toolchain(tool, v);
-    match fs::remove_dir_all(&dir) {
-        Ok(()) => {}
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
-        Err(e) => return Err(io_err(&dir)(e)),
+    let first = fs::remove_dir_all(&dir);
+    if let Err(e) = first {
+        if e.kind() != std::io::ErrorKind::NotFound {
+            // a toolchain's directories are read-only (SPEC 4.3): open them to the owner, then
+            // try once more
+            open_to_owner(&dir);
+            match fs::remove_dir_all(&dir) {
+                Ok(()) => {}
+                Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+                Err(e) => return Err(io_err(&dir)(e)),
+            }
+        }
     }
     let _ = fs::remove_dir(home.toolchains().join(tool)); // only succeeds when empty
     Ok(())
 }
+
+/// Give the owner write access to every directory under `dir` (never through a link), so the
+/// tree can be removed.
+#[cfg(unix)]
+fn open_to_owner(dir: &std::path::Path) {
+    use std::os::unix::fs::PermissionsExt;
+    let Ok(md) = fs::symlink_metadata(dir) else {
+        return;
+    };
+    if !md.is_dir() {
+        return;
+    }
+    let _ = fs::set_permissions(
+        dir,
+        fs::Permissions::from_mode(md.permissions().mode() | 0o700),
+    );
+    if let Ok(rd) = fs::read_dir(dir) {
+        for e in rd.flatten() {
+            if e.file_type().is_ok_and(|t| t.is_dir()) {
+                open_to_owner(&e.path());
+            }
+        }
+    }
+}
+#[cfg(not(unix))]
+fn open_to_owner(_dir: &std::path::Path) {}
 
 /// Remove a whole toolchain (journaled: it is moved into the txn directory,
 /// so a rollback puts it back byte for byte).

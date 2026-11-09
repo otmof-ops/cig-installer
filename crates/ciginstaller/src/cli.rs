@@ -41,6 +41,10 @@ pub struct Cli {
     /// The home directory (same as CIGSCRIPT_HOME).
     #[arg(long, global = true, value_name = "DIR")]
     pub home: Option<PathBuf>,
+    /// Set by the installer itself when it starts its new build after a self-update: the version
+    /// that build is. Only that run, of that build, skips the self-update step (one hop).
+    #[arg(long, global = true, hide = true, value_name = "VERSION")]
+    pub self_updated: Option<String>,
     #[command(subcommand)]
     pub command: Option<Command>,
 }

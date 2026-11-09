@@ -84,6 +84,7 @@ fn dispatch(cli: Cli, ui: Ui) -> i32 {
         yes: cli.yes,
         offline: cli.offline,
         home: cli.home.clone(),
+        self_updated: cli.self_updated.clone(),
     };
     let (name, cwd) = match &cli.command {
         None => ("ciginstaller", None),

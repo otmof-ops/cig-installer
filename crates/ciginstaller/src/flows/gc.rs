@@ -28,9 +28,95 @@ use super::{cached_yanked, save_and_flip, settle};
 use crate::cx::{now_override, Cx};
 use crate::errors::ie;
 
-/// `state.json` key: the toolchains a committed `gc` is about to delete (SPEC 12: the index no
-/// longer names them; the delete itself follows the commit).
-const PENDING_KEY: &str = "gc_pending";
+/// `state.json` key: the toolchains a committed change (`gc`, a rollback that undoes an update)
+/// no longer uses and deletes after its commit. The index stops naming them at the flip, so no
+/// shim finds one gone; the list is recorded in the change's own transaction and cleared once the
+/// deletes are done. What a crash leaves, the next `gc` finishes.
+pub const PENDING_KEY: &str = "pending_deletes";
+
+/// Add `items` to the list of deletes that follow the commit (inside the caller's transaction).
+pub fn record_pending(state: &mut State, items: &[(String, Version)]) {
+    let mut all: Vec<(String, String)> = pending_in(state).into_iter().collect();
+    for (t, v) in items {
+        let e = (t.clone(), v.to_string());
+        if !all.contains(&e) {
+            all.push(e);
+        }
+    }
+    all.sort();
+    state.extra.insert(
+        PENDING_KEY.to_string(),
+        json!(all.iter().map(|(t, v)| json!([t, v])).collect::<Vec<_>>()),
+    );
+}
+
+fn pending_in(state: &State) -> HashSet<(String, String)> {
+    state
+        .extra
+        .get(PENDING_KEY)
+        .and_then(|v| v.as_array())
+        .into_iter()
+        .flatten()
+        .filter_map(|e| {
+            Some((
+                e.get(0)?.as_str()?.to_string(),
+                e.get(1)?.as_str()?.to_string(),
+            ))
+        })
+        .collect()
+}
+
+/// After the commit: delete `items` (best effort, never one something uses again), then take the
+/// ones that are gone off the list in a small transaction of its own.
+pub fn finish_pending(cx: &mut Cx, items: &[(String, Version)]) -> Result<(), InstallerError> {
+    cigi_home::journal::fault_after("pending-delete");
+    let home = cx.home.clone();
+    let state = State::load(&home).map_err(ie)?;
+    let used: HashSet<(String, String)> = state
+        .cartons
+        .values()
+        .flat_map(|r| r.tools.iter().map(|(t, v)| (t.clone(), canonical(v))))
+        .chain(
+            state
+                .sticks
+                .iter()
+                .map(|s| (s.tool.clone(), canonical(&s.version))),
+        )
+        .collect();
+    for (t, v) in items {
+        if !used.contains(&(t.clone(), v.to_string())) {
+            let _ = remove_toolchain_now(&home, t, v);
+        }
+    }
+    let mut state = state;
+    let before = pending_in(&state);
+    let left: Vec<(String, String)> = before
+        .iter()
+        .filter(|(t, v)| {
+            !used.contains(&(t.clone(), v.clone()))
+                && Version::parse(v).is_ok_and(|ver| home.toolchain(t, &ver).exists())
+        })
+        .cloned()
+        .collect();
+    if left.len() == before.len() {
+        return Ok(());
+    }
+    if left.is_empty() {
+        state.extra.remove(PENDING_KEY);
+    } else {
+        let mut left = left;
+        left.sort();
+        state.extra.insert(
+            PENDING_KEY.to_string(),
+            json!(left.iter().map(|(t, v)| json!([t, v])).collect::<Vec<_>>()),
+        );
+    }
+    let mut txn = cx.begin("the deletes after a commit")?;
+    let r = state.save_in(&mut txn).map_err(ie);
+    settle(txn, r)?;
+    cx.state = state;
+    Ok(())
+}
 const DAY: i64 = 24 * 3600;
 /// A run record is a small JSON file; anything larger is not one.
 const RUN_JSON_MAX: u64 = 1024 * 1024;
@@ -200,20 +286,8 @@ pub fn plan(cx: &Cx, keep_days: u32) -> Plan {
         .filter_map(|n| state.cartons.get(*n))
         .flat_map(|r| r.tools.iter().map(|(t, v)| (t.clone(), canonical(v))))
         .collect();
-    // what an earlier `gc` committed to remove and was cut off before it did
-    let pending: HashSet<(String, String)> = state
-        .extra
-        .get(PENDING_KEY)
-        .and_then(|v| v.as_array())
-        .into_iter()
-        .flatten()
-        .filter_map(|e| {
-            Some((
-                e.get(0)?.as_str()?.to_string(),
-                e.get(1)?.as_str()?.to_string(),
-            ))
-        })
-        .collect();
+    // what an earlier change committed to remove and was cut off before it did
+    let pending = pending_in(state);
     for (tool, v) in installed(home) {
         let key = (tool.clone(), v.to_string());
         if needed.contains(&key) || (tool == "cig" && runs.contains(&key.1)) {
@@ -369,14 +443,7 @@ pub fn run_locked(cx: &mut Cx, a: &GcArgs) -> Result<Report, InstallerError> {
         remove_shims(&mut txn, &home, &dead).map_err(ie)?;
         // the index flip below stops naming these; the directories go after the commit, so no
         // shim ever finds an index that points at a toolchain already deleted
-        state.extra.insert(
-            PENDING_KEY.to_string(),
-            json!(p
-                .toolchains
-                .iter()
-                .map(|(t, v)| json!([t, v.to_string()]))
-                .collect::<Vec<_>>()),
-        );
+        record_pending(&mut state, &p.toolchains);
         let now = now_rfc3339();
         state.gc.last_run = Some(now.clone());
         state.push_history(HistoryEntry {
@@ -395,9 +462,7 @@ pub fn run_locked(cx: &mut Cx, a: &GcArgs) -> Result<Report, InstallerError> {
     // After the commit: free what nothing references now (idempotent; a crash here is garbage
     // for the next run), then drop this transaction's saved copies, which still hold the bytes of
     // the toolchains it removed.
-    for (t, v) in &p.toolchains {
-        let _ = remove_toolchain_now(&home, t, v);
-    }
+    finish_pending(cx, &p.toolchains)?;
     let store = home.object_store();
     let keep: HashSet<ObjectId> = referenced_objects(&home).into_keys().collect();
     let (mut freed, mut bytes) = (0usize, 0u64);

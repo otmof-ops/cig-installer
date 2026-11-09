@@ -59,11 +59,6 @@ fn refused(code: &'static str, msg: impl Into<String>, fix: &str) -> InstallerEr
         .with_exit(EXIT_REFUSED)
 }
 
-/// Set on the re-exec after a self-update to the version that was installed, so the new binary
-/// does not try again (one hop). It counts only when it equals the running version: a stale or
-/// planted value disables nothing.
-const REEXEC_MARK: &str = "CIGI_SELF_UPDATED";
-
 /// SPEC 12.2 step 1: `self update` first, when the manifest holds a newer installer, and carry on
 /// with the new binary by re-exec, with the same arguments. A dev build (not `bin/ciginstaller`)
 /// never replaces itself, so it updates the cartons only.
@@ -85,7 +80,10 @@ fn self_update_first(cx: &mut Cx) -> Result<(), InstallerError> {
 }
 
 fn self_update_step(cx: &mut Cx) -> Result<(), InstallerError> {
-    let marked = std::env::var(REEXEC_MARK).is_ok_and(|v| v == env!("CARGO_PKG_VERSION"));
+    // the new build a self-update just started skips the step, once: the flag rides on that one
+    // command line (nothing in the environment or a profile can carry it to another run), and it
+    // counts only when it names the running version
+    let marked = cx.globals.self_updated.as_deref() == Some(env!("CARGO_PKG_VERSION"));
     if marked || !self_update::is_managed(&cx.home) {
         return Ok(());
     }
@@ -109,14 +107,14 @@ fn reexec(cx: &mut Cx) -> Result<(), InstallerError> {
     use std::os::unix::process::CommandExt;
     cx.release_lock();
     let exe = cigi_home::shim_path(&cx.home, "ciginstaller");
-    // the mark names the version just installed: only that binary skips the step
+    // the flag names the version just installed: only that binary skips the step
     let installed = State::load(&cx.home)
         .map(|s| s.installer.version)
         .unwrap_or_default();
     let err = std::process::Command::new(&exe)
         .arg0("ciginstaller")
+        .arg(format!("--self-updated={installed}"))
         .args(std::env::args_os().skip(1))
-        .env(REEXEC_MARK, installed)
         .exec();
     Err(InstallerError::new(
         "E1853",

@@ -108,18 +108,8 @@ fn a3_dry_run_and_trial_only_never_self_update() {
 
 #[test]
 fn a3_a_real_update_self_updates_and_the_mark_counts_only_for_its_version() {
-    // a stale or planted mark disables nothing
-    let fx = setup(false);
-    let inode = ino(&fx);
-    let o = output(
-        managed(&fx)
-            .env("CIGI_SELF_UPDATED", "9.9.9")
-            .args(["--yes", "update"]),
-    );
-    ok(&o);
-    assert!(text(&o).contains("updated 0.1.0 -> 0.1.1"), "{}", text(&o));
-    assert_ne!(ino(&fx), inode);
-    // a mark naming the running version (what a re-exec sets) skips the step
+    // nothing in the environment disables the step, whatever it names: the old variable, even set
+    // to the running version, as a shell profile could, changes nothing
     let fx = setup(false);
     let inode = ino(&fx);
     let o = output(
@@ -127,6 +117,20 @@ fn a3_a_real_update_self_updates_and_the_mark_counts_only_for_its_version() {
             .env("CIGI_SELF_UPDATED", "0.1.0")
             .args(["--yes", "update"]),
     );
+    ok(&o);
+    assert!(text(&o).contains("updated 0.1.0 -> 0.1.1"), "{}", text(&o));
+    assert_ne!(ino(&fx), inode);
+    // a flag naming another version disables nothing either
+    let fx = setup(false);
+    let inode = ino(&fx);
+    let o = output(managed(&fx).args(["--yes", "--self-updated=9.9.9", "update"]));
+    ok(&o);
+    assert!(text(&o).contains("updated 0.1.0 -> 0.1.1"), "{}", text(&o));
+    assert_ne!(ino(&fx), inode);
+    // the flag naming the running version (what the re-exec passes) skips the step, that run only
+    let fx = setup(false);
+    let inode = ino(&fx);
+    let o = output(managed(&fx).args(["--yes", "--self-updated=0.1.0", "update"]));
     ok(&o);
     assert_eq!(ino(&fx), inode);
     assert_eq!(state(&fx)["machine_carton"], "0.1.1");

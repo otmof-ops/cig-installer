@@ -70,11 +70,9 @@ pub fn run(cx: &mut Cx, a: &RollbackArgs) -> Result<Report, InstallerError> {
     let id = txn.id().to_string();
     let r = apply_carton(cx, &mut txn, &before, &cur, &prev, undo.as_ref());
     let doomed = settle(txn, r)?;
-    // the toolchains the undo leaves unused go after the commit, outside the journal: no shim ever
-    // finds an index that points at a deleted toolchain. A failure leaves them for `gc`.
-    for (t, v) in &doomed {
-        remove_unused_toolchain(&cx.home, t, v);
-    }
+    // the toolchains the undo leaves unused go after the commit: no shim ever finds an index that
+    // points at a deleted toolchain
+    super::gc::finish_pending(cx, &doomed)?;
     cx.state = State::load(&cx.home).map_err(ie)?;
     let mut rep = Report::done(format!("rolled back carton {cur} to {prev}"));
     if undo.is_some() {
@@ -152,50 +150,12 @@ fn apply_carton(
         ok: true,
     });
     resync_shims(txn, &home, before, &state)?;
+    // the toolchains the undo leaves unused are deleted after the commit, recorded here so a
+    // crash between the two is finished by the next `gc`
+    super::gc::record_pending(&mut state, &doomed);
     save_and_flip(txn, &home, &state, cached_yanked(cx))?;
     Ok(doomed)
 }
-
-/// A tool name that can only be one directory under `toolchains/` (state.json is read, not trusted).
-fn plain_tool_name(t: &str) -> bool {
-    !t.is_empty()
-        && t.len() <= 64
-        && t.bytes()
-            .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-' || b == b'_')
-}
-
-/// Best effort, after the commit: remove `toolchains/<tool>/<version>` and the tool directory when
-/// that leaves it empty.
-fn remove_unused_toolchain(home: &cigi_home::Home, tool: &str, v: &Version) {
-    if !plain_tool_name(tool) {
-        return;
-    }
-    let dir = home.toolchain(tool, v);
-    if !dir.starts_with(home.toolchains()) {
-        return;
-    }
-    if std::fs::remove_dir_all(&dir).is_err() {
-        // read-only directories: open them up, then try once more
-        make_writable(&dir);
-        let _ = std::fs::remove_dir_all(&dir);
-    }
-    let _ = std::fs::remove_dir(home.toolchains().join(tool));
-}
-
-#[cfg(unix)]
-fn make_writable(dir: &std::path::Path) {
-    use std::os::unix::fs::PermissionsExt;
-    if let Ok(rd) = std::fs::read_dir(dir) {
-        for e in rd.flatten() {
-            if e.file_type().is_ok_and(|t| t.is_dir()) {
-                make_writable(&e.path());
-            }
-        }
-    }
-    let _ = std::fs::set_permissions(dir, std::fs::Permissions::from_mode(0o755));
-}
-#[cfg(not(unix))]
-fn make_writable(_dir: &std::path::Path) {}
 
 /// `rollback <tool>`: only that tool's build in the previous carton. The machine becomes a mix,
 /// which is recorded as a stick and checked, with a warning.

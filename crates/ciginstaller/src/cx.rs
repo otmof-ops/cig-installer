@@ -26,6 +26,8 @@ pub struct Globals {
     pub yes: bool,
     pub offline: bool,
     pub home: Option<PathBuf>,
+    /// `--self-updated <version>`: this run is the new build a self-update just started.
+    pub self_updated: Option<String>,
 }
 
 /// How fresh a manifest has to be.
