@@ -2,12 +2,13 @@
 // SPDX-License-Identifier: Apache-2.0
 //! `use <carton>`: make an installed carton the machine's. One state write and one flip; no download.
 
-use cig_compat::Pin;
+use cig_compat::{check, Combination, Origin, Pin, Severity, Version};
 use cigi_home::{now_rfc3339, state::HistoryEntry};
 use cigi_ui::{InstallerError, Report, EXIT_REFUSED, EXIT_USAGE};
 use serde_json::json;
 
-use super::{save_and_flip, settle};
+use super::install::finding_error;
+use super::{save_and_flip, settle, yanked_in};
 use crate::cx::Cx;
 use crate::errors::ie;
 
@@ -52,6 +53,7 @@ pub fn run_locked(cx: &mut Cx, a: &UseArgs) -> Result<Report, InstallerError> {
                 .data(json!({ "carton": target, "changed": false })),
         );
     }
+    let warnings = switch_checks(cx, &target, old.as_deref())?;
     if a.dry_run {
         return Ok(Report::done(format!(
             "dry run: would make carton {target} this machine's carton"
@@ -77,7 +79,11 @@ pub fn run_locked(cx: &mut Cx, a: &UseArgs) -> Result<Report, InstallerError> {
         ok: true,
     });
     let home = cx.home.clone();
-    let r = save_and_flip(&mut txn, &home, &state);
+    let yanked = cx
+        .peek_manifest()
+        .map(|m| yanked_in(&m))
+        .unwrap_or_default();
+    let r = save_and_flip(&mut txn, &home, &state, yanked);
     settle(txn, r)?;
     cx.state = cigi_home::State::load(&cx.home).map_err(ie)?;
     let mut rep = Report::done(format!("carton {target} is now this machine's carton"))
@@ -85,5 +91,94 @@ pub fn run_locked(cx: &mut Cx, a: &UseArgs) -> Result<Report, InstallerError> {
     if let Some(o) = old {
         rep = rep.detail(format!("carton {o} stays installed"));
     }
+    for w in warnings {
+        rep = rep.detail(format!("warning {w}"));
+    }
     Ok(rep)
+}
+
+/// What a switch must hold before it changes what runs (SPEC 12.3): the target is whole, it keeps
+/// every tool the machine has now, and the marry-up check passes on it (from the cached manifest;
+/// a switch never downloads, so with no cache the check is skipped). Returns the warnings.
+fn switch_checks(cx: &Cx, target: &str, old: Option<&str>) -> Result<Vec<String>, InstallerError> {
+    let Some(rec) = cx.state.cartons.get(target) else {
+        return Ok(Vec::new());
+    };
+    let whole = format!("ciginstaller install carton --carton {target}");
+    if rec.partial {
+        return Err(InstallerError::new(
+            "E1817",
+            format!(
+                "carton {target} is only partly installed, so it cannot be the machine's carton"
+            ),
+        )
+        .with_hint(format!(
+            "it holds {}",
+            rec.tools.keys().cloned().collect::<Vec<_>>().join(", ")
+        ))
+        .with_fix(whole)
+        .with_exit(EXIT_REFUSED));
+    }
+    let mut warnings = Vec::new();
+    let manifest = cx.peek_manifest();
+    if let (Some(o), Some(mrec)) = (old, old.and_then(|o| cx.state.cartons.get(o))) {
+        let missing: Vec<&String> = mrec
+            .tools
+            .keys()
+            .filter(|t| !rec.tools.contains_key(*t))
+            .collect();
+        // A tool the carton is meant to have but its record lacks: installing the whole carton
+        // fills it in, so refuse until then. A tool the carton does not have at all (by the
+        // cached manifest) is the carton's design: warn, and name the stick that keeps it.
+        let meant = |t: &str| {
+            let cv = Version::parse(target).ok();
+            match (&manifest, cv) {
+                (Some(m), Some(cv)) => m.carton(&cv).is_some_and(|c| c.products.contains_key(t)),
+                // no cache to tell a gap from the design: nothing proves a gap, so warn
+                _ => false,
+            }
+        };
+        let (fill, by_design): (Vec<&String>, Vec<&String>) =
+            missing.into_iter().partition(|t| meant(t));
+        if !fill.is_empty() {
+            let names: Vec<&str> = fill.iter().map(|t| t.as_str()).collect();
+            return Err(InstallerError::new(
+                "E1818",
+                format!(
+                    "carton {target} is meant to have {}, and its record here does not",
+                    names.join(", ")
+                ),
+            )
+            .with_hint("switching would leave those shims with nothing to run")
+            .with_fix(whole)
+            .with_exit(EXIT_REFUSED));
+        }
+        for t in by_design {
+            warnings.push(format!(
+                "carton {target} has no {t}, so the {t} shim has nothing to run after the switch; \
+                 keep it with `ciginstaller install stick {t} --carton {o}`"
+            ));
+        }
+    }
+    if let (Some(m), Ok(cv)) = (manifest, Version::parse(target)) {
+        let items: Vec<(String, Version)> = rec
+            .tools
+            .iter()
+            .filter_map(|(t, v)| Some((t.clone(), Version::parse(v).ok()?)))
+            .collect();
+        for f in check(
+            &m,
+            &Combination {
+                items,
+                origin: Origin::Carton(cv),
+            },
+            &cx.host,
+        ) {
+            if f.severity == Severity::Refuse {
+                return Err(finding_error(&f));
+            }
+            warnings.push(format!("{}: {}", f.code, f.headline));
+        }
+    }
+    Ok(warnings)
 }

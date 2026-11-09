@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use super::*;
+use cigi_shim::pins::{pin_from_carton_file, pin_from_json, pin_from_toml};
 
 const INDEX: &str = "cigi-index 1\nmachine\t0.1.0\n\
 carton\t0.1.0\tcig\t/h/cig/1.20.0/cig\ncarton\t0.1.0\tcigo\t/h/cigo/1.17.0/cigo\n\

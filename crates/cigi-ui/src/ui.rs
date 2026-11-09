@@ -111,6 +111,8 @@ pub struct Ui {
     pub yes_irreversible: bool,
     noticed: AtomicBool,
     io: Io,
+    /// Everything goes to stderr: the shim's slow path, where stdout is the tool's.
+    err_only: bool,
 }
 
 impl Default for Ui {
@@ -133,6 +135,7 @@ impl Default for Ui {
             yes_irreversible: false,
             noticed: AtomicBool::new(false),
             io: Io::Std,
+            err_only: false,
         }
     }
 }
@@ -246,6 +249,7 @@ impl Ui {
             yes_irreversible: flags.yes_irreversible,
             noticed: AtomicBool::new(false),
             io: Io::Std,
+            err_only: false,
         }
     }
 
@@ -268,7 +272,17 @@ impl Ui {
             yes_irreversible: self.yes_irreversible,
             noticed: AtomicBool::new(self.noticed.load(Ordering::SeqCst)),
             io: self.io.clone(),
+            err_only: self.err_only,
         }
+    }
+
+    /// Send everything to stderr, results included, painted for stderr: the shim's slow path,
+    /// where stdout belongs to the tool it starts and a note there would reach the tool's reader.
+    pub fn all_to_stderr(mut self) -> Ui {
+        self.err_only = true;
+        self.color = self.color_err;
+        self.tty_out = self.tty_err;
+        self
     }
 
     /// Attach a capture: everything this `Ui` prints is kept instead of written.
@@ -291,6 +305,7 @@ impl Ui {
 
     /// Write already-rendered text (it carries its own newlines).
     pub(crate) fn write(&self, s: Stream, text: &str) {
+        let s = if self.err_only { Stream::Err } else { s };
         match &self.io {
             Io::Std => {
                 // A closed pipe is the reader's choice; never fail a command over it.

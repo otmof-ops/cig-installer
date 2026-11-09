@@ -19,7 +19,9 @@ fault-injection = ["cigi-home/fault-injection"]
 [dependencies]
 cig-compat = { workspace = true }
 cigi-home = { workspace = true }
+cigi-shim = { path = "../cigi-shim" }
 cigi-source = { workspace = true }
+toml_edit = "0.22"
 cigi-ui = { path = "../cigi-ui" }
 clap = { version = "4", features = ["derive"] }
 serde_json = { workspace = true }

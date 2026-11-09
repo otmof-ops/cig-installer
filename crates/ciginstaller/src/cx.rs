@@ -48,7 +48,9 @@ pub struct Cx {
     pub trust: DigestTrust,
     pub host: Host,
     pub target: Target,
-    pub project: Option<ProjectCtx>,
+    /// What the walk up from `cwd` found. Held, not raised: a bad pin file only stops the
+    /// commands that need the project (`which`, `__resolve`), see [`Cx::project`].
+    project: Result<Option<ProjectCtx>, InstallerError>,
     pub manifest: OnceCell<Admitted<Manifest>>,
     pub globals: Globals,
     pub cwd: PathBuf,
@@ -89,7 +91,7 @@ impl Cx {
                 std::env::current_dir().map_err(|e| bug(format!("no working directory: {e}")))?
             }
         };
-        let project = project::discover(&cwd)?;
+        let project = project::discover(&cwd, &home.root(), cigi_shim::user_home().as_deref());
         Ok(Cx {
             ui,
             home,
@@ -105,6 +107,11 @@ impl Cx {
             cwd,
             lock: None,
         })
+    }
+
+    /// The project the working directory belongs to, or the reason its pin file cannot be used.
+    pub fn project(&self) -> Result<Option<ProjectCtx>, InstallerError> {
+        self.project.clone()
     }
 
     /// Raise the trust floor for this command (`--require`); never lowers it.
@@ -125,7 +132,15 @@ impl Cx {
 
     /// Layout and permission checks, the lock, `recover`, then a fresh read of `state.json`
     /// (every mutating command starts here, SPEC 12).
+    ///
+    /// Idempotent: when this `Cx` already holds the lock (a flow that calls another flow, the
+    /// slow path's second install) it only reloads `state.json`; taking the lock a second time
+    /// from the same process would wait on itself.
     pub fn lock_and_recover(&mut self) -> Result<(), InstallerError> {
+        if self.lock.is_some() {
+            self.state = State::load(&self.home).map_err(ie)?;
+            return Ok(());
+        }
         // permissions are checked before anything is written, and again once the layout exists
         self.home.check_permissions().map_err(ie)?;
         self.home.ensure_layout().map_err(ie)?;
@@ -188,6 +203,12 @@ impl Cx {
         Ok(())
     }
 
+    /// Let go of the installer lock (a no-op when it is not held). The slow path calls this
+    /// before it spawns the tool, so a long run of the tool does not block other installers.
+    pub fn release_lock(&mut self) {
+        self.lock = None;
+    }
+
     /// Open the transaction of a flow. `lock_and_recover` must have run.
     pub fn begin(&self, label: &str) -> Result<Txn, InstallerError> {
         let lock = self
@@ -210,12 +231,7 @@ impl Cx {
         &self,
         channel: &str,
     ) -> Result<Admitted<Manifest>, cigi_source::FetchError> {
-        let seen = self
-            .state
-            .manifest
-            .as_ref()
-            .filter(|m| m.channel == channel)
-            .map(|m| m.sequence);
+        let seen = self.seen_sequence(channel);
         let opts = ManifestOpts {
             offline: self.globals.offline,
             seen_sequence: seen,
@@ -236,12 +252,7 @@ impl Cx {
             return Ok(m);
         }
         let channel = self.channel();
-        let seen = self
-            .state
-            .manifest
-            .as_ref()
-            .filter(|m| m.channel == channel)
-            .map(|m| m.sequence);
+        let seen = self.seen_sequence(&channel);
         let opts = |offline: bool| ManifestOpts {
             offline,
             seen_sequence: seen,
@@ -292,8 +303,64 @@ impl Cx {
             .ok_or_else(|| bug("the manifest cell is empty after it was set"))
     }
 
+    /// The cached manifest, read without the network and without being remembered: a later
+    /// `manifest(Fresh)` in the same command still fetches. `None` when there is no usable cache.
+    pub fn peek_manifest(&self) -> Option<Manifest> {
+        if let Some(m) = self.manifest.get() {
+            return Some(m.get().clone());
+        }
+        let channel = self.channel();
+        let seen = self.seen_sequence(&channel);
+        let opts = ManifestOpts {
+            offline: true,
+            seen_sequence: seen,
+            now: now_override(),
+            fetch_attestation: false,
+        };
+        get_manifest_with(
+            self.source.as_ref(),
+            &self.trust,
+            &self.home,
+            &channel,
+            &opts,
+        )
+        .ok()
+        .map(|a| a.get().clone())
+    }
+
+    /// The lowest sequence a fetched manifest of `channel` may have (SPEC 7.2): the higher of what
+    /// `state.json` recorded (one channel's, the last installed from) and the sequence of the
+    /// channel's own cache, so switching channels never resets the floor to "first use".
+    fn seen_sequence(&self, channel: &str) -> Option<u64> {
+        let state = self
+            .state
+            .manifest
+            .as_ref()
+            .filter(|m| m.channel == channel)
+            .map(|m| m.sequence);
+        let cached = cigi_source::fetch::read_fetched(&self.home, channel).map(|m| m.sequence);
+        state.max(cached)
+    }
+
+    /// Record the digest of the manifest just admitted for `channel`, so a different document at
+    /// the same sequence is refused later (E1824). The caller saves `state` in its transaction.
+    pub fn record_manifest_digest(&self, state: &mut State, channel: &str, sequence: u64) {
+        if let Some(meta) = cigi_source::fetch::read_fetched(&self.home, channel) {
+            let entry = state
+                .extra
+                .entry(DIGESTS_KEY.to_string())
+                .or_insert_with(|| serde_json::json!({}));
+            if let Some(o) = entry.as_object_mut() {
+                o.insert(
+                    digest_key(channel, sequence),
+                    serde_json::json!(meta.sha256),
+                );
+            }
+        }
+    }
+
     /// A different document at a sequence already recorded for the channel is refused (E1824).
-    fn check_digest_record(&self, channel: &str, m: &Manifest) -> Result<(), InstallerError> {
+    pub fn check_digest_record(&self, channel: &str, m: &Manifest) -> Result<(), InstallerError> {
         let Some(meta) = cigi_source::fetch::read_fetched(&self.home, channel) else {
             return Ok(());
         };

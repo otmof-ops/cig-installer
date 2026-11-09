@@ -71,6 +71,11 @@ fn main() {
         ..GlobalFlags::default()
     };
     let ui = Ui::from_env_and_flags(&flags);
+    let ui = if matches!(cli.command, Some(Command::Resolve { .. })) {
+        ui.all_to_stderr()
+    } else {
+        ui
+    };
     std::process::exit(dispatch(cli, ui));
 }
 
@@ -143,7 +148,7 @@ fn dispatch(cli: Cli, ui: Ui) -> i32 {
 }
 
 fn ui_clone(cli: &Cli) -> Ui {
-    Ui::from_env_and_flags(&GlobalFlags {
+    let ui = Ui::from_env_and_flags(&GlobalFlags {
         json: cli.json,
         plain: cli.plain,
         no_color: cli.no_color,
@@ -154,7 +159,13 @@ fn ui_clone(cli: &Cli) -> Ui {
         offline: cli.offline,
         home: cli.home.clone(),
         ..GlobalFlags::default()
-    })
+    });
+    // on the shim's slow path stdout is the tool's: every word of ours goes to stderr
+    if matches!(cli.command, Some(Command::Resolve { .. })) {
+        ui.all_to_stderr()
+    } else {
+        ui
+    }
 }
 
 fn explain(ui: &Ui, code: Option<&str>, plain: bool) -> i32 {
