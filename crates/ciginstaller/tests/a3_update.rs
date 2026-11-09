@@ -562,3 +562,151 @@ fn a3_notice_once_a_day_on_a_terminal_only() {
     assert!(!t.contains("is out"), "{t}");
     assert!(!fx.cigscript().join("installer/notice.json").exists());
 }
+
+/// Install 0.1.0, update to 0.1.1: the setup of the undo and kill tests.
+fn updated() -> Fixture {
+    let mut fx = fixture();
+    two(&mut fx, "plan: 1 op");
+    ok(&cigi(&fx, &["install", "carton", "--carton", "0.1.0"]));
+    ok(&cigi(&fx, &["update", "--no-trial"]));
+    fx
+}
+
+fn cig_dirs(fx: &Fixture) -> Vec<String> {
+    let mut v: Vec<String> = std::fs::read_dir(fx.cigscript().join("toolchains/cig"))
+        .map(|rd| {
+            rd.flatten()
+                .map(|e| e.file_name().to_string_lossy().to_string())
+                .collect()
+        })
+        .unwrap_or_default();
+    v.sort();
+    v
+}
+
+/// The undo of an update is for a rollback right after it: `use` back and forth in between makes
+/// the next rollback a plain switch that deletes nothing.
+#[test]
+fn a3_rollback_undoes_only_the_update_right_before_it() {
+    let fx = updated();
+    ok(&cigi(&fx, &["use", "0.1.0"]));
+    ok(&cigi(&fx, &["use", "0.1.1"]));
+    let o = cigi(&fx, &["rollback"]);
+    ok(&o);
+    assert!(text(&o).contains("stays installed"), "{}", text(&o));
+    assert_eq!(state(&fx)["machine_carton"], "0.1.0");
+    assert_eq!(state(&fx)["previous"]["machine_carton"], "0.1.1");
+    assert!(state(&fx)["cartons"].get("0.1.1").is_some());
+    assert_eq!(cig_dirs(&fx), ["1.20.0", "1.21.0"], "nothing was deleted");
+    ok(&cigi(&fx, &["use", "0.1.1"]));
+    // and the plain case still undoes: the toolchain is gone once the rollback is done
+    let fx = updated();
+    ok(&cigi(&fx, &["rollback"]));
+    assert_eq!(cig_dirs(&fx), ["1.20.0"]);
+    assert!(state(&fx)["cartons"].get("0.1.1").is_none());
+}
+
+fn crashed(o: &Output) -> bool {
+    o.status.code().is_none()
+}
+
+/// `update` killed at every fault point: the next command recovers, and the machine is wholly the
+/// old carton or wholly the new one, never between.
+#[test]
+fn a3_update_survives_a_kill_at_every_point() {
+    let phases = [
+        "mkdir", "store", "link", "move", "write", "block", "flip", "flipped", "commit",
+    ];
+    let (mut crashes, mut pre, mut post) = (0, 0, 0);
+    for phase in phases {
+        for n in 1..60 {
+            let mut fx = fixture();
+            two(&mut fx, "plan: 1 op");
+            ok(&cigi(&fx, &["install", "carton", "--carton", "0.1.0"]));
+            let o = fx
+                .cigi()
+                .env("CIGI_ALLOW_SINGLE_SOURCE", "true")
+                .env("CIGI_FAULT", format!("{phase}:{n}"))
+                .args(["--yes", "update", "--no-trial"])
+                .output()
+                .unwrap();
+            if !crashed(&o) {
+                break;
+            }
+            crashes += 1;
+            ok(&cigi(&fx, &["update", "--dry-run"]));
+            let machine = state(&fx)["machine_carton"].as_str().unwrap().to_string();
+            let said = out(&fx.run_shim("cig", &fx.project, &["--version"]));
+            match machine.as_str() {
+                "0.1.0" => {
+                    pre += 1;
+                    assert_eq!(said, "cig 1.20.0", "{phase}:{n}");
+                    assert_eq!(cig_dirs(&fx), ["1.20.0"], "{phase}:{n}");
+                }
+                "0.1.1" => {
+                    post += 1;
+                    assert_eq!(said, "cig 1.21.0", "{phase}:{n}");
+                    assert!(index(&fx).contains("machine\t0.1.1"), "{phase}:{n}");
+                }
+                other => panic!("{phase}:{n}: machine carton {other}"),
+            }
+            let o = fx.run_shim("cigo", &fx.project, &[]);
+            assert!(
+                out(&o).starts_with("cigo 1.17.0"),
+                "{phase}:{n}: {}",
+                text(&o)
+            );
+        }
+    }
+    assert!(crashes >= 10, "only {crashes} fault points reached");
+    assert!(pre > 0 && post > 0, "pre {pre}, post {post}");
+}
+
+/// The undo of an update killed at every point: the machine is wholly the new carton or wholly the
+/// old one, and the shims run what the state says.
+#[test]
+fn a3_rollback_undo_survives_a_kill_at_every_point() {
+    let phases = [
+        "mkdir", "store", "link", "move", "write", "block", "flip", "flipped", "commit",
+    ];
+    let (mut crashes, mut pre, mut post) = (0, 0, 0);
+    for phase in phases {
+        for n in 1..60 {
+            let fx = updated();
+            let o = fx
+                .cigi()
+                .env("CIGI_ALLOW_SINGLE_SOURCE", "true")
+                .env("CIGI_FAULT", format!("{phase}:{n}"))
+                .args(["--yes", "rollback"])
+                .output()
+                .unwrap();
+            if !crashed(&o) {
+                break;
+            }
+            crashes += 1;
+            ok(&cigi(&fx, &["update", "--dry-run"]));
+            let machine = state(&fx)["machine_carton"].as_str().unwrap().to_string();
+            let said = out(&fx.run_shim("cig", &fx.project, &["--version"]));
+            match machine.as_str() {
+                "0.1.1" => {
+                    pre += 1;
+                    assert_eq!(said, "cig 1.21.0", "{phase}:{n}");
+                    assert!(cig_dirs(&fx).contains(&"1.21.0".to_string()), "{phase}:{n}");
+                }
+                "0.1.0" => {
+                    post += 1;
+                    assert_eq!(said, "cig 1.20.0", "{phase}:{n}");
+                }
+                other => panic!("{phase}:{n}: machine carton {other}"),
+            }
+            let o = fx.run_shim("cigo", &fx.project, &[]);
+            assert!(
+                out(&o).starts_with("cigo 1.17.0"),
+                "{phase}:{n}: {}",
+                text(&o)
+            );
+        }
+    }
+    assert!(crashes >= 5, "only {crashes} fault points reached");
+    assert!(pre > 0 && post > 0, "pre {pre}, post {post}");
+}

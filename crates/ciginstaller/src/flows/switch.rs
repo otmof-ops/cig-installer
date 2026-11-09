@@ -28,6 +28,8 @@ pub struct UpdateUndo {
     pub added: String,
     pub from: String,
     pub previous: Previous,
+    /// The history id of the update that wrote this record.
+    pub txn: String,
 }
 
 impl UpdateUndo {
@@ -35,6 +37,7 @@ impl UpdateUndo {
         json!({
             "added": self.added,
             "from": self.from,
+            "txn": self.txn,
             "previous": {
                 "machine_carton": self.previous.machine_carton,
                 "kept_until": self.previous.kept_until,
@@ -49,6 +52,7 @@ impl UpdateUndo {
         Some(UpdateUndo {
             added: text(v.get("added")?)?,
             from: text(v.get("from")?)?,
+            txn: text(v.get("txn")?)?,
             previous: Previous {
                 machine_carton: prev.get("machine_carton").and_then(text),
                 kept_until: prev.get("kept_until").and_then(text),
@@ -56,10 +60,16 @@ impl UpdateUndo {
         })
     }
 
-    /// Does it still describe the machine: on the carton the update added, with the one it left
-    /// as the previous? (Any other switch since makes it stale, and it is then ignored.)
+    /// Does it still describe the machine: the update is the newest history entry, the machine is
+    /// on the carton it added, and the one it left is the previous? (Any other switch since makes
+    /// it stale, and it is then ignored.)
     pub fn applies(&self, state: &State) -> bool {
-        state.machine_carton.as_deref() == Some(self.added.as_str())
+        // a rollback right after its update: the update is the newest thing that happened
+        state
+            .history
+            .last()
+            .is_some_and(|h| h.id == self.txn && h.what == "update")
+            && state.machine_carton.as_deref() == Some(self.added.as_str())
             && state.previous.machine_carton.as_deref() == Some(self.from.as_str())
             && state.cartons.contains_key(&self.added)
     }

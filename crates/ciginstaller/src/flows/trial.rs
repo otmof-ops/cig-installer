@@ -13,7 +13,7 @@ use std::process::{Child, Command, Stdio};
 use std::time::{Duration, Instant, SystemTime};
 
 use cig_compat::Version;
-use cigi_shim::{trusted_entry, trusted_for};
+use cigi_shim::{trusted_entry, Trusted};
 
 use crate::project::ProjectCtx;
 
@@ -82,9 +82,9 @@ pub trait Trial {
 }
 
 /// The trials of this build: cig's, and stubs for the tools that have no entry point yet.
-pub fn registered() -> Vec<Box<dyn Trial>> {
+pub fn registered(trust: Trusted) -> Vec<Box<dyn Trial>> {
     vec![
-        Box::new(CigTrial),
+        Box::new(CigTrial { trust }),
         Box::new(CigoTrial),
         Box::new(CigcompileTrial),
     ]
@@ -136,7 +136,11 @@ impl Trial for CigcompileTrial {
 
 // ------------------------------------------------------------------------------------ cig
 
-pub struct CigTrial;
+/// `trust` is who may own the scripts it runs: anchored on the installer home's owner, as pin files
+/// are (`cigi_shim::trusted_for(home root)`), whatever directory the project is in.
+pub struct CigTrial {
+    pub trust: Trusted,
+}
 
 impl Trial for CigTrial {
     fn tool(&self) -> &str {
@@ -151,7 +155,12 @@ impl Trial for CigTrial {
         budget: Duration,
     ) -> TrialOutcome {
         let mut out = TrialOutcome::default();
-        let scripts = find_scripts(&project.root);
+        let (scripts, truncated) = find_scripts(&project.root, self.trust);
+        if truncated {
+            out.skipped.push(format!(
+                "cig: the project has more than {MAX_VISITED} entries; only what the search reached was sampled, so the newest scripts may be missing"
+            ));
+        }
         if scripts.is_empty() {
             out.skipped
                 .push("cig: no .cig scripts found in the project".to_string());
@@ -271,16 +280,54 @@ fn rel_label(root: &Path, p: &Path) -> String {
 struct Scratch(PathBuf);
 
 impl Scratch {
+    /// A new directory with a random name in the temp dir, made non-recursively with mode 0700
+    /// (a name that already exists is refused and another is drawn), and the directories a child
+    /// needs inside it.
     fn new() -> std::io::Result<Scratch> {
-        let nanos = SystemTime::now()
-            .duration_since(SystemTime::UNIX_EPOCH)
-            .map(|d| d.subsec_nanos())
-            .unwrap_or(0);
-        let p = std::env::temp_dir().join(format!("cigi-trial-{}-{nanos}", std::process::id()));
-        std::fs::create_dir_all(p.join("home"))?;
-        std::fs::create_dir_all(p.join("cache"))?;
-        Ok(Scratch(p))
+        let mut last = None;
+        for _ in 0..8 {
+            let p = std::env::temp_dir().join(format!("cigi-trial-{}", random_name()));
+            match make_private_dir(&p) {
+                Ok(()) => {
+                    let s = Scratch(p);
+                    for d in ["home", "user", "cache", "data", "state", "config", "tmp"] {
+                        make_private_dir(&s.0.join(d))?;
+                    }
+                    return Ok(s);
+                }
+                Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => last = Some(e),
+                Err(e) => return Err(e),
+            }
+        }
+        Err(last.unwrap_or_else(|| std::io::Error::other("no free scratch name")))
     }
+}
+
+#[cfg(unix)]
+fn make_private_dir(p: &Path) -> std::io::Result<()> {
+    use std::os::unix::fs::DirBuilderExt;
+    std::fs::DirBuilder::new().mode(0o700).create(p)
+}
+#[cfg(not(unix))]
+fn make_private_dir(p: &Path) -> std::io::Result<()> {
+    std::fs::create_dir(p)
+}
+
+/// 16 hex digits from the system's random source (the clock and pid only where there is none).
+fn random_name() -> String {
+    let mut b = [0u8; 8];
+    let got = std::fs::File::open("/dev/urandom")
+        .and_then(|mut f| f.read_exact(&mut b))
+        .is_ok();
+    if !got {
+        let n = SystemTime::now()
+            .duration_since(SystemTime::UNIX_EPOCH)
+            .map(|d| d.as_nanos() as u64)
+            .unwrap_or(0)
+            ^ (u64::from(std::process::id()) << 32);
+        b = n.to_le_bytes();
+    }
+    b.iter().map(|x| format!("{x:02x}")).collect()
 }
 
 impl Drop for Scratch {
@@ -291,8 +338,8 @@ impl Drop for Scratch {
 
 /// The `*.cig` files of a project the trial may run: regular files we may trust, under 1 MB,
 /// not in `.git`, `node_modules`, `target` or a hidden directory; newest first, at most 50.
-pub fn find_scripts(root: &Path) -> Vec<PathBuf> {
-    let trust = trusted_for(root);
+pub fn find_scripts(root: &Path, trust: Trusted) -> (Vec<PathBuf>, bool) {
+    let mut truncated = false;
     let mut found: Vec<(SystemTime, PathBuf)> = Vec::new();
     let mut queue: VecDeque<(PathBuf, usize)> = VecDeque::new();
     queue.push_back((root.to_path_buf(), 0));
@@ -304,6 +351,7 @@ pub fn find_scripts(root: &Path) -> Vec<PathBuf> {
         for e in rd.flatten() {
             visited += 1;
             if visited > MAX_VISITED {
+                truncated = true;
                 queue.clear();
                 break;
             }
@@ -329,7 +377,7 @@ pub fn find_scripts(root: &Path) -> Vec<PathBuf> {
     }
     found.sort_by(|a, b| b.0.cmp(&a.0).then_with(|| a.1.cmp(&b.1)));
     found.truncate(MAX_SCRIPTS);
-    found.into_iter().map(|(_, p)| p).collect()
+    (found.into_iter().map(|(_, p)| p).collect(), truncated)
 }
 
 struct RunOutput {
@@ -353,7 +401,8 @@ fn spawn_retrying(cmd: &mut Command) -> std::io::Result<Child> {
     }
 }
 
-fn drain<R: Read + Send + 'static>(r: Option<R>) -> std::thread::JoinHandle<Vec<u8>> {
+fn drain<R: Read + Send + 'static>(r: Option<R>) -> std::sync::mpsc::Receiver<Vec<u8>> {
+    let (tx, rx) = std::sync::mpsc::channel();
     std::thread::spawn(move || {
         let mut kept = Vec::new();
         if let Some(mut r) = r {
@@ -369,8 +418,9 @@ fn drain<R: Read + Send + 'static>(r: Option<R>) -> std::thread::JoinHandle<Vec<
                 }
             }
         }
-        kept
-    })
+        let _ = tx.send(kept);
+    });
+    rx
 }
 
 /// `<exe> run --dry-run --plain --no-color --no-doctor <script>` in the script's directory, with
@@ -387,12 +437,28 @@ fn run_one(
         .map(|n| n.to_string_lossy().to_string())
         .unwrap_or_default();
     let mut cmd = Command::new(&who.path);
+    cmd.env_clear();
+    // a short allow-list from the parent; everything else of the user's environment stays out
+    for k in ["PATH", "LANG", "LC_ALL", "TZ"] {
+        if let Some(v) = std::env::var_os(k) {
+            cmd.env(k, v);
+        }
+    }
+    cmd.env(
+        "TERM",
+        std::env::var_os("TERM").unwrap_or_else(|| "dumb".into()),
+    );
     cmd.args(["run", "--dry-run", "--plain", "--no-color", "--no-doctor"])
         // "./name": a file called `-x.cig` is a path, not a flag
         .arg(format!("./{name}"))
         .current_dir(dir)
+        .env("HOME", scratch.join("user"))
         .env("CIGSCRIPT_HOME", scratch.join("home"))
         .env("XDG_CACHE_HOME", scratch.join("cache"))
+        .env("XDG_DATA_HOME", scratch.join("data"))
+        .env("XDG_STATE_HOME", scratch.join("state"))
+        .env("XDG_CONFIG_HOME", scratch.join("config"))
+        .env("TMPDIR", scratch.join("tmp"))
         .env("CIGI_CARTON", &who.carton)
         .env("NO_COLOR", "1")
         .stdin(Stdio::null())
@@ -408,8 +474,9 @@ fn run_one(
             Ok(None) if Instant::now() >= deadline => {
                 let _ = child.kill();
                 let _ = child.wait();
-                let _ = out.join();
-                let _ = err.join();
+                // never join the readers here: a grandchild holding the pipes open would block
+                // the trial past its limit. They end by themselves when the pipes close.
+                drop((out, err));
                 return Err(format!("did not finish in {}s", limit.as_secs()));
             }
             Ok(None) => std::thread::sleep(Duration::from_millis(10)),
@@ -417,8 +484,10 @@ fn run_one(
         }
     };
     let status = status.map_err(|e| format!("could not be waited for: {e}"))?;
-    let text = |h: std::thread::JoinHandle<Vec<u8>>| {
-        String::from_utf8_lossy(&h.join().unwrap_or_default()).into_owned()
+    // a grandchild that kept a pipe open must not hold the trial: wait a moment, then go on
+    let text = |h: std::sync::mpsc::Receiver<Vec<u8>>| {
+        String::from_utf8_lossy(&h.recv_timeout(Duration::from_secs(2)).unwrap_or_default())
+            .into_owned()
     };
     Ok(RunOutput {
         exit: status.code(),
@@ -624,6 +693,7 @@ pub fn unified_diff(old_label: &str, new_label: &str, a: &str, b: &str) -> Strin
 #[cfg(test)]
 mod tests {
     use super::*;
+    use cigi_shim::trusted_for;
 
     const HELLO: &str = include_str!("../../tests/golden/cig-1.20.0-dry-run/hello.txt");
     const USAGE: &str = include_str!("../../tests/golden/cig-1.20.0-dry-run/usage-error.txt");
@@ -728,7 +798,8 @@ mod tests {
         ] {
             std::fs::write(proj.join(f), "x\n").unwrap();
         }
-        let found = find_scripts(&proj);
+        let (found, truncated) = find_scripts(&proj, trusted_for(&proj));
+        assert!(!truncated);
         let names: Vec<String> = found.iter().map(|p| rel_label(&proj, p)).collect();
         assert_eq!(names.len(), 2, "{names:?}");
         assert!(names.contains(&"a.cig".to_string()) && names.contains(&"sub/b.cig".to_string()));
@@ -748,7 +819,10 @@ mod tests {
             root: proj.clone(),
             ..ProjectCtx::default()
         };
-        let o = CigTrial.run(&old, &new, &ctx, Duration::from_secs(30));
+        let o = CigTrial {
+            trust: trusted_for(d.path()),
+        }
+        .run(&old, &new, &ctx, Duration::from_secs(30));
         assert_eq!((o.compared, o.same), (2, 1), "{o:?}");
         assert_eq!(o.different.len(), 1);
         assert_eq!(o.different[0].script, "sub/b.cig");
@@ -771,17 +845,23 @@ mod tests {
             ..ProjectCtx::default()
         };
         let same = |n: &str| fake_cig(d.path(), n, "echo boom >&2; exit 2");
-        let o = CigTrial.run(&same("o1"), &same("n1"), &ctx, Duration::from_secs(30));
+        let o = CigTrial {
+            trust: trusted_for(d.path()),
+        }
+        .run(&same("o1"), &same("n1"), &ctx, Duration::from_secs(30));
         assert_eq!((o.compared, o.same, o.different.len()), (1, 1, 0));
         // a budget already spent runs nothing and says so
-        let o = CigTrial.run(&same("o2"), &same("n2"), &ctx, Duration::ZERO);
+        let o = CigTrial {
+            trust: trusted_for(d.path()),
+        }
+        .run(&same("o2"), &same("n2"), &ctx, Duration::ZERO);
         assert_eq!(o.compared, 0);
         assert!(o.skipped.iter().any(|s| s.contains("budget")), "{o:?}");
     }
 
     #[test]
     fn the_other_tools_are_registered_stubs() {
-        let r = registered();
+        let r = registered(trusted_for(Path::new("/")));
         let tools: Vec<&str> = r.iter().map(|t| t.tool()).collect();
         assert_eq!(tools, ["cig", "cigo", "cigcompile"]);
         let any = Resolved {

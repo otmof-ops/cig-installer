@@ -11,7 +11,6 @@
 
 use cig_compat::{check, Combination, Origin, Severity, Version};
 use cigi_home::state::{HistoryEntry, Previous, Stick, ROLLBACK_STICK_PREFIX};
-use cigi_home::toolchain::remove_toolchain;
 use cigi_home::{now_rfc3339, remove_humidor_mirror, State, Txn};
 use cigi_ui::{InstallerError, Report, EXIT_REFUSED};
 use serde_json::json;
@@ -70,7 +69,12 @@ pub fn run(cx: &mut Cx, a: &RollbackArgs) -> Result<Report, InstallerError> {
     let mut txn = cx.begin(&format!("rollback to carton {prev}"))?;
     let id = txn.id().to_string();
     let r = apply_carton(cx, &mut txn, &before, &cur, &prev, undo.as_ref());
-    settle(txn, r)?;
+    let doomed = settle(txn, r)?;
+    // the toolchains the undo leaves unused go after the commit, outside the journal: no shim ever
+    // finds an index that points at a deleted toolchain. A failure leaves them for `gc`.
+    for (t, v) in &doomed {
+        remove_unused_toolchain(&cx.home, t, v);
+    }
     cx.state = State::load(&cx.home).map_err(ie)?;
     let mut rep = Report::done(format!("rolled back carton {cur} to {prev}"));
     if undo.is_some() {
@@ -92,8 +96,9 @@ fn apply_carton(
     cur: &str,
     prev: &str,
     undo: Option<&UpdateUndo>,
-) -> Result<(), InstallerError> {
+) -> Result<Vec<(String, Version)>, InstallerError> {
     let home = cx.home.clone();
+    let mut doomed: Vec<(String, Version)> = Vec::new();
     let prec = before.cartons.get(prev).ok_or_else(|| {
         nothing(&format!(
             "the previous carton {prev} is no longer installed"
@@ -121,15 +126,10 @@ fn apply_carton(
                         continue;
                     }
                     if let Ok(v) = Version::parse(v) {
-                        remove_toolchain(txn, &home, t, &v).map_err(ie)?;
                         if t == "cig" {
                             remove_humidor_mirror(txn, &home, &v).map_err(ie)?;
                         }
-                        // a tool this carton introduced leaves no empty directory behind
-                        let dir = home.toolchains().join(t);
-                        if std::fs::read_dir(&dir).is_ok_and(|mut d| d.next().is_none()) {
-                            txn.delete(&dir).map_err(ie)?;
-                        }
+                        doomed.push((t.clone(), v));
                     }
                 }
             }
@@ -152,8 +152,50 @@ fn apply_carton(
         ok: true,
     });
     resync_shims(txn, &home, before, &state)?;
-    save_and_flip(txn, &home, &state, cached_yanked(cx))
+    save_and_flip(txn, &home, &state, cached_yanked(cx))?;
+    Ok(doomed)
 }
+
+/// A tool name that can only be one directory under `toolchains/` (state.json is read, not trusted).
+fn plain_tool_name(t: &str) -> bool {
+    !t.is_empty()
+        && t.len() <= 64
+        && t.bytes()
+            .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-' || b == b'_')
+}
+
+/// Best effort, after the commit: remove `toolchains/<tool>/<version>` and the tool directory when
+/// that leaves it empty.
+fn remove_unused_toolchain(home: &cigi_home::Home, tool: &str, v: &Version) {
+    if !plain_tool_name(tool) {
+        return;
+    }
+    let dir = home.toolchain(tool, v);
+    if !dir.starts_with(home.toolchains()) {
+        return;
+    }
+    if std::fs::remove_dir_all(&dir).is_err() {
+        // read-only directories: open them up, then try once more
+        make_writable(&dir);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+    let _ = std::fs::remove_dir(home.toolchains().join(tool));
+}
+
+#[cfg(unix)]
+fn make_writable(dir: &std::path::Path) {
+    use std::os::unix::fs::PermissionsExt;
+    if let Ok(rd) = std::fs::read_dir(dir) {
+        for e in rd.flatten() {
+            if e.file_type().is_ok_and(|t| t.is_dir()) {
+                make_writable(&e.path());
+            }
+        }
+    }
+    let _ = std::fs::set_permissions(dir, std::fs::Permissions::from_mode(0o755));
+}
+#[cfg(not(unix))]
+fn make_writable(_dir: &std::path::Path) {}
 
 /// `rollback <tool>`: only that tool's build in the previous carton. The machine becomes a mix,
 /// which is recorded as a stick and checked, with a warning.

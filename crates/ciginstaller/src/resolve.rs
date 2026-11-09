@@ -81,6 +81,29 @@ fn found(
     why: Why,
     steps: Vec<String>,
 ) -> Result<Resolution, InstallerError> {
+    // `rollback <tool>` put one build of the machine carton's tool back: wherever the chosen carton
+    // is the machine carton (a pin, CIGI_CARTON, the machine itself) that build runs, exactly as
+    // the shim's index has it
+    let mut steps = steps;
+    let mut build = build;
+    if let (Some(c), Some(mc)) = (&carton, cx.state.machine_carton.as_deref()) {
+        if c.to_string() == mc {
+            if let Some(rb) = cx
+                .state
+                .sticks
+                .iter()
+                .find(|s| s.tool == tool && s.is_rollback())
+                .and_then(|s| parsed(&s.version))
+            {
+                if rb != build {
+                    steps.push(format!(
+                        "   {tool} was rolled back to {rb}, which runs in place of {build} in the machine carton {mc}"
+                    ));
+                    build = rb;
+                }
+            }
+        }
+    }
     let path = tool_exe(&cx.home, tool, &build).ok_or_else(|| {
         InstallerError::new("E1831", format!("{tool} {build} has no readable receipt"))
             .with_fix("ciginstaller repair")
@@ -352,21 +375,6 @@ fn resolve_inner(
     }
     steps.push("3. no legacy pin files".to_string());
 
-    // 4. the machine carton, except for a tool `rollback <tool>` put back one build
-    if let Some(s) = cx
-        .state
-        .sticks
-        .iter()
-        .find(|s| s.tool == tool && s.is_rollback())
-    {
-        if let Some(b) = parsed(&s.version) {
-            steps.push(format!(
-                "4. {tool} was rolled back to {b} (from carton {}), which runs instead of the machine carton's",
-                s.from_carton
-            ));
-            return found(cx, tool, parsed(&s.from_carton), b, Why::Stick, steps);
-        }
-    }
     // 4. the machine carton (rolled-back tools were handled above)
     if let Some(mc) = cx.state.machine_carton.clone().and_then(|c| parsed(&c)) {
         let b = cx

@@ -59,14 +59,34 @@ fn refused(code: &'static str, msg: impl Into<String>, fix: &str) -> InstallerEr
         .with_exit(EXIT_REFUSED)
 }
 
-/// Set on the re-exec after a self-update, so the new binary does not try again (one hop).
+/// Set on the re-exec after a self-update to the version that was installed, so the new binary
+/// does not try again (one hop). It counts only when it equals the running version: a stale or
+/// planted value disables nothing.
 const REEXEC_MARK: &str = "CIGI_SELF_UPDATED";
 
 /// SPEC 12.2 step 1: `self update` first, when the manifest holds a newer installer, and carry on
 /// with the new binary by re-exec, with the same arguments. A dev build (not `bin/ciginstaller`)
 /// never replaces itself, so it updates the cartons only.
-fn self_update_first(cx: &mut Cx, _a: &UpdateArgs) -> Result<(), InstallerError> {
-    if std::env::var_os(REEXEC_MARK).is_some() || !self_update::is_managed(&cx.home) {
+///
+/// A self-update that fails with E1853 (the new build did not pass its self-check, and the old one
+/// is back) or E1815 (no build for this platform) is a note: the cartons still update with the
+/// running binary. Any other error stops the update.
+fn self_update_first(cx: &mut Cx) -> Result<(), InstallerError> {
+    match self_update_step(cx) {
+        Err(e) if e.code == "E1853" || e.code == "E1815" => {
+            cx.note(&format!(
+                "{}: {}; updating the cartons with this ciginstaller",
+                e.code, e.message
+            ));
+            Ok(())
+        }
+        r => r,
+    }
+}
+
+fn self_update_step(cx: &mut Cx) -> Result<(), InstallerError> {
+    let marked = std::env::var(REEXEC_MARK).is_ok_and(|v| v == env!("CARGO_PKG_VERSION"));
+    if marked || !self_update::is_managed(&cx.home) {
         return Ok(());
     }
     let m = cx.manifest(ManifestMode::Fresh)?.clone();
@@ -89,10 +109,14 @@ fn reexec(cx: &mut Cx) -> Result<(), InstallerError> {
     use std::os::unix::process::CommandExt;
     cx.release_lock();
     let exe = cigi_home::shim_path(&cx.home, "ciginstaller");
+    // the mark names the version just installed: only that binary skips the step
+    let installed = State::load(&cx.home)
+        .map(|s| s.installer.version)
+        .unwrap_or_default();
     let err = std::process::Command::new(&exe)
         .arg0("ciginstaller")
         .args(std::env::args_os().skip(1))
-        .env(REEXEC_MARK, "1")
+        .env(REEXEC_MARK, installed)
         .exec();
     Err(InstallerError::new(
         "E1853",
@@ -120,7 +144,10 @@ pub fn run(cx: &mut Cx, a: &UpdateArgs) -> Result<Updated, InstallerError> {
     }
     if !a.check {
         cx.lock_and_recover()?;
-        self_update_first(cx, a)?;
+        // only a real update replaces the installer: a dry run or a trial writes nothing
+        if !a.dry_run && !a.trial_only {
+            self_update_first(cx)?;
+        }
     }
     let Some(machine) = cx.state.machine_carton.clone() else {
         return Err(refused(
@@ -547,7 +574,7 @@ fn stage(
             },
         });
     }
-    let trials = trial::registered();
+    let trials = trial::registered(trusted_for(&cx.home.root()));
     let mut pairs: Vec<(Resolved, Resolved)> = Vec::new();
     let mut skipped = Vec::new();
     for c in changes {
@@ -612,6 +639,19 @@ fn trial_project(cx: &Cx, explicit: Option<&Path>) -> Result<Option<ProjectCtx>,
                 format!("--project {} is not a directory", dir.display()),
             )
             .with_fix("ciginstaller update --project .")
+            .with_exit(EXIT_USAGE));
+        }
+        // the same footing as the automatic search: a directory the installer home's owner owns
+        // (or root), and not a shared one
+        if !trusted_entry(&root, trusted_for(&cx.home.root()), true) || is_shared(&root) {
+            return Err(InstallerError::new(
+                "E1870",
+                format!(
+                    "--project {} is shared or belongs to another user; the trial only runs scripts of this user's own projects",
+                    dir.display()
+                ),
+            )
+            .with_fix("ciginstaller update --no-trial")
             .with_exit(EXIT_USAGE));
         }
         return Ok(Some(ProjectCtx {
@@ -831,6 +871,7 @@ fn switch(
             added: tv.clone(),
             from: curs.clone(),
             previous: old_previous,
+            txn: txn.id().to_string(),
         };
         state.extra.insert(UNDO_KEY.to_string(), undo.to_value());
     } else {
