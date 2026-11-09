@@ -8,6 +8,7 @@ members = [
     "crates/cigi-shim",
     "crates/ciginstaller",
     "crates/cigi-testkit",
+    "xtask",
 ]
 
 [workspace.package]

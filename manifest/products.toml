@@ -1,0 +1,24 @@
+# SPDX-FileCopyrightText: 2026 Jay Taylor (https://github.com/otmof-ops/cig-installer)
+# SPDX-License-Identifier: Apache-2.0
+#
+# What each product build needs and carries: the [product.*] tables (SPEC 6.1). Every product
+# version a new carton names needs an entry here, even an empty one, and `assemble` refuses a
+# carton whose builds' requirements do not hold inside it. Write where each fact was read.
+
+[product.cig."1.20.0"]
+requires = {}
+
+[product.cigo."1.17.0"]
+# bin/cigo checks cig >= 1.16.1 (needs_major/minor/patch), the same floor as orchestrate.cig's
+# `# cig >=1.16.1` pin.
+requires = { cig = ">=1.16.1, <2" }
+
+[product.cigcompile."0.2.0"]
+requires = {}
+# Cargo.toml: cigscript at tag v1.18.0, whose JOURNAL_FORMAT is 3.
+embeds = { cig_runtime = "1.18.0", journal_format = 3 }
+
+[product.cigcompile."0.3.0"]
+requires = {}
+# Cargo.toml: cigscript at tag v1.20.0, whose JOURNAL_FORMAT is 3.
+embeds = { cig_runtime = "1.20.0", journal_format = 3 }

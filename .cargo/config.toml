@@ -1,0 +1,5 @@
+# SPDX-FileCopyrightText: 2026 Jay Taylor (https://github.com/otmof-ops/cig-installer)
+# SPDX-License-Identifier: Apache-2.0
+[alias]
+# `cargo xtask manifest assemble ...`, `cargo xtask pins <manifest.toml>`
+xtask = "run --quiet --package xtask --"

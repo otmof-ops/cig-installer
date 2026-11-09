@@ -1,0 +1,54 @@
+# SPDX-FileCopyrightText: 2026 Jay Taylor (https://github.com/otmof-ops/cig-installer)
+# SPDX-License-Identifier: Apache-2.0
+#
+# How each product is distributed: the [tool.*] tables of every manifest (SPEC 6.1).
+# `cargo xtask manifest assemble` copies them in. Once a tool has a published build, its repo,
+# tag, layout, asset, sidecar, strip and shims stay as they are: those are the names its builds
+# already have. Targets and `attests` may change.
+#
+# Each product's release workflow publishes a `.sha256` sidecar per asset and a build
+# attestation (actions/attest-build-provenance), so every tool here `attests`.
+
+[tool.cig]
+repo    = "otmof-ops/cig-script"
+tag     = "v{version}"
+layout  = "binary"
+asset   = "cig-v{version}-{os}-{arch}{exe}"
+sidecar = "{asset}.sha256"
+shims   = [ { name = "cig", path = "bin/cig", windows_path = "bin/cig.exe" } ]
+targets = [ "freebsd-x86_64", "linux-aarch64", "linux-arm", "linux-x86_64", "macos-aarch64", "macos-x86_64", "windows-aarch64", "windows-x86_64" ]
+attests = true
+
+[tool.cigo]
+repo    = "otmof-ops/cig-orchestrator"
+tag     = "v{version}"
+layout  = "archive"
+asset   = "cig-orchestrator-v{version}.tar.gz"
+sidecar = "{asset}.sha256"
+strip   = 1
+shims   = [ { name = "cigo", path = "bin/cigo", windows_path = "bin/cigo.cmd" } ]
+targets = [ "any" ]
+attests = true
+
+[tool.cigcompile]
+repo    = "otmof-ops/cig-compile"
+tag     = "v{version}"
+layout  = "binary"
+asset   = "cigcompile-v{version}-{os}-{arch}{exe}"
+sidecar = "{asset}.sha256"
+shims   = [ { name = "cigcompile", path = "bin/cigcompile", windows_path = "bin/cigcompile.exe" } ]
+targets = [ "freebsd-x86_64", "linux-aarch64", "linux-arm", "linux-x86_64", "macos-aarch64", "macos-x86_64", "windows-aarch64", "windows-x86_64" ]
+attests = true
+
+# The installer is a carton member (#3) that updates itself first (SPEC 12.4). Its release
+# workflow is phase 3; until a release exists no carton names it.
+[tool.ciginstaller]
+repo    = "otmof-ops/cig-installer"
+tag     = "v{version}"
+layout  = "archive"
+asset   = "ciginstaller-v{version}-{os}-{arch}.tar.gz"
+sidecar = "{asset}.sha256"
+strip   = 0
+shims   = []
+targets = [ "linux-x86_64", "linux-aarch64", "macos-aarch64", "macos-x86_64", "windows-x86_64", "windows-aarch64" ]
+attests = true
