@@ -1,0 +1,18 @@
+[package]
+name = "xtask"
+description = "Maintainer tools: assemble the next manifest, write the compiled-in pins"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+
+[dependencies]
+cig-compat = { workspace = true }
+cigi-source = { workspace = true }
+hex = { workspace = true }
+serde_json = { workspace = true }
+sha2 = { workspace = true }
+time = { workspace = true }
+toml = { workspace = true }

@@ -111,6 +111,43 @@ pub struct ToolDef {
     pub extra: Table,
 }
 
+/// What one build of a tool is called on its release: the tag, the asset and its sidecar.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ReleaseNames {
+    pub tag: String,
+    pub asset: String,
+    pub sidecar: String,
+}
+
+impl ToolDef {
+    /// The names `version` has for `target` (`any`, or `os-arch`), from this tool's templates.
+    /// The one place the templates are filled in: the parser and `xtask manifest assemble` agree.
+    pub fn names(&self, version: &Version, target: &str) -> Result<ReleaseNames, String> {
+        let ver = version.to_string();
+        let mut vars: Vec<(&str, &str)> = vec![("version", &ver)];
+        let (os, arch);
+        if target != "any" {
+            let Some(tg) = Target::parse(target) else {
+                return Err(format!("`{target}` is not a target"));
+            };
+            os = tg.os;
+            arch = tg.arch;
+            vars.push(("os", &os));
+            vars.push(("arch", &arch));
+            vars.push(("exe", if os == "windows" { ".exe" } else { "" }));
+        }
+        let tag = expand(&self.tag, &vars)?;
+        let asset = expand(&self.asset, &vars)?;
+        vars.push(("asset", &asset));
+        let sidecar = expand(&self.sidecar, &vars)?;
+        Ok(ReleaseNames {
+            tag,
+            asset,
+            sidecar,
+        })
+    }
+}
+
 /// One downloadable file of one build for one target.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Artifact {
@@ -559,24 +596,13 @@ fn parse_artifact(
         return err(format!("{path}.size is 1 GB or more"));
     }
     let url = opt_str(t, "url", path)?;
-    let ver = version.to_string();
-    let mut vars: Vec<(&str, &str)> = vec![("version", &ver)];
-    let (os, arch);
-    if target != "any" {
-        let Some(tg) = Target::parse(target) else {
-            return err(format!("{path}: `{target}` is not a target"));
-        };
-        os = tg.os;
-        arch = tg.arch;
-        vars.push(("os", &os));
-        vars.push(("arch", &arch));
-        vars.push(("exe", if os == "windows" { ".exe" } else { "" }));
-    }
-    let wrap = |r: Result<String, String>| r.or_else(|e| err(format!("{path}: {e}")));
-    let tag = wrap(expand(&def.tag, &vars))?;
-    let asset = wrap(expand(&def.asset, &vars))?;
-    vars.push(("asset", &asset));
-    let sidecar = wrap(expand(&def.sidecar, &vars))?;
+    let ReleaseNames {
+        tag,
+        asset,
+        sidecar,
+    } = def
+        .names(version, target)
+        .or_else(|e| err(format!("{path}: {e}")))?;
     let base = format!("https://github.com/{}/releases/download/{tag}", def.repo);
     let known = ["sha256", "size", "url"];
     let extra = t

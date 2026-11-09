@@ -6,8 +6,14 @@
 //! has reviewed. Empty until then: a build that is not listed here can still be `checksummed` or
 //! `attested`, it just cannot be `pinned`.
 
-/// `("tool-version-target", "sha256")`, sorted. Example key: `cig-1.20.0-linux-x86_64`.
-pub const PINS: &[(&str, &str)] = &[];
+// rustfmt leaves it as the generator wrote it (a test compares the two byte for byte)
+#[rustfmt::skip]
+#[path = "pins_generated.rs"]
+mod generated;
+
+/// `("tool-version-target", "sha256")`, sorted. Example key: `cig-1.20.0-linux-x86_64`. Written
+/// by `cargo xtask pins` into `pins_generated.rs`, never by hand.
+pub use generated::PINS;
 
 /// The only owner whose attestations count (passed to `gh attestation verify --owner`).
 pub const ATTEST_OWNER: &str = "otmof-ops";
@@ -68,5 +74,15 @@ mod tests {
     #[test]
     fn pins_are_sorted() {
         assert!(PINS.windows(2).all(|w| w[0].0 < w[1].0));
+    }
+
+    #[test]
+    fn the_generated_file_is_exactly_what_the_generator_writes() {
+        // nobody edits pins_generated.rs by hand: it must equal render() of its own entries
+        let entries: Vec<(String, String)> = PINS
+            .iter()
+            .map(|(k, v)| (k.to_string(), v.to_string()))
+            .collect();
+        assert_eq!(include_str!("pins_generated.rs"), render(&entries));
     }
 }
