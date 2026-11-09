@@ -49,7 +49,60 @@ fn die(code: &str, msg: &str, fix: &str) -> ! {
     exit(127)
 }
 
-fn read_capped(path: &Path) -> Option<String> {
+/// Who may own a project pin file: the owner of CIGSCRIPT_HOME, or root. `None` off Unix.
+#[derive(Debug, Clone, Copy, Default)]
+struct Trusted {
+    uid: Option<u32>,
+    /// The check is on (Unix); a home whose owner cannot be read then trusts no pin file.
+    on: bool,
+}
+
+#[cfg(unix)]
+fn trusted_for(home: &Path) -> Trusted {
+    use std::os::unix::fs::MetadataExt;
+    Trusted {
+        uid: fs::metadata(home).ok().map(|m| m.uid()),
+        on: true,
+    }
+}
+#[cfg(not(unix))]
+fn trusted_for(_home: &Path) -> Trusted {
+    Trusted::default()
+}
+
+#[cfg(unix)]
+fn owner_ok(md: &fs::Metadata, t: Trusted) -> bool {
+    use std::os::unix::fs::MetadataExt;
+    !t.on || md.uid() == 0 || Some(md.uid()) == t.uid
+}
+#[cfg(not(unix))]
+fn owner_ok(_md: &fs::Metadata, _t: Trusted) -> bool {
+    true
+}
+
+/// Read a pin file: only a regular file (never a link, fifo or device, checked before opening and
+/// again on the opened file), owned by a trusted user, at most `MAX_FILE` bytes.
+fn read_capped(path: &Path, t: Trusted) -> Option<String> {
+    let before = fs::symlink_metadata(path).ok()?;
+    if !before.file_type().is_file() || !owner_ok(&before, t) {
+        return None;
+    }
+    let f = File::open(path).ok()?;
+    let after = f.metadata().ok()?;
+    if !after.is_file() || !owner_ok(&after, t) {
+        return None;
+    }
+    let mut text = String::new();
+    f.take(MAX_FILE).read_to_string(&mut text).ok()?;
+    Some(text)
+}
+
+/// The index is the installer's own file: read it as before, but never through a link.
+fn read_index(path: &Path) -> Option<String> {
+    let md = fs::symlink_metadata(path).ok()?;
+    if !md.file_type().is_file() {
+        return None;
+    }
     let mut text = String::new();
     File::open(path)
         .ok()?
@@ -71,21 +124,31 @@ fn legacy_names(index: &str) -> Vec<&str> {
 }
 
 /// Walk up from `start` (at most 40 levels): the first directory with a verdict decides.
-fn find_pin(start: &Path, legacy: &[&str]) -> Pin {
+///
+/// `stop`: the user's home directory. A project inside it is searched up to and including the home
+/// and no further, so `/home/.cig-carton` or `/tmp/.cig-carton` never reaches into it.
+fn find_pin(start: &Path, legacy: &[&str], t: Trusted, stop: Option<&Path>) -> Pin {
+    let stop = stop.filter(|h| start.starts_with(h));
     let mut dir = Some(start);
     for _ in 0..MAX_DEPTH {
         let Some(d) = dir else { break };
-        if let Some(t) = read_capped(&d.join(".cig-carton")) {
+        if let Some(t) = read_capped(&d.join(".cig-carton"), t) {
             return pin_from_carton_file(&t).map_or(Pin::Slow, Pin::Carton);
         }
-        if let Some(p) = read_capped(&d.join("cig-tasks.json")).and_then(|t| pin_from_json(&t)) {
+        if let Some(p) = read_capped(&d.join("cig-tasks.json"), t).and_then(|x| pin_from_json(&x)) {
             return Pin::Carton(p);
         }
-        if let Some(p) = read_capped(&d.join("cigar.toml")).and_then(|t| pin_from_toml(&t)) {
+        if let Some(p) = read_capped(&d.join("cigar.toml"), t).and_then(|x| pin_from_toml(&x)) {
             return Pin::Carton(p);
         }
-        if legacy.iter().any(|n| fs::metadata(d.join(n)).is_ok()) {
+        if legacy
+            .iter()
+            .any(|n| fs::symlink_metadata(d.join(n)).is_ok_and(|m| m.file_type().is_file()))
+        {
             return Pin::Slow;
+        }
+        if stop == Some(d) {
+            break;
         }
         dir = d.parent();
     }
@@ -196,14 +259,35 @@ fn main() {
     };
     let rest: Vec<OsString> = args.collect();
     let forced = std::env::var("CIGI_CARTON").ok().filter(|s| !s.is_empty());
-    let index = read_capped(&home.join("installer").join("shim-index")).unwrap_or_default();
+    let index = read_index(&home.join("installer").join("shim-index")).unwrap_or_default();
+    let user_home = std::env::var_os("HOME")
+        .or_else(|| std::env::var_os("USERPROFILE"))
+        .filter(|v| !v.is_empty())
+        .map(PathBuf::from);
     let pin = match (&forced, std::env::current_dir()) {
-        (None, Ok(cwd)) => find_pin(&cwd, &legacy_names(&index)),
+        (None, Ok(cwd)) => find_pin(
+            &cwd,
+            &legacy_names(&index),
+            trusted_for(&home),
+            user_home.as_deref(),
+        ),
         _ => Pin::None,
     };
     let (mut cmd, carton) = match pick(&index, &name, forced.as_deref(), &pin) {
         Pick::Run { carton, path } => {
-            if Path::new(&path).starts_with(home.join("bin")) {
+            let target = Path::new(&path);
+            if !target.is_absolute()
+                || target
+                    .components()
+                    .any(|c| matches!(c, std::path::Component::ParentDir))
+            {
+                die(
+                    "E1844",
+                    &format!("the index gives `{name}` a path that is not absolute and plain"),
+                    "ciginstaller shims sync",
+                );
+            }
+            if target.starts_with(home.join("bin")) {
                 die(
                     "E1844",
                     &format!("the index points `{name}` at the shim itself"),

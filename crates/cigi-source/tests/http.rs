@@ -241,6 +241,7 @@ fn plain_http_is_loopback_only() {
     for bad in [
         "http://example.com/",
         "http://192.168.1.5/",
+        "http://localhost/",
         "ftp://example.com/",
         "https://u:p@example.com/",
         "https://example.com/?a=b",
@@ -252,7 +253,7 @@ fn plain_http_is_loopback_only() {
     }
     for ok in [
         "http://127.0.0.1:8080/",
-        "http://localhost/",
+        "http://127.7.7.7/",
         "http://[::1]:9/",
         "https://example.com/rel/",
         "file:///tmp/x/",
@@ -267,6 +268,20 @@ fn plain_http_is_loopback_only() {
         m.fetch_text(&manifest_loc(), 10).unwrap_err(),
         FetchError::Refused { .. }
     ));
+}
+
+#[test]
+fn a_slow_drip_hits_the_overall_deadline() {
+    let (fx, srv, _m) = served();
+    let name = cigi_testkit::asset_name("cigo", "1.0.0");
+    srv.rule(&format!("/{name}"), Rule::Stall(Duration::from_millis(600)));
+    let cfg = HttpConfig {
+        total_timeout: Duration::from_millis(100),
+        ..HttpConfig::default()
+    };
+    let u = Url::parse(&format!("{}/{name}", srv.url())).unwrap();
+    let e = http::get_to_file(&u, &cfg, &fx.tmp.path().join("slow2"), &mut NoProgress).unwrap_err();
+    assert!(e.to_string().contains("took longer"), "{e}");
 }
 
 #[test]
@@ -297,4 +312,51 @@ fn names_that_could_climb_are_refused() {
         name: "a?b=1".into()
     })
     .is_err());
+}
+
+#[test]
+fn plain_http_only_to_literal_loopback_addresses() {
+    use cigi_source::http::check_scheme;
+    use url::Url;
+    for ok in [
+        "http://127.0.0.1/x",
+        "http://127.9.9.9:80/x",
+        "http://[::1]/x",
+        "https://example.com/x",
+    ] {
+        assert!(check_scheme(&Url::parse(ok).unwrap()).is_ok(), "{ok}");
+    }
+    for bad in [
+        "http://localhost/x",
+        "http://LOCALHOST:8080/x",
+        "http://example.com/x",
+        "http://[::2]/x",
+        "file:///etc/passwd",
+    ] {
+        assert!(check_scheme(&Url::parse(bad).unwrap()).is_err(), "{bad}");
+    }
+}
+
+#[test]
+fn only_release_asset_hosts_are_github_hosts() {
+    use cigi_source::http::github_host;
+    use url::Url;
+    for ok in [
+        "https://github.com/a/b",
+        "https://objects.githubusercontent.com/x",
+        "https://release-assets.githubusercontent.com/x",
+        "https://github-releases.githubusercontent.com/x",
+    ] {
+        assert!(github_host(&Url::parse(ok).unwrap()), "{ok}");
+    }
+    for bad in [
+        "https://raw.githubusercontent.com/a/b/c",
+        "https://gist.githubusercontent.com/x",
+        "https://evil.githubusercontent.com/x",
+        "https://github.com.evil.example/x",
+        "http://github.com/x",
+        "https://github.com:8443/x",
+    ] {
+        assert!(!github_host(&Url::parse(bad).unwrap()), "{bad}");
+    }
 }

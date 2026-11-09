@@ -141,8 +141,22 @@ impl Home {
             path: p.to_path_buf(),
             source,
         };
-        if p.is_dir() {
-            return Ok(());
+        match fs::symlink_metadata(p) {
+            Ok(md) if md.file_type().is_symlink() && !(p == self.root && p.is_dir()) => {
+                return Err(HomeError::Unsafe {
+                    path: p.to_path_buf(),
+                    why: "a symbolic link where the installer keeps a directory".into(),
+                })
+            }
+            Ok(_) if p == self.root && p.is_dir() => return Ok(()),
+            Ok(md) if md.is_dir() => return Ok(()),
+            Ok(_) => {
+                return Err(HomeError::Unsafe {
+                    path: p.to_path_buf(),
+                    why: "not a directory".into(),
+                })
+            }
+            Err(_) => {}
         }
         if let Some(parent) = p.parent() {
             fs::create_dir_all(parent).map_err(io_err)?;
@@ -160,17 +174,41 @@ impl Home {
     /// `E1835` (via [`HomeError::Unsafe`]) otherwise. Missing directories are
     /// skipped: `ensure_layout` creates them safely.
     pub fn check_permissions(&self) -> Result<(), HomeError> {
-        for p in [
+        let mut dirs = vec![
             self.root.clone(),
             self.bin(),
             self.toolchains(),
             self.store(),
+            self.store().join("objects"),
+            self.store().join("tmp"),
             self.installer(),
-        ] {
-            if !p.is_dir() {
+            self.txn_root(),
+            self.installer().join("cache"),
+            self.installer().join("cache").join("manifests"),
+            self.installer().join("cache").join("downloads"),
+            self.humidor(),
+        ];
+        if let Ok(rd) = fs::read_dir(self.toolchains()) {
+            for e in rd.flatten() {
+                if e.file_name().to_string_lossy().starts_with('.') {
+                    continue;
+                }
+                dirs.push(e.path());
+            }
+        }
+        for p in dirs {
+            // the root itself may be a link the user made on purpose (a moved disk);
+            // everything the installer keeps inside it may not be
+            if fs::symlink_metadata(&p).is_err() {
                 continue;
             }
-            platform::dir_ok(&p).map_err(|why| HomeError::Unsafe {
+            let target = if p == self.root {
+                p.canonicalize().unwrap_or_else(|_| p.clone())
+            } else {
+                p.clone()
+            };
+            let checked = platform::dir_ok(&target);
+            checked.map_err(|why| HomeError::Unsafe {
                 path: p.clone(),
                 why,
             })?;

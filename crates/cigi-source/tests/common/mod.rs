@@ -15,8 +15,14 @@ pub fn mirror(fx: &Fixture) -> MirrorSource {
     MirrorSource::parse(&fx.mirror_file_url()).unwrap()
 }
 
-/// Checksummed floor, no pins, no gh.
+/// Checksummed floor, no pins, no gh, and the user has accepted a single-operator mirror
+/// (`allow_single_source = true`): the fixture mirror is one directory.
 pub fn trust() -> DigestTrust {
+    strict_trust().with_single_source(true)
+}
+
+/// As `trust()` but with the default `allow_single_source = false`.
+pub fn strict_trust() -> DigestTrust {
     DigestTrust::new(TrustLevel::Checksummed)
         .with_pins(&[])
         .with_attest(Arc::new(cigi_source::NoAttest))

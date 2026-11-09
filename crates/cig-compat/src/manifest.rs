@@ -339,6 +339,20 @@ fn name_ok(s: &str) -> bool {
         && c.all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-')
 }
 
+/// A relative path of plain components: non-empty, `/`-separated, no `.`/`..`/empty part, no
+/// backslash, colon or control character. Used for every file path a manifest names.
+pub fn is_plain_rel_path(s: &str) -> bool {
+    !s.is_empty()
+        && s.split('/').all(|c| {
+            !c.is_empty()
+                && c != "."
+                && c != ".."
+                && !c
+                    .chars()
+                    .any(|ch| ch == '\\' || ch == ':' || ch.is_control())
+        })
+}
+
 fn as_table<'a>(v: &'a Value, path: &str) -> Result<&'a Table, ManifestError> {
     match v {
         Value::Table(t) => Ok(t),
@@ -433,11 +447,24 @@ fn parse_tool(name: &str, v: &Value) -> Result<ToolDef, ManifestError> {
             for (i, s) in a.iter().enumerate() {
                 let sp = format!("{path}.shims[{i}]");
                 let st = as_table(s, &sp)?;
-                shims.push(ShimDef {
+                let def = ShimDef {
                     name: req_str(st, "name", &sp)?,
                     path: req_str(st, "path", &sp)?,
                     windows_path: opt_str(st, "windows_path", &sp)?,
-                });
+                };
+                for (key, val) in [
+                    ("path", Some(&def.path)),
+                    ("windows_path", def.windows_path.as_ref()),
+                ] {
+                    if let Some(v) = val {
+                        if !is_plain_rel_path(v) {
+                            return err(format!(
+                                "{sp}.{key} {v:?} must be a relative path of plain components (no `..`, no absolute path)"
+                            ));
+                        }
+                    }
+                }
+                shims.push(def);
             }
         }
         Some(_) => return err(format!("{path}.shims must be an array")),

@@ -9,6 +9,23 @@
 /// `("tool-version-target", "sha256")`, sorted. Example key: `cig-1.20.0-linux-x86_64`.
 pub const PINS: &[(&str, &str)] = &[];
 
+/// The only owner whose attestations count (passed to `gh attestation verify --owner`).
+pub const ATTEST_OWNER: &str = "otmof-ops";
+
+/// The repositories an attestation may name: the product repositories and the installer itself.
+pub const ATTEST_REPOS: &[&str] = &[
+    "otmof-ops/cig-script",
+    "otmof-ops/cig-orchestrator",
+    "otmof-ops/cig-compile",
+    "otmof-ops/cigar-script",
+    "otmof-ops/cig-installer",
+];
+
+/// Is `repo` (`owner/name`) one the installer will accept an attestation from?
+pub fn attest_repo_allowed(repo: &str) -> bool {
+    ATTEST_REPOS.contains(&repo)
+}
+
 /// The key a pin is looked up by.
 pub fn key(tool: &str, version: &str, target: &str) -> String {
     format!("{tool}-{version}-{target}")

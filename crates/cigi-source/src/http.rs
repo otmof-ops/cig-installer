@@ -24,6 +24,8 @@ pub struct HttpConfig {
     pub connect_timeout: Duration,
     /// Per read: a body that stalls this long is abandoned (section 14.2: 30 s).
     pub read_timeout: Duration,
+    /// The whole request, body included: a server that drips bytes cannot hold a download open.
+    pub total_timeout: Duration,
     pub redirects: RedirectPolicy,
     pub max_bytes: u64,
 }
@@ -32,6 +34,7 @@ impl Default for HttpConfig {
         HttpConfig {
             connect_timeout: Duration::from_secs(10),
             read_timeout: Duration::from_secs(30),
+            total_timeout: Duration::from_secs(30 * 60),
             redirects: RedirectPolicy::SameHost,
             max_bytes: MAX_DOWNLOAD,
         }
@@ -42,7 +45,7 @@ impl Default for HttpConfig {
 pub enum RedirectPolicy {
     /// Only to the host (and port) the request started at.
     SameHost,
-    /// Same host, or a GitHub host: `github.com`, `*.githubusercontent.com`.
+    /// Same host, or one of `GITHUB_HOSTS` (github.com and the release-asset hosts).
     Github,
 }
 
@@ -54,14 +57,24 @@ fn host_key(u: &Url) -> String {
     )
 }
 
-fn github_host(u: &Url) -> bool {
+/// The hosts a GitHub release download may live on or be redirected to.
+pub const GITHUB_HOSTS: &[&str] = &[
+    "github.com",
+    "objects.githubusercontent.com",
+    "release-assets.githubusercontent.com",
+    "github-releases.githubusercontent.com",
+];
+
+pub fn github_host(u: &Url) -> bool {
     let h = u.host_str().unwrap_or_default().to_ascii_lowercase();
-    u.scheme() == "https" && (h == "github.com" || h.ends_with(".githubusercontent.com"))
+    u.scheme() == "https"
+        && u.port_or_known_default() == Some(443)
+        && GITHUB_HOSTS.contains(&h.as_str())
 }
 
 pub fn is_loopback(u: &Url) -> bool {
     match u.host() {
-        Some(url::Host::Domain(d)) => d.eq_ignore_ascii_case("localhost"),
+        Some(url::Host::Domain(_)) => false,
         Some(url::Host::Ipv4(a)) => a.is_loopback(),
         Some(url::Host::Ipv6(a)) => a.is_loopback(),
         None => false,
@@ -157,13 +170,26 @@ fn open(url: &Url, cfg: &HttpConfig) -> Result<ureq::Response, FetchError> {
     Err(net(url, "too many redirects"))
 }
 
-/// GET into `dest` (created, truncated), hashing as it goes.
+/// A new file that must not exist yet (no symlink or planted file is followed), owner-only.
+pub fn create_private(path: &Path) -> std::io::Result<std::fs::File> {
+    let mut o = std::fs::OpenOptions::new();
+    o.write(true).create_new(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        o.mode(0o600);
+    }
+    o.open(path)
+}
+
+/// GET into `dest` (created new, owner-only), hashing as it goes.
 pub fn get_to_file(
     url: &Url,
     cfg: &HttpConfig,
     dest: &Path,
     progress: &mut dyn Progress,
 ) -> Result<FetchInfo, FetchError> {
+    let started = std::time::Instant::now();
     let resp = open(url, cfg)?;
     let declared = resp
         .header("content-length")
@@ -181,7 +207,7 @@ pub fn get_to_file(
         path: dest.to_path_buf(),
         source,
     };
-    let mut out = std::fs::File::create(dest).map_err(io)?;
+    let mut out = create_private(dest).map_err(io)?;
     let mut reader = resp.into_reader().take(cfg.max_bytes + 1);
     let mut hash = Sha256::new();
     let mut buf = vec![0u8; 64 * 1024];
@@ -194,6 +220,12 @@ pub fn get_to_file(
             break;
         }
         total += n as u64;
+        if started.elapsed() > cfg.total_timeout {
+            return Err(net(
+                url,
+                format!("the download took longer than {:?}", cfg.total_timeout),
+            ));
+        }
         if total > cfg.max_bytes {
             return Err(FetchError::TooLarge {
                 url: url.to_string(),
@@ -221,12 +253,26 @@ pub fn get_to_file(
 
 /// GET as text, at most `max_bytes`.
 pub fn get_text(url: &Url, cfg: &HttpConfig, max_bytes: usize) -> Result<String, FetchError> {
+    let started = std::time::Instant::now();
     let resp = open(url, cfg)?;
     let mut body = Vec::new();
-    resp.into_reader()
-        .take(max_bytes as u64 + 1)
-        .read_to_end(&mut body)
-        .map_err(|e| net(url, format!("the body stopped early: {e}")))?;
+    let mut reader = resp.into_reader().take(max_bytes as u64 + 1);
+    let mut buf = [0u8; 8192];
+    loop {
+        let n = reader
+            .read(&mut buf)
+            .map_err(|e| net(url, format!("the body stopped early: {e}")))?;
+        if n == 0 {
+            break;
+        }
+        body.extend_from_slice(&buf[..n]);
+        if started.elapsed() > cfg.total_timeout {
+            return Err(net(
+                url,
+                format!("the download took longer than {:?}", cfg.total_timeout),
+            ));
+        }
+    }
     if body.len() > max_bytes {
         return Err(FetchError::TooLarge {
             url: url.to_string(),

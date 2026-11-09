@@ -395,3 +395,29 @@ fn oversize_text_is_refused() {
 fn rule_yank_needs_a_reason() {
     refused(&edit("\"carton 0.0.9\" = \"cigo could skip a file on rollback after a box apply; use 0.1.0 or later\"", "\"carton 0.0.9\" = \"\""));
 }
+
+#[test]
+fn rule_shim_paths_are_plain_relative_paths() {
+    let good =
+        "shims   = [ { name = \"cig\", path = \"bin/cig\", windows_path = \"bin/cig.exe\" } ]";
+    for bad in [
+        "../../../../bin/sh",
+        "/bin/sh",
+        "bin/../../x",
+        "bin//cig",
+        "./cig",
+        "bin\\\\cig",
+        "C:cig",
+        "",
+    ] {
+        let shim = format!("shims   = [ {{ name = \"cig\", path = \"{bad}\" }} ]");
+        let e = refused(&edit(good, &shim));
+        assert!(e.contains("shims[0].path"), "{bad:?}: {e}");
+        let shim = format!(
+            "shims   = [ {{ name = \"cig\", path = \"bin/cig\", windows_path = \"{bad}\" }} ]"
+        );
+        let e = refused(&edit(good, &shim));
+        assert!(e.contains("windows_path"), "{bad:?}: {e}");
+    }
+    assert!(Manifest::from_str(SPEC_EXAMPLE).is_ok());
+}

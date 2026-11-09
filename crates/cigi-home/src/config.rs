@@ -45,6 +45,11 @@ pub const KEYS: &[KeySpec] = &[
         default: "checksummed",
     },
     KeySpec {
+        key: "allow_single_source",
+        values: Some(&["true", "false"]),
+        default: "false",
+    },
+    KeySpec {
         key: "keep_days",
         values: None,
         default: "90",

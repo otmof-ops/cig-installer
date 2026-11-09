@@ -12,14 +12,150 @@
 use crate::error::ArchiveError;
 use cigi_home::StagedFile;
 use flate2::read::GzDecoder;
+use std::cell::Cell;
 use std::collections::HashSet;
 use std::io::{Read, Write};
 use std::path::{Component, Path, PathBuf};
+use std::rc::Rc;
 use tar::EntryType;
 
 pub const MAX_FILE_BYTES: u64 = 256 * 1024 * 1024;
 pub const MAX_ENTRIES: usize = 20_000;
 pub const MAX_TOTAL_BYTES: u64 = 1024 * 1024 * 1024;
+/// Headroom over `MAX_TOTAL_BYTES` for headers, padding and directory entries.
+pub const MAX_STREAM_SLACK: u64 = 64 * 1024 * 1024;
+/// The largest GNU long-name, long-link or pax header accepted.
+pub const MAX_EXTENSION_BYTES: u64 = 64 * 1024;
+
+/// Counts what comes out of the decompressor and fails past the limit, so no part of the stream
+/// (headers the tar reader swallows, padding, a gzip bomb) is unbounded.
+struct Counting<R> {
+    inner: R,
+    seen: u64,
+    limit: u64,
+    tripped: Rc<Cell<bool>>,
+}
+impl<R: Read> Read for Counting<R> {
+    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+        let n = self.inner.read(buf)?;
+        self.seen += n as u64;
+        if self.seen > self.limit {
+            self.tripped.set(true);
+            return Err(std::io::Error::other(
+                "the decompressed stream is too large",
+            ));
+        }
+        Ok(n)
+    }
+}
+
+type CountedFile = Counting<GzDecoder<std::fs::File>>;
+
+fn counted(file: &Path) -> Result<(CountedFile, Rc<Cell<bool>>), ArchiveError> {
+    let f = std::fs::File::open(file).map_err(|source| ArchiveError::Io {
+        path: file.to_path_buf(),
+        source,
+    })?;
+    let tripped = Rc::new(Cell::new(false));
+    Ok((
+        Counting {
+            inner: GzDecoder::new(f),
+            seen: 0,
+            limit: MAX_TOTAL_BYTES + MAX_STREAM_SLACK,
+            tripped: tripped.clone(),
+        },
+        tripped,
+    ))
+}
+
+fn too_big_stream() -> ArchiveError {
+    ArchiveError::TooBig {
+        why: format!(
+            "more than {} bytes once decompressed",
+            MAX_TOTAL_BYTES + MAX_STREAM_SLACK
+        ),
+    }
+}
+
+/// Raw pass over the 512-byte headers, before the tar reader (which would read a long-name or pax
+/// record whole into memory) sees anything: refuses an extension record over 64 KiB, and any pax
+/// `size`, `path` or `linkpath` override (the extractor reads names and sizes from the plain
+/// header only).
+fn prepass(file: &Path) -> Result<(), ArchiveError> {
+    let (mut r, tripped) = counted(file)?;
+    let read_err = |e: std::io::Error, tripped: &Cell<bool>| {
+        if tripped.get() {
+            too_big_stream()
+        } else {
+            ArchiveError::Unreadable(e.to_string())
+        }
+    };
+    let mut block = [0u8; 512];
+    let mut headers = 0usize;
+    loop {
+        match r.read_exact(&mut block) {
+            Ok(()) => {}
+            Err(e) if e.kind() == std::io::ErrorKind::UnexpectedEof => return Ok(()),
+            Err(e) => return Err(read_err(e, &tripped)),
+        }
+        if block.iter().all(|b| *b == 0) {
+            return Ok(());
+        }
+        headers += 1;
+        if headers > MAX_ENTRIES * 4 {
+            return Err(ArchiveError::TooBig {
+                why: format!("more than {} headers", MAX_ENTRIES * 4),
+            });
+        }
+        let h = tar::Header::from_byte_slice(&block);
+        let size = h
+            .size()
+            .map_err(|e| ArchiveError::Unreadable(e.to_string()))?;
+        let kind = h.entry_type();
+        let ext = matches!(
+            kind,
+            EntryType::GNULongName
+                | EntryType::GNULongLink
+                | EntryType::XHeader
+                | EntryType::XGlobalHeader
+        );
+        let padded = size.div_ceil(512) * 512;
+        if ext {
+            if size > MAX_EXTENSION_BYTES {
+                return Err(ArchiveError::Unsafe {
+                    entry: h
+                        .path()
+                        .map(|p| p.display().to_string())
+                        .unwrap_or_default(),
+                    why: "an extension header larger than 64 KiB",
+                });
+            }
+            let mut data = vec![0u8; padded as usize];
+            r.read_exact(&mut data).map_err(|e| read_err(e, &tripped))?;
+            if matches!(kind, EntryType::XHeader | EntryType::XGlobalHeader) {
+                for rec in tar::PaxExtensions::new(&data[..size as usize]) {
+                    let rec = rec.map_err(|e| ArchiveError::Unreadable(e.to_string()))?;
+                    if matches!(rec.key(), Ok("size" | "path" | "linkpath")) {
+                        return Err(ArchiveError::Unsafe {
+                            entry: h
+                                .path()
+                                .map(|p| p.display().to_string())
+                                .unwrap_or_default(),
+                            why: "a pax record overriding size or path",
+                        });
+                    }
+                }
+            }
+        } else {
+            let mut sink = std::io::sink();
+            let got = std::io::copy(&mut (&mut r).take(padded), &mut sink)
+                .map_err(|e| read_err(e, &tripped))?;
+            if got != padded {
+                return Ok(()); // truncated: the real pass reports it
+            }
+        }
+    }
+}
 
 fn unsafe_entry(entry: &Path, why: &'static str) -> ArchiveError {
     ArchiveError::Unsafe {
@@ -63,10 +199,18 @@ pub fn unpack_tar_gz(
         let p = p.to_path_buf();
         move |source| ArchiveError::Io { path: p, source }
     };
-    let f = std::fs::File::open(file).map_err(io_at(file))?;
+    std::fs::File::open(file).map_err(io_at(file))?;
+    prepass(file)?;
+    let (reader, tripped) = counted(file)?;
     std::fs::create_dir_all(into).map_err(io_at(into))?;
-    let mut ar = tar::Archive::new(GzDecoder::new(f));
-    let unreadable = |e: std::io::Error| ArchiveError::Unreadable(e.to_string());
+    let mut ar = tar::Archive::new(reader);
+    let unreadable = |e: std::io::Error| {
+        if tripped.get() {
+            too_big_stream()
+        } else {
+            ArchiveError::Unreadable(e.to_string())
+        }
+    };
     let mut out: Vec<StagedFile> = Vec::new();
     let mut files: HashSet<PathBuf> = HashSet::new();
     let mut dirs: HashSet<PathBuf> = HashSet::new();
@@ -130,7 +274,7 @@ pub fn unpack_tar_gz(
         if files.contains(&rel) || dirs.contains(&rel) {
             return Err(unsafe_entry(&raw, "the same path twice"));
         }
-        let size = entry.header().size().map_err(unreadable)?;
+        let size = entry.size();
         if size > MAX_FILE_BYTES {
             return Err(ArchiveError::TooBig {
                 why: format!("{} is {size} bytes (limit {MAX_FILE_BYTES})", raw.display()),

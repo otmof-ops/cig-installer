@@ -69,6 +69,15 @@ impl GithubSource {
                 why: "GitHub downloads are https only".into(),
             });
         }
+        // a manifest `url` may not take the download off GitHub's release hosts
+        if !http::github_host(&u) {
+            return Err(FetchError::Refused {
+                url: text,
+                why: "a build's url must be on github.com or a GitHub release-asset host; \
+                      anywhere else needs a declared mirror"
+                    .into(),
+            });
+        }
         Ok(u)
     }
     fn cfg() -> HttpConfig {
@@ -299,7 +308,7 @@ fn copy_file(
         path: dest.to_path_buf(),
         source,
     };
-    let mut out = std::fs::File::create(dest).map_err(io)?;
+    let mut out = http::create_private(dest).map_err(io)?;
     let mut hash = Sha256::new();
     let mut buf = vec![0u8; 64 * 1024];
     let mut total = 0u64;

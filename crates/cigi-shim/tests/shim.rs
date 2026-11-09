@@ -256,3 +256,76 @@ fn spike_s2_median_under_one_millisecond() {
     eprintln!("S2 index={} bytes, depth=40: shim-own median {o} ns, spawn+exec+wait median {w} ns, /bin/true alone {b} ns", index.len());
     assert!(o < 1_000_000, "shim median {o} ns is over the 1 ms budget");
 }
+
+#[test]
+fn index_paths_must_be_absolute_and_plain() {
+    let root = scratch("index-paths");
+    let h = home(&root);
+    for bad in ["bin/cig", "/x/../bin/sh", "toolchains/../../bin/sh"] {
+        let idx = format!("cigi-index 1\nmachine\t0.1.0\ncarton\t0.1.0\tcig\t{bad}\n");
+        fs::write(h.join("installer/shim-index"), idx).unwrap();
+        let o = run(&root, &h, "cig", &root, &[]);
+        assert_eq!(o.status.code(), Some(127), "{bad}");
+        assert!(
+            String::from_utf8_lossy(&o.stderr).contains("E1844"),
+            "{bad}"
+        );
+    }
+}
+
+#[test]
+fn pin_files_that_are_not_plain_owned_files_are_ignored() {
+    use std::os::unix::fs::symlink;
+    let root = scratch("hostile-pins");
+    let h = home(&root);
+    // a symlinked pin file (to a real pin) and a fifo are skipped; the machine carton answers
+    let project = root.join("project");
+    fs::create_dir_all(&project).unwrap();
+    let real = root.join("real-pin");
+    fs::write(&real, "0.2.0\n").unwrap();
+    symlink(&real, project.join(".cig-carton")).unwrap();
+    let o = run(&root, &h, "cig", &project, &[]);
+    assert!(out(&o).starts_with("cig 1.20.0 "), "{}", out(&o));
+    fs::remove_file(project.join(".cig-carton")).unwrap();
+    let fifo = Command::new("mkfifo")
+        .arg(project.join(".cig-carton"))
+        .status();
+    if fifo.is_ok_and(|s| s.success()) {
+        let o = run(&root, &h, "cig", &project, &[]); // would hang if it opened the fifo
+        assert!(out(&o).starts_with("cig 1.20.0 "), "{}", out(&o));
+        fs::remove_file(project.join(".cig-carton")).unwrap();
+    }
+    // the same pin as a plain file is honoured
+    fs::write(project.join(".cig-carton"), "0.2.0\n").unwrap();
+    let o = run(&root, &h, "cig", &project, &[]);
+    assert!(out(&o).starts_with("cig 1.21.0 "), "{}", out(&o));
+}
+
+#[test]
+fn the_walk_stops_at_the_users_home() {
+    let root = scratch("walk-stop");
+    let h = home(&root);
+    let user = root.join("user");
+    let project = user.join("src/proj");
+    fs::create_dir_all(&project).unwrap();
+    // a pin ABOVE the user's home (as /home/.cig-carton would be) must not be read
+    fs::write(root.join(".cig-carton"), "0.2.0\n").unwrap();
+    let o = output(
+        Command::new(shim_as(&root, "cig"))
+            .current_dir(&project)
+            .env_remove("CIGI_CARTON")
+            .env("HOME", &user)
+            .env("CIGSCRIPT_HOME", &h),
+    );
+    assert!(out(&o).starts_with("cig 1.20.0 "), "{}", out(&o));
+    // a pin in the home itself still counts
+    fs::write(user.join(".cig-carton"), "0.2.0\n").unwrap();
+    let o = output(
+        Command::new(shim_as(&root, "cig"))
+            .current_dir(&project)
+            .env_remove("CIGI_CARTON")
+            .env("HOME", &user)
+            .env("CIGSCRIPT_HOME", &h),
+    );
+    assert!(out(&o).starts_with("cig 1.21.0 "), "{}", out(&o));
+}

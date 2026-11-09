@@ -72,6 +72,9 @@ impl ShimIndex {
             let v = ver(version)?;
             let r = toolchain::read_receipt(home, tool, &v).ok()?;
             let rel = r.shim_target(tool);
+            if !cig_compat::is_plain_rel_path(&rel) {
+                return None;
+            }
             let mut p = home.toolchain(tool, &v);
             for part in rel.split('/') {
                 p.push(part);

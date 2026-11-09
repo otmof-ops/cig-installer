@@ -60,7 +60,10 @@ mod imp {
     /// current user (root excepted). The current uid is learned by creating a
     /// probe file, which keeps this free of unsafe code and libc.
     pub fn dir_ok(path: &Path) -> Result<(), String> {
-        let md = fs::metadata(path).map_err(|e| format!("cannot stat: {e}"))?;
+        let md = fs::symlink_metadata(path).map_err(|e| format!("cannot stat: {e}"))?;
+        if md.file_type().is_symlink() {
+            return Err("a symbolic link".to_string());
+        }
         if !md.is_dir() {
             return Err("not a directory".to_string());
         }
@@ -122,7 +125,10 @@ mod imp {
     }
 
     pub fn dir_ok(path: &Path) -> Result<(), String> {
-        let md = fs::metadata(path).map_err(|e| format!("cannot stat: {e}"))?;
+        let md = fs::symlink_metadata(path).map_err(|e| format!("cannot stat: {e}"))?;
+        if md.file_type().is_symlink() {
+            return Err("a symbolic link".to_string());
+        }
         if md.is_dir() {
             Ok(())
         } else {

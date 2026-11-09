@@ -30,10 +30,15 @@ fn github_urls_match_section_6() {
     );
     assert_eq!(
         u(&Location::Url {
-            url: "https://example.com/a/b".into()
+            url: "https://github.com/a/b".into()
         }),
-        "https://example.com/a/b"
+        "https://github.com/a/b"
     );
+    // a manifest `url` cannot take the download to another host (a mirror serves it by name)
+    assert!(GithubSource::url_for(&Location::Url {
+        url: "https://example.com/a/b".into()
+    })
+    .is_err());
     assert!(GithubSource::url_for(&Location::Url {
         url: "http://example.com/a".into()
     })

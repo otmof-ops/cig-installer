@@ -63,9 +63,9 @@ fn write_atomic(path: &Path, bytes: &[u8]) -> Result<(), FetchError> {
         .file_name()
         .map(|n| n.to_string_lossy().into_owned())
         .unwrap_or_default();
-    let tmp = path.with_file_name(format!(".{name}.tmp-{}", std::process::id()));
+    let tmp = path.with_file_name(format!(".{name}.tmp-{}", crate::digest::random_suffix()));
     let r = (|| -> std::io::Result<()> {
-        let mut f = std::fs::File::create(&tmp)?;
+        let mut f = crate::http::create_private(&tmp)?;
         f.write_all(bytes)?;
         f.sync_all()?;
         std::fs::rename(&tmp, path)
@@ -196,6 +196,7 @@ pub fn get_manifest_with(
         offline: opts.offline,
         now: opts.now,
         channel: Some(channel.to_string()),
+        scratch: Some(home.installer().join("cache")),
     };
     if opts.offline {
         let Some(c) = cached else {
@@ -239,9 +240,10 @@ pub fn get_manifest_with(
         json_str(&src.name()),
         json_str(&crate::digest::sha256_hex(doc.as_bytes())),
     );
+    // the document first: a crash after it leaves a sidecar that disagrees, which offline refuses
+    write_atomic(&dir.join("manifest.toml"), doc.as_bytes())?;
     write_atomic(&dir.join("manifest.toml.sha256"), side.as_bytes())?;
     write_atomic(&dir.join("fetched.json"), meta.as_bytes())?;
-    write_atomic(&dir.join("manifest.toml"), doc.as_bytes())?;
     Ok(admitted)
 }
 
@@ -328,7 +330,11 @@ pub fn get_artifact_for(
     }
     let dir = downloads_dir(home);
     std::fs::create_dir_all(&dir).map_err(io_err(&dir))?;
-    let partial = dir.join(format!("{}.partial-{}", art.asset, std::process::id()));
+    let partial = dir.join(format!(
+        "{}.partial-{}",
+        art.asset,
+        crate::digest::random_suffix()
+    ));
     let mut guard = Cleanup(Some(partial.clone()));
     let (asset_loc, sidecar_loc) = asset_locations(&art);
     let sidecar = match src.fetch_text(&sidecar_loc, MAX_SIDECAR_BYTES) {
@@ -340,6 +346,21 @@ pub fn get_artifact_for(
     let verified = trust
         .admit_artifact(&art, sidecar.as_deref(), &partial)?
         .with_independent(src.independent());
+    if !src.independent()
+        && verified.level == crate::trust::TrustLevel::Checksummed
+        && !trust.allows_single_source()
+    {
+        return Err(TrustError::FloorNotMet {
+            floor: "pinned or attested",
+            reached: "checksummed",
+            why: format!(
+                "{} serves the manifest, the checksum and the file, so the checksum proves nothing; \
+                 set allow_single_source = true to accept it",
+                src.name()
+            ),
+        }
+        .into());
+    }
     let path = dir.join(&art.asset);
     let _ = std::fs::remove_file(&path);
     std::fs::rename(&partial, &path).map_err(io_err(&path))?;

@@ -55,6 +55,8 @@ pub struct SeenState {
     /// The channel that was asked for; a manifest that names another channel is refused (E1825),
     /// so a `beta` manifest cannot be replayed as `stable`.
     pub channel: Option<String>,
+    /// A private (0700) place for the temporary files handed to `gh`; `installer/cache` of the home.
+    pub scratch: Option<std::path::PathBuf>,
 }
 
 /// A value a `Trust` implementation vouched for. Fields are private; `seal` is the only way in.
@@ -128,4 +130,9 @@ pub trait Trust {
         file: &Path,
     ) -> Result<Admitted<Verified>, TrustError>;
     fn level(&self) -> &'static str;
+    /// May an artifact from a single-operator source (a mirror) stay at `checksummed`?
+    /// Off unless the user said so (`allow_single_source = true`).
+    fn allows_single_source(&self) -> bool {
+        false
+    }
 }

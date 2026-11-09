@@ -12,6 +12,9 @@ use cig_compat::{Artifact, Manifest};
 use std::path::Path;
 use std::sync::Arc;
 
+/// An online manifest may not claim to be good for longer than this.
+pub const MAX_EXPIRES_AHEAD_SECS: i64 = 90 * 24 * 60 * 60;
+
 pub struct DigestTrust {
     /// The lowest level an artifact may reach (`trust` in config).
     pub floor: TrustLevel,
@@ -19,6 +22,8 @@ pub struct DigestTrust {
     /// How attestations are checked; `GhAttest` by default. Not in section 2.3's struct; added so
     /// tests (and `trust = checksummed` hosts without `gh`) can swap it.
     pub attest: Arc<dyn Attest>,
+    /// `allow_single_source` in config: a mirror's `checksummed` build is accepted.
+    pub allow_single_source: bool,
 }
 
 impl DigestTrust {
@@ -28,10 +33,15 @@ impl DigestTrust {
             floor,
             pins: pins::PINS,
             attest: Arc::new(GhAttest),
+            allow_single_source: false,
         }
     }
     pub fn with_pins(mut self, pins: &'static [(&'static str, &'static str)]) -> Self {
         self.pins = pins;
+        self
+    }
+    pub fn with_single_source(mut self, allow: bool) -> Self {
+        self.allow_single_source = allow;
         self
     }
     pub fn with_attest(mut self, a: Arc<dyn Attest>) -> Self {
@@ -48,6 +58,10 @@ impl DigestTrust {
 impl Trust for DigestTrust {
     fn level(&self) -> &'static str {
         "digest"
+    }
+
+    fn allows_single_source(&self) -> bool {
+        self.allow_single_source
     }
 
     fn admit_manifest(
@@ -97,7 +111,14 @@ impl Trust for DigestTrust {
         let now = seen.now.unwrap_or_else(clock::now);
         let mut notes = Vec::new();
         match clock::parse(&m.expires) {
-            Some(exp) if exp > now => {}
+            Some(exp) if exp > now => {
+                if !seen.offline && exp > now + MAX_EXPIRES_AHEAD_SECS {
+                    return Err(TrustError::Malformed(format!(
+                        "expires ({}) is more than 90 days ahead; a manifest that never goes stale cannot be told from a frozen one",
+                        m.expires
+                    )));
+                }
+            }
             Some(_) if seen.offline => notes.push(format!(
                 "the manifest expired on {}; used because you are offline",
                 m.expires
@@ -114,20 +135,35 @@ impl Trust for DigestTrust {
                 )))
             }
         }
-        // 5. attestation, when a bundle came with it and gh can check it
-        if let Some(bundle) = attestation {
-            if self.attest.available() {
-                match verify_manifest_attestation(self.attest.as_ref(), doc, bundle) {
-                    Ok(by) => notes.push(format!("attestation verified ({by})")),
-                    Err(why) if self.floor >= TrustLevel::Attested => {
-                        return Err(TrustError::AttestationFailed {
-                            what: "the manifest".into(),
-                            why,
-                        })
-                    }
-                    Err(why) => notes.push(format!("attestation did not verify: {why}")),
-                }
+        // 5. attestation: required from `attested` up, a note below it
+        let must = self.floor >= TrustLevel::Attested && !seen.offline;
+        let not_attested = |why: String| TrustError::AttestationFailed {
+            what: "the manifest".into(),
+            why,
+        };
+        match attestation {
+            None if must => {
+                return Err(not_attested(
+                    "no attestation bundle was published with it".into(),
+                ))
             }
+            None => notes.push("manifest not attested".into()),
+            Some(_) if !self.attest.available() && must => {
+                return Err(not_attested(
+                    "gh is not available to check the attestation".into(),
+                ))
+            }
+            Some(_) if !self.attest.available() => notes.push("manifest not attested".into()),
+            Some(bundle) => match verify_manifest_attestation(
+                self.attest.as_ref(),
+                doc,
+                bundle,
+                seen.scratch.as_deref(),
+            ) {
+                Ok(by) => notes.push(format!("attestation verified ({by})")),
+                Err(why) if must => return Err(not_attested(why)),
+                Err(why) => notes.push(format!("manifest not attested: {why}")),
+            },
         }
         let mut a = seal(m, self);
         for n in notes {
@@ -202,9 +238,16 @@ impl Trust for DigestTrust {
         let mut attested_by = None;
         let mut attest_fail = None;
         if art.attests && side && self.attest.available() {
-            match self.attest.verify(file, &art.repo, None) {
-                Ok(by) => attested_by = Some(by),
-                Err(why) => attest_fail = Some(why),
+            if !crate::pins::attest_repo_allowed(&art.repo) {
+                attest_fail = Some(format!(
+                    "{} is not a repository this installer accepts attestations from",
+                    art.repo
+                ));
+            } else {
+                match self.attest.verify(file, &art.repo, None) {
+                    Ok(by) => attested_by = Some(by),
+                    Err(why) => attest_fail = Some(why),
+                }
             }
         }
         let level = if pinned {
@@ -250,9 +293,12 @@ fn verify_manifest_attestation(
     a: &dyn Attest,
     doc: &[u8],
     bundle: &[u8],
+    scratch: Option<&Path>,
 ) -> Result<String, String> {
-    let d = super::attest::TempBytes::new("manifest.toml", doc).map_err(|e| e.to_string())?;
-    let b = super::attest::TempBytes::new("manifest.attestation.jsonl", bundle)
+    let dir = super::attest::PrivateDir::new(scratch).map_err(|e| e.to_string())?;
+    let d = dir.put("manifest.toml", doc).map_err(|e| e.to_string())?;
+    let b = dir
+        .put("manifest.attestation.jsonl", bundle)
         .map_err(|e| e.to_string())?;
-    a.verify(&d.0, crate::location::INSTALLER_REPO, Some(&b.0))
+    a.verify(&d, crate::location::INSTALLER_REPO, Some(&b))
 }

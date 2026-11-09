@@ -39,7 +39,7 @@ impl Attest for StubAttest {
     }
 }
 
-/// Runs `gh attestation verify <file> -R <repo>` with output discarded.
+/// Runs `gh attestation verify <file> -R <repo> --owner otmof-ops` with output discarded.
 #[derive(Debug, Clone, Default)]
 pub struct GhAttest;
 
@@ -67,7 +67,9 @@ impl Attest for GhAttest {
             .arg("verify")
             .arg(file)
             .arg("-R")
-            .arg(repo);
+            .arg(repo)
+            .arg("--owner")
+            .arg(crate::pins::ATTEST_OWNER);
         if let Some(b) = bundle {
             cmd.arg("--bundle").arg(b);
         }
@@ -101,29 +103,34 @@ impl Attest for GhAttest {
     }
 }
 
-/// A private temp file holding `bytes`, removed on drop. Used to hand a manifest to `gh`.
-pub(crate) struct TempBytes(pub PathBuf);
-impl TempBytes {
-    pub fn new(tag: &str, bytes: &[u8]) -> std::io::Result<TempBytes> {
-        use std::sync::atomic::{AtomicU64, Ordering};
-        static N: AtomicU64 = AtomicU64::new(0);
-        let p = std::env::temp_dir().join(format!(
-            "cigi-{}-{}-{}",
-            std::process::id(),
-            N.fetch_add(1, Ordering::Relaxed),
-            tag
-        ));
-        let mut f = std::fs::OpenOptions::new()
-            .write(true)
-            .create_new(true)
-            .open(&p)?;
+/// A fresh 0700 directory (under `installer/cache` when given, else the system temp directory)
+/// that holds the files handed to `gh`, removed with everything in it on drop.
+pub(crate) struct PrivateDir(PathBuf);
+impl PrivateDir {
+    pub fn new(under: Option<&Path>) -> std::io::Result<PrivateDir> {
+        let base = under
+            .map(Path::to_path_buf)
+            .unwrap_or_else(std::env::temp_dir);
+        let p = base.join(format!("attest-{}", crate::digest::random_suffix()));
+        let mut b = std::fs::DirBuilder::new();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::DirBuilderExt;
+            b.mode(0o700);
+        }
+        b.create(&p)?;
+        Ok(PrivateDir(p))
+    }
+    pub fn put(&self, name: &str, bytes: &[u8]) -> std::io::Result<PathBuf> {
+        let p = self.0.join(name);
+        let mut f = crate::http::create_private(&p)?;
         f.write_all(bytes)?;
         f.sync_all()?;
-        Ok(TempBytes(p))
+        Ok(p)
     }
 }
-impl Drop for TempBytes {
+impl Drop for PrivateDir {
     fn drop(&mut self) {
-        let _ = std::fs::remove_file(&self.0);
+        let _ = std::fs::remove_dir_all(&self.0);
     }
 }
