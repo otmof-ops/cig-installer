@@ -4,7 +4,7 @@
 //! `installer/shim-index` (section 5.3): the one generated text file the shim
 //! reads, and the rename that switches the machine to a new one.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::PathBuf;
 
 use cig_compat::Version;
@@ -32,6 +32,10 @@ pub struct ShimIndex {
     /// tool -> path: the fallback when the machine carton lacks the tool.
     pub sticks: BTreeMap<String, PathBuf>,
     pub legacy_pin_files: Vec<String>,
+    /// Cartons the manifest yanks. Not rendered one by one: a yanked carton is
+    /// never named by a `carton-minor`/`carton-major` line, so a pin like `0.1`
+    /// does not run it in the shim while the resolver would pass it over.
+    pub yanked: BTreeSet<String>,
 }
 
 impl Default for ShimIndex {
@@ -41,6 +45,7 @@ impl Default for ShimIndex {
             cartons: BTreeMap::new(),
             sticks: BTreeMap::new(),
             legacy_pin_files: LEGACY_PIN_FILES.iter().map(|s| s.to_string()).collect(),
+            yanked: BTreeSet::new(),
         }
     }
 }
@@ -98,9 +103,15 @@ impl ShimIndex {
         idx
     }
 
+    /// Set the yanked cartons (from the manifest known at write time).
+    pub fn with_yanked<I: IntoIterator<Item = String>>(mut self, yanked: I) -> ShimIndex {
+        self.yanked = yanked.into_iter().collect();
+        self
+    }
+
     /// The text of the file. Deterministic: cartons by version, tools by
     /// name, tab-separated, `carton-minor`/`carton-major` naming the newest
-    /// non-prerelease installed carton of each series.
+    /// non-prerelease, non-yanked installed carton of each series.
     pub fn render(&self) -> String {
         let mut out = String::new();
         out.push_str(INDEX_HEADER);
@@ -122,7 +133,7 @@ impl ShimIndex {
         let mut majors: BTreeMap<u64, &String> = BTreeMap::new();
         for c in &cartons {
             if let Some(v) = ver(c) {
-                if v.pre.is_some() {
+                if v.pre.is_some() || self.yanked.contains(*c) {
                     continue;
                 }
                 // `cartons` is ascending, so the last insert is the newest.
@@ -186,9 +197,14 @@ impl ShimIndex {
     pub fn pick(&self, pin: Option<&str>, tool: &str) -> Option<(Option<String>, PathBuf)> {
         let carton = match pin {
             Some(p) => {
-                let p = p.trim();
-                let p = p.strip_prefix('v').unwrap_or(p);
-                if p.is_empty() || p.contains(['>', '<', '=', '^', '~', ' ']) {
+                // cig-compat's `Pin::parse`: leading `v`s, then digits and dots
+                // only. A prerelease carton cannot be pinned by a pin file, and
+                // anything else is for the resolver.
+                let p = p.trim().trim_start_matches('v');
+                if p.is_empty()
+                    || p.split('.')
+                        .any(|x| x.is_empty() || !x.bytes().all(|b| b.is_ascii_digit()))
+                {
                     return None;
                 }
                 match p.split('.').count() {
@@ -224,8 +240,9 @@ impl ShimIndex {
         self.cartons
             .keys()
             .filter_map(|c| ver(c).map(|v| (v, c)))
-            .filter(|(v, _)| {
+            .filter(|(v, c)| {
                 v.pre.is_none()
+                    && !self.yanked.contains(c.as_str())
                     && v.major == want[0]
                     && want.get(1).map(|m| v.minor == *m).unwrap_or(true)
             })

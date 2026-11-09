@@ -348,7 +348,7 @@ fn push_advisory_findings(m: &Manifest, subject: &str, ver: &Version, out: &mut 
         if !a
             .affects
             .iter()
-            .any(|x| x.subject == subject && x.range.matches(ver))
+            .any(|x| x.subject == subject && x.range.matches_core(ver))
         {
             continue;
         }

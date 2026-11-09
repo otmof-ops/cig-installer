@@ -77,7 +77,7 @@ The installer carries its own HTTPS client (`ureq` with rustls) instead of shell
 
 ### 9. No telemetry, as a testable property
 
-Requests are plain `GET`s of public URLs with a fixed `User-Agent: ciginstaller` and no query strings, cookies or identifiers. A test records every request of a full install, update, and uninstall against the fixture server and fails on anything else (#19).
+Requests are plain `GET`s of public URLs with a fixed `User-Agent: ciginstaller` and no query strings, cookies or identifiers. In phase 2, when the install, update and uninstall flows exist, a test will record every request of a full install, update, and uninstall against the fixture server and fail on anything else (#19). Today only the fixed `User-Agent` is tested (the fixture server and the HTTP client each check the header); the full-flow recording test is not written yet.
 
 ### 10. Errors, output and tests follow the house
 

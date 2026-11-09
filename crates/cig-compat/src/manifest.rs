@@ -188,6 +188,15 @@ impl Requirement {
     pub fn matches(&self, v: &Version) -> bool {
         v.to_semver().is_some_and(|s| self.req.matches(&s))
     }
+
+    /// Whether the version's core (major.minor.patch) is in range, a
+    /// prerelease or not. For advisories: `<1.4.2` must flag `1.4.1-rc.2`.
+    pub fn matches_core(&self, v: &Version) -> bool {
+        v.to_semver().is_some_and(|mut s| {
+            s.pre = semver::Prerelease::EMPTY;
+            self.req.matches(&s)
+        })
+    }
 }
 
 /// A value under `embeds`: a number (`journal_format = 3`) or text.
@@ -1253,8 +1262,9 @@ impl Manifest {
     }
 
     /// The newest carton the pin accepts (restricted to `installed_only` when given).
-    /// A carton that is not yanked wins over a yanked one; an exact pin may name a
-    /// yanked carton (`check` warns about it).
+    /// A carton that is not yanked wins over a yanked one; only an exact pin may
+    /// name a yanked carton (`check` warns about it). A `1.1` or `1` pin whose
+    /// only matches are yanked finds none.
     pub fn newest_matching(
         &self,
         pin: &Pin,
@@ -1266,7 +1276,14 @@ impl Manifest {
         };
         let mut all = self.cartons.values().rev().filter(fits);
         let first = all.clone().find(|c| !self.is_carton_yanked(&c.version));
-        first.or_else(|| all.next())
+        // only an exact pin may name a yanked carton (`check` warns about it)
+        first.or_else(|| {
+            if matches!(pin, Pin::Exact(_)) {
+                all.next()
+            } else {
+                None
+            }
+        })
     }
 
     /// "Which cigo is in carton 1.1.2?"

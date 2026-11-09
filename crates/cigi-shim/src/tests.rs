@@ -91,3 +91,26 @@ fn legacy_list_is_read_from_the_index() {
     assert_eq!(legacy_names(INDEX), vec![".cig-version", ".cigar-version"]);
     assert!(legacy_names("cigi-index 1\n").is_empty());
 }
+
+#[test]
+fn pin_grammar_is_cig_compats_digits_and_dots() {
+    let carton = |s: &str| Pin::Carton(s.to_string());
+    // what `Pin::parse` accepts runs in the shim too, `v` prefixes included
+    for ok in ["0.1.0", "v0.1.0", "vv0.2", "0"] {
+        assert_ne!(pick(INDEX, "cig", None, &carton(ok)), Pick::Slow, "{ok}");
+    }
+    // what it rejects goes to the resolver, which says why
+    for bad in [
+        "0.1.0-beta.1",
+        "0.1.0+b",
+        "0.1.",
+        ".1",
+        "0..1",
+        "0.1.0.0",
+        "0.x",
+        "",
+        ">=0.1",
+    ] {
+        assert_eq!(pick(INDEX, "cig", None, &carton(bad)), Pick::Slow, "{bad}");
+    }
+}

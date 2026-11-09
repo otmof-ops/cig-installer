@@ -171,6 +171,8 @@ pub struct RollbackReport {
     /// Non-empty means `E1833`: `rollback-done` was NOT written and the next
     /// `recover` retries.
     pub failed: Vec<RollbackFailure>,
+    /// Things left in place on purpose (a directory that is no longer empty).
+    pub notes: Vec<String>,
 }
 
 impl RollbackReport {
@@ -423,9 +425,29 @@ impl Txn {
             true,
         )?;
         match fs::create_dir(path) {
-            Ok(()) => Ok(()),
-            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists && path.is_dir() => Ok(()),
-            Err(e) => Err(jio(path)(e)),
+            Ok(()) => {}
+            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists && path.is_dir() => {
+                return Ok(())
+            }
+            Err(e) => return Err(jio(path)(e)),
+        }
+        // Never the umask's mode (group-write under 002) inside the home.
+        if let Some(mode) = self.dir_mode_for(path) {
+            platform::set_mode(path, mode).map_err(jio(path))?;
+        }
+        Ok(())
+    }
+
+    /// The mode of a directory this transaction creates: 0700 under
+    /// `installer/` and `store/`, 0755 elsewhere inside the home, and the
+    /// platform default outside it (a user's `~/.config/fish` is theirs).
+    fn dir_mode_for(&self, path: &Path) -> Option<u32> {
+        if path.starts_with(self.home.installer()) || path.starts_with(self.home.store()) {
+            Some(0o700)
+        } else if path.starts_with(self.home.root()) {
+            Some(0o755)
+        } else {
+            None
         }
     }
 
@@ -630,11 +652,12 @@ impl Txn {
     fn do_rollback(mut self) -> Result<RollbackReport, JournalError> {
         self.sync_journal()?;
         let jr = read_journal(&self.id, &self.journal_path())?;
-        let (undone, failed) = undo_all(&self.home, &self.dir, &jr.lines);
+        let (undone, failed, notes) = undo_all(&self.home, &self.dir, &jr.lines);
         let report = RollbackReport {
             txn: self.id.clone(),
             undone,
             failed,
+            notes,
         };
         if report.is_complete() {
             self.log(&JournalOp::RollbackDone, true)?;
@@ -861,9 +884,57 @@ fn restore_saved(txn_dir: &Path, saved: &str, sha: Option<&str>, to: &Path) -> R
     res
 }
 
+/// Every `(sha256, exec)` the installed toolchains' receipts name, built once
+/// per undo pass (a rollback of n files must not read every receipt n times).
+#[derive(Debug, Default)]
+struct InUse {
+    objects: std::collections::HashSet<(String, bool)>,
+    /// Some receipt exists but cannot be read: nothing can be ruled out.
+    unreadable: bool,
+}
+
+impl InUse {
+    fn scan(home: &Home) -> InUse {
+        let mut out = InUse::default();
+        let Ok(tools) = fs::read_dir(home.toolchains()) else {
+            return out;
+        };
+        for tool in tools.flatten() {
+            let Ok(versions) = fs::read_dir(tool.path()) else {
+                continue;
+            };
+            for v in versions.flatten() {
+                // `.<ver>.partial-<txn>` directories are work in flight, not users.
+                if v.file_name().to_string_lossy().starts_with('.') {
+                    continue;
+                }
+                let r = v.path().join(crate::toolchain::RECEIPT_NAME);
+                let Ok(text) = fs::read_to_string(&r) else {
+                    continue;
+                };
+                let Ok(val) = serde_json::from_str::<serde_json::Value>(&text) else {
+                    out.unreadable = true;
+                    continue;
+                };
+                if let Some(files) = val.get("files").and_then(|f| f.as_array()) {
+                    for f in files {
+                        if let (Some(s), Some(e)) = (
+                            f.get("sha256").and_then(|s| s.as_str()),
+                            f.get("exec").and_then(|e| e.as_bool()),
+                        ) {
+                            out.objects.insert((s.to_string(), e));
+                        }
+                    }
+                }
+            }
+        }
+        out
+    }
+}
+
 /// A store object that something still uses must stay when its `store` op is
 /// undone: another receipt names it, or another hard link exists.
-fn object_in_use(home: &Home, id: &ObjectId) -> bool {
+fn object_in_use(home: &Home, cache: &mut Option<InUse>, id: &ObjectId) -> bool {
     let store = Store::new(home);
     if platform::nlink(&store.object_path(id))
         .map(|n| n > 1)
@@ -871,49 +942,87 @@ fn object_in_use(home: &Home, id: &ObjectId) -> bool {
     {
         return true;
     }
-    let Ok(tools) = fs::read_dir(home.toolchains()) else {
-        return false;
-    };
-    for tool in tools.flatten() {
-        let Ok(versions) = fs::read_dir(tool.path()) else {
-            continue;
-        };
-        for v in versions.flatten() {
-            // `.<ver>.partial-<txn>` directories are work in flight, not users.
-            if v.file_name().to_string_lossy().starts_with('.') {
-                continue;
-            }
-            let r = v.path().join(crate::toolchain::RECEIPT_NAME);
-            let Ok(text) = fs::read_to_string(&r) else {
-                continue;
-            };
-            let Ok(val) = serde_json::from_str::<serde_json::Value>(&text) else {
-                return true; // cannot tell: keep the object
-            };
-            let used = val
-                .get("files")
-                .and_then(|f| f.as_array())
-                .map(|files| {
-                    files.iter().any(|f| {
-                        f.get("sha256").and_then(|s| s.as_str()) == Some(id.sha256.as_str())
-                            && f.get("exec").and_then(|e| e.as_bool()) == Some(id.exec)
-                    })
-                })
-                .unwrap_or(false);
-            if used {
-                return true;
-            }
-        }
-    }
-    false
+    let set = cache.get_or_insert_with(|| InUse::scan(home));
+    set.unreadable || set.objects.contains(&(id.sha256.clone(), id.exec))
 }
 
-fn undo_one(home: &Home, txn_dir: &Path, op: &JournalOp) -> Result<(), String> {
+/// Is this a toolchain work-in-progress directory the installer owns outright?
+fn is_partial_dir(home: &Home, path: &Path) -> bool {
+    path.starts_with(home.toolchains())
+        && path
+            .file_name()
+            .map(|n| {
+                let n = n.to_string_lossy();
+                n.starts_with('.') && n.contains(".partial-")
+            })
+            .unwrap_or(false)
+}
+
+/// Undo a `mkdir`: remove the directory only when it is empty. Something put
+/// there since (a shell's own config, say) is the user's and stays.
+fn undo_mkdir(home: &Home, path: &Path, notes: &mut Vec<String>) -> Result<(), String> {
+    if is_partial_dir(home, path) {
+        return util::remove_any(path).map_err(|e| format!("{}: {e}", path.display()));
+    }
+    match fs::symlink_metadata(path) {
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(e) => Err(format!("{}: {e}", path.display())),
+        Ok(md) if !md.is_dir() => {
+            notes.push(format!(
+                "{} is no longer a directory; left in place",
+                path.display()
+            ));
+            Ok(())
+        }
+        Ok(_) => match fs::remove_dir(path) {
+            Ok(()) => Ok(()),
+            Err(e) => {
+                let occupied = fs::read_dir(path)
+                    .map(|mut r| r.next().is_some())
+                    .unwrap_or(false);
+                if occupied {
+                    notes.push(format!(
+                        "{} was created by an interrupted install but now holds other files; left in place",
+                        path.display()
+                    ));
+                    Ok(())
+                } else {
+                    Err(format!("{}: {e}", path.display()))
+                }
+            }
+        },
+    }
+}
+
+/// Undo something that created or replaced a file: remove a file or link,
+/// never a directory tree.
+fn undo_file(path: &Path, notes: &mut Vec<String>) -> Result<(), String> {
+    match fs::symlink_metadata(path) {
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(e) => Err(format!("{}: {e}", path.display())),
+        Ok(md) if md.is_dir() => {
+            notes.push(format!(
+                "{} is a directory now; left in place",
+                path.display()
+            ));
+            Ok(())
+        }
+        Ok(_) => fs::remove_file(path).map_err(|e| format!("{}: {e}", path.display())),
+    }
+}
+
+fn undo_one(
+    home: &Home,
+    txn_dir: &Path,
+    op: &JournalOp,
+    cache: &mut Option<InUse>,
+    notes: &mut Vec<String>,
+) -> Result<(), String> {
     let rm = |p: &Path| util::remove_any(p).map_err(|e| format!("{}: {e}", p.display()));
     match op {
         JournalOp::Begin { .. } | JournalOp::Commit { .. } | JournalOp::RollbackDone => Ok(()),
         JournalOp::Mkdir { path, before } => match before {
-            Before::Absent => rm(path),
+            Before::Absent => undo_mkdir(home, path, notes),
             _ => Ok(()),
         },
         JournalOp::Store {
@@ -925,7 +1034,7 @@ fn undo_one(home: &Home, txn_dir: &Path, op: &JournalOp) -> Result<(), String> {
                 return Ok(());
             }
             let id = ObjectId::new(object.clone(), *exec);
-            if object_in_use(home, &id) {
+            if object_in_use(home, cache, &id) {
                 return Ok(());
             }
             Store::new(home).remove(&id).map_err(|e| e.to_string())
@@ -937,40 +1046,28 @@ fn undo_one(home: &Home, txn_dir: &Path, op: &JournalOp) -> Result<(), String> {
         | JournalOp::Block {
             path: to, before, ..
         } => match before {
-            Before::Absent => rm(to),
+            Before::Absent => undo_file(to, notes),
             Before::File {
                 saved: Some(s),
                 sha256,
             } => restore_saved(txn_dir, s, sha256.as_deref(), to),
             _ => Ok(()),
         },
-        JournalOp::Move { to, before, .. } => match before {
-            Before::Absent => rm(to),
-            _ => Ok(()),
-        },
-        JournalOp::Delete { path, before } => match before {
-            Before::File {
-                saved: Some(s),
-                sha256,
-            } => {
-                if util::exists_any(path) {
-                    Ok(())
-                } else {
-                    restore_saved(txn_dir, s, sha256.as_deref(), path)
-                }
+        JournalOp::Move { to, before, .. } => {
+            // the receipts on disk change here: the in-use set is stale
+            *cache = None;
+            match before {
+                // a whole tree is the installer's own only under toolchains/
+                Before::Absent if to.starts_with(home.toolchains()) => rm(to),
+                Before::Absent if to.is_dir() => undo_mkdir(home, to, notes),
+                Before::Absent => undo_file(to, notes),
+                _ => Ok(()),
             }
-            Before::Dir { saved: Some(s) } => {
-                let abs = txn_dir.join(s);
-                if util::exists_any(path) {
-                    Ok(())
-                } else if abs.is_dir() {
-                    fs::rename(&abs, path).map_err(|e| format!("{}: {e}", path.display()))
-                } else {
-                    Err(format!("saved directory {s} is missing"))
-                }
-            }
-            _ => Ok(()),
-        },
+        }
+        JournalOp::Delete { path, before } => {
+            *cache = None;
+            undo_delete(txn_dir, path, before)
+        }
         JournalOp::Flip {
             index_sha256,
             previous_sha256,
@@ -991,11 +1088,43 @@ fn undo_one(home: &Home, txn_dir: &Path, op: &JournalOp) -> Result<(), String> {
     }
 }
 
+fn undo_delete(txn_dir: &Path, path: &Path, before: &Before) -> Result<(), String> {
+    match before {
+        Before::File {
+            saved: Some(s),
+            sha256,
+        } => {
+            if util::exists_any(path) {
+                Ok(())
+            } else {
+                restore_saved(txn_dir, s, sha256.as_deref(), path)
+            }
+        }
+        Before::Dir { saved: Some(s) } => {
+            let abs = txn_dir.join(s);
+            if util::exists_any(path) {
+                Ok(())
+            } else if abs.is_dir() {
+                fs::rename(&abs, path).map_err(|e| format!("{}: {e}", path.display()))
+            } else {
+                Err(format!("saved directory {s} is missing"))
+            }
+        }
+        _ => Ok(()),
+    }
+}
+
 /// Undo every op, newest first. Idempotent: safe to run again after a crash
-/// in the middle of a rollback.
-fn undo_all(home: &Home, txn_dir: &Path, lines: &[Line]) -> (usize, Vec<RollbackFailure>) {
+/// in the middle of a rollback. Linear in the ops: the receipts are read once.
+fn undo_all(
+    home: &Home,
+    txn_dir: &Path,
+    lines: &[Line],
+) -> (usize, Vec<RollbackFailure>, Vec<String>) {
     let mut undone = 0;
     let mut failed = Vec::new();
+    let mut notes = Vec::new();
+    let mut cache: Option<InUse> = None;
     for l in lines.iter().rev() {
         if matches!(
             l.op,
@@ -1003,7 +1132,7 @@ fn undo_all(home: &Home, txn_dir: &Path, lines: &[Line]) -> (usize, Vec<Rollback
         ) {
             continue;
         }
-        match undo_one(home, txn_dir, &l.op) {
+        match undo_one(home, txn_dir, &l.op, &mut cache, &mut notes) {
             Ok(()) => undone += 1,
             Err(error) => failed.push(RollbackFailure {
                 seq: l.seq,
@@ -1012,7 +1141,7 @@ fn undo_all(home: &Home, txn_dir: &Path, lines: &[Line]) -> (usize, Vec<Rollback
             }),
         }
     }
-    (undone, failed)
+    (undone, failed, notes)
 }
 
 // ---------------------------------------------------------------- recovery
@@ -1024,6 +1153,10 @@ pub enum RecoverOutcome {
     RolledBack { undone: usize },
     /// The flip had happened: the commit was finished.
     RolledForward,
+    /// The transaction had already ended (a `commit` or `rollback-done` line)
+    /// but its journal is damaged after that line: the damage was cut off.
+    /// A note, not a problem.
+    Settled { why: String },
     /// Unreadable or inconsistent journal: nothing touched (`E1891`).
     Corrupt { why: String },
     /// Some undo failed: `rollback-done` not written, retried next time (`E1833`).
@@ -1036,13 +1169,17 @@ pub struct Recovered {
     pub txn: String,
     pub label: String,
     pub outcome: RecoverOutcome,
+    /// Things left in place on purpose.
+    pub notes: Vec<String>,
 }
 
 impl Recovered {
     /// `E1832` (a note) when recovered, `E1891` or `E1833` when not.
     pub fn code(&self) -> &'static str {
         match self.outcome {
-            RecoverOutcome::RolledBack { .. } | RecoverOutcome::RolledForward => "E1832",
+            RecoverOutcome::RolledBack { .. }
+            | RecoverOutcome::RolledForward
+            | RecoverOutcome::Settled { .. } => "E1832",
             RecoverOutcome::Corrupt { .. } => "E1891",
             RecoverOutcome::Incomplete { .. } => "E1833",
         }
@@ -1096,6 +1233,8 @@ pub fn recover(home: &Home, lock: &InstallerLock) -> Result<Vec<Recovered>, Jour
 fn recover_one(home: &Home, dir: &Path, id: &str) -> Result<Option<Recovered>, JournalError> {
     let jpath = dir.join("journal.jsonl");
     if !jpath.is_file() {
+        // a crash between creating the directory and the first journal line
+        let _ = fs::remove_dir_all(dir);
         return Ok(None);
     }
     let mk = |label: String, outcome| {
@@ -1103,12 +1242,29 @@ fn recover_one(home: &Home, dir: &Path, id: &str) -> Result<Option<Recovered>, J
             txn: id.to_string(),
             label,
             outcome,
+            notes: Vec::new(),
         }))
     };
     let jr = match read_journal(id, &jpath) {
         Ok(j) => j,
         Err(JournalError::Corrupt { why, .. }) => {
-            return mk(String::new(), RecoverOutcome::Corrupt { why })
+            // Damage after the line that ended the transaction changes nothing
+            // about the home: cut it off and carry on.
+            if let Some((label, keep)) = settled_prefix(&jpath) {
+                let f = OpenOptions::new()
+                    .write(true)
+                    .open(&jpath)
+                    .map_err(jio(&jpath))?;
+                f.set_len(keep).map_err(jio(&jpath))?;
+                f.sync_all().map_err(jio(&jpath))?;
+                return mk(
+                    label,
+                    RecoverOutcome::Settled {
+                        why: format!("the journal was damaged after the transaction ended ({why}); the damage was cut off"),
+                    },
+                );
+            }
+            return mk(String::new(), RecoverOutcome::Corrupt { why });
         }
         Err(JournalError::TooNew { found, .. }) => {
             return mk(
@@ -1122,6 +1278,8 @@ fn recover_one(home: &Home, dir: &Path, id: &str) -> Result<Option<Recovered>, J
     };
     let label = label_of(&jr.lines);
     if jr.lines.is_empty() {
+        // torn before the first line was complete: nothing ever began
+        let _ = fs::remove_dir_all(dir);
         return Ok(None);
     }
     if jr
@@ -1185,13 +1343,42 @@ fn recover_one(home: &Home, dir: &Path, id: &str) -> Result<Option<Recovered>, J
         append(JournalOp::Commit { recovered: true }, next)?;
         return mk(label, RecoverOutcome::RolledForward);
     }
-    let (undone, failed) = undo_all(home, dir, &jr.lines);
-    if failed.is_empty() {
+    let (undone, failed, notes) = undo_all(home, dir, &jr.lines);
+    let outcome = if failed.is_empty() {
         append(JournalOp::RollbackDone, next)?;
-        mk(label, RecoverOutcome::RolledBack { undone })
+        RecoverOutcome::RolledBack { undone }
     } else {
-        mk(label, RecoverOutcome::Incomplete { failed })
+        RecoverOutcome::Incomplete { failed }
+    };
+    Ok(Some(Recovered {
+        txn: id.to_string(),
+        label,
+        outcome,
+        notes,
+    }))
+}
+
+/// For a journal that does not parse to the end: the label and the byte
+/// length of the valid prefix, when that prefix already holds the line that
+/// ended the transaction (`commit` or `rollback-done`).
+fn settled_prefix(path: &Path) -> Option<(String, u64)> {
+    let text = String::from_utf8_lossy(&fs::read(path).ok()?).into_owned();
+    let mut lines: Vec<Line> = Vec::new();
+    let mut len = 0u64;
+    for raw in text.split_inclusive('\n') {
+        let body = raw.strip_suffix('\n')?; // a torn tail has no end line
+        let line: Line = serde_json::from_str(body).ok()?;
+        if line.seq != lines.len() as u64 {
+            return None;
+        }
+        len += raw.len() as u64;
+        let ended = matches!(line.op, JournalOp::Commit { .. } | JournalOp::RollbackDone);
+        lines.push(line);
+        if ended {
+            return Some((label_of(&lines), len));
+        }
     }
+    None
 }
 
 /// With every txn settled and the lock held, nothing may be in flight: drop

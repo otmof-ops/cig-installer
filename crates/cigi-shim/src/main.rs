@@ -29,7 +29,21 @@ const MAX_FILE: u64 = 64 * 1024;
 enum Pin {
     Carton(String),
     Slow,
+    /// A pin file is there but cannot be read here (over the cap, not UTF-8,
+    /// read error): the slow path decides, and says so. The text names the file.
+    Unreadable(String),
     None,
+}
+
+/// The outcome of reading one pin file.
+#[derive(Debug, PartialEq)]
+enum Reading {
+    /// No such file, or not one the shim may trust (a link, another owner):
+    /// the same as no file.
+    Absent,
+    Text(String),
+    /// It exists and is ours to read, but not within the cap or not text.
+    Unusable,
 }
 
 /// What the index says to run.
@@ -82,19 +96,28 @@ fn owner_ok(_md: &fs::Metadata, _t: Trusted) -> bool {
 
 /// Read a pin file: only a regular file (never a link, fifo or device, checked before opening and
 /// again on the opened file), owned by a trusted user, at most `MAX_FILE` bytes.
-fn read_capped(path: &Path, t: Trusted) -> Option<String> {
-    let before = fs::symlink_metadata(path).ok()?;
+fn read_capped(path: &Path, t: Trusted) -> Reading {
+    let Ok(before) = fs::symlink_metadata(path) else {
+        return Reading::Absent;
+    };
     if !before.file_type().is_file() || !owner_ok(&before, t) {
-        return None;
+        return Reading::Absent;
     }
-    let f = File::open(path).ok()?;
-    let after = f.metadata().ok()?;
+    let Ok(f) = File::open(path) else {
+        return Reading::Unusable;
+    };
+    let Ok(after) = f.metadata() else {
+        return Reading::Unusable;
+    };
     if !after.is_file() || !owner_ok(&after, t) {
-        return None;
+        return Reading::Absent;
     }
-    let mut text = String::new();
-    f.take(MAX_FILE).read_to_string(&mut text).ok()?;
-    Some(text)
+    // one byte past the cap tells "exactly at the cap" from "over it"
+    let mut bytes = Vec::new();
+    if f.take(MAX_FILE + 1).read_to_end(&mut bytes).is_err() || bytes.len() as u64 > MAX_FILE {
+        return Reading::Unusable;
+    }
+    String::from_utf8(bytes).map_or(Reading::Unusable, Reading::Text)
 }
 
 /// The index is the installer's own file: read it as before, but never through a link.
@@ -132,14 +155,30 @@ fn find_pin(start: &Path, legacy: &[&str], t: Trusted, stop: Option<&Path>) -> P
     let mut dir = Some(start);
     for _ in 0..MAX_DEPTH {
         let Some(d) = dir else { break };
-        if let Some(t) = read_capped(&d.join(".cig-carton"), t) {
-            return pin_from_carton_file(&t).map_or(Pin::Slow, Pin::Carton);
-        }
-        if let Some(p) = read_capped(&d.join("cig-tasks.json"), t).and_then(|x| pin_from_json(&x)) {
-            return Pin::Carton(p);
-        }
-        if let Some(p) = read_capped(&d.join("cigar.toml"), t).and_then(|x| pin_from_toml(&x)) {
-            return Pin::Carton(p);
+        for (file, parse) in [
+            (".cig-carton", None),
+            (
+                "cig-tasks.json",
+                Some(pin_from_json as fn(&str) -> Option<String>),
+            ),
+            (
+                "cigar.toml",
+                Some(pin_from_toml as fn(&str) -> Option<String>),
+            ),
+        ] {
+            match read_capped(&d.join(file), t) {
+                Reading::Absent => {}
+                Reading::Unusable => return Pin::Unreadable(d.join(file).display().to_string()),
+                Reading::Text(text) => match parse {
+                    // a `.cig-carton` is a verdict by itself
+                    None => return pin_from_carton_file(&text).map_or(Pin::Slow, Pin::Carton),
+                    Some(f) => {
+                        if let Some(p) = f(&text) {
+                            return Pin::Carton(p);
+                        }
+                    }
+                },
+            }
         }
         if legacy
             .iter()
@@ -174,13 +213,15 @@ fn pick(index: &str, tool: &str, forced: Option<&str>, pin: &Pin) -> Pick {
     let run = |carton: Option<String>, path: String| Pick::Run { carton, path };
     let chosen = match (forced, pin) {
         (Some(c), _) => Some(c.to_string()),
-        (None, Pin::Slow) => return Pick::Slow,
+        (None, Pin::Slow | Pin::Unreadable(_)) => return Pick::Slow,
         (None, Pin::Carton(p)) => {
-            let p = p.strip_prefix('v').unwrap_or(p);
+            // cig-compat's `Pin::parse` grammar: leading `v`s, then digits and
+            // dots only (so no prerelease form). Anything else is the
+            // resolver's to answer.
+            let p = p.trim_start_matches('v');
             if p.is_empty()
-                || !p
-                    .bytes()
-                    .all(|b| b.is_ascii_alphanumeric() || b"+-.".contains(&b))
+                || p.split('.')
+                    .any(|x| x.is_empty() || !x.bytes().all(|b| b.is_ascii_digit()))
             {
                 return Pick::Slow;
             }
@@ -273,6 +314,12 @@ fn main() {
         ),
         _ => Pin::None,
     };
+    if let Pin::Unreadable(file) = &pin {
+        eprintln!(
+            "note: {file} is too large or not text for the shim; \
+             the installer will read it (slower)"
+        );
+    }
     let (mut cmd, carton) = match pick(&index, &name, forced.as_deref(), &pin) {
         Pick::Run { carton, path } => {
             let target = Path::new(&path);

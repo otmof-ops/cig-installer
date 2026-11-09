@@ -297,3 +297,60 @@ fn partial_download_names_are_not_the_pid() {
     .unwrap();
     assert_eq!(std::fs::read_to_string(&planted).unwrap(), "planted");
 }
+
+#[test]
+fn a_failed_artifact_attestation_below_the_floor_is_a_visible_note() {
+    let fx = fx_days(30);
+    let m = manifest_of(&fx, "stable");
+    let src = mirror(&fx);
+    let staged = get_artifact(
+        &src,
+        &trust(),
+        &m,
+        "cig",
+        &v("1.0.0"),
+        &fx.home,
+        &mut NoProgress,
+    )
+    .unwrap();
+    let mut art = m
+        .artifact("cig", &v("1.0.0"), &Target::host())
+        .unwrap()
+        .clone();
+    let side = std::fs::read_to_string(fx.releases.join(format!("{}.sha256", art.asset))).unwrap();
+    art.attests = true;
+    art.repo = "otmof-ops/cig-script".into();
+    // `gh` is there and says no: installed at checksummed, and it says so
+    let failing = DigestTrust::new(TrustLevel::Checksummed)
+        .with_pins(&[])
+        .with_attest(Arc::new(StubAttest(Err("no attestation found".into()))));
+    let a = failing
+        .admit_artifact(&art, Some(&side), &staged.path)
+        .unwrap();
+    assert_eq!(a.level, TrustLevel::Checksummed);
+    assert!(
+        a.notes()
+            .iter()
+            .any(|n| n.contains("failed its attestation check")
+                && n.contains("no attestation found")),
+        "{:?}",
+        a.notes()
+    );
+    // a good attestation says nothing of the kind
+    let good = DigestTrust::new(TrustLevel::Checksummed)
+        .with_pins(&[])
+        .with_attest(Arc::new(StubAttest(Ok("github:x".into()))));
+    let a = good
+        .admit_artifact(&art, Some(&side), &staged.path)
+        .unwrap();
+    assert_eq!(a.level, TrustLevel::Attested);
+    assert!(a.notes().is_empty(), "{:?}", a.notes());
+    // gh absent is not a failure: no note
+    let none = DigestTrust::new(TrustLevel::Checksummed)
+        .with_pins(&[])
+        .with_attest(Arc::new(NoAttest));
+    let a = none
+        .admit_artifact(&art, Some(&side), &staged.path)
+        .unwrap();
+    assert!(a.notes().is_empty(), "{:?}", a.notes());
+}

@@ -79,7 +79,9 @@ pub fn prov() -> Provenance {
     }
 }
 
-/// A tree listing (relative path, kind, bytes or hash) for before/after equality.
+/// A tree listing (relative path, kind, content hash, mode) for
+/// before/after equality: a rollback "to the byte" is compared on content,
+/// not on length.
 pub fn snapshot(root: &Path) -> Vec<String> {
     fn walk(base: &Path, dir: &Path, out: &mut Vec<String>) {
         let mut ents: Vec<_> = match fs::read_dir(dir) {
@@ -94,16 +96,35 @@ pub fn snapshot(root: &Path) -> Vec<String> {
             if rel.starts_with("installer/txn/") || rel == "installer/lock" {
                 continue;
             }
-            if p.is_dir() {
-                out.push(format!("d {rel}"));
+            let md = fs::symlink_metadata(&p).unwrap();
+            let mode = mode_of(&md);
+            if md.file_type().is_symlink() {
+                out.push(format!(
+                    "l {rel} -> {}",
+                    fs::read_link(&p).unwrap().display()
+                ));
+            } else if md.is_dir() {
+                out.push(format!("d {rel} {mode}"));
                 walk(base, &p, out);
             } else {
+                use sha2::{Digest, Sha256};
                 let body = fs::read(&p).unwrap();
-                out.push(format!("f {rel} {}", body.len()));
+                let sha = hex::encode(Sha256::digest(&body));
+                out.push(format!("f {rel} {} {sha} {mode}", body.len()));
             }
         }
     }
     let mut out = Vec::new();
     walk(root, root, &mut out);
     out
+}
+
+#[cfg(unix)]
+fn mode_of(md: &fs::Metadata) -> String {
+    use std::os::unix::fs::PermissionsExt;
+    format!("{:o}", md.permissions().mode() & 0o7777)
+}
+#[cfg(not(unix))]
+fn mode_of(_: &fs::Metadata) -> String {
+    String::new()
 }

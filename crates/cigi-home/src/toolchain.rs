@@ -252,9 +252,6 @@ pub fn materialize(
     }
     staged.sort_by(|a, b| a.0.cmp(&b.0));
 
-    if util::exists_any(&final_dir) {
-        txn.delete(&final_dir)?;
-    }
     let tool_dir = home.toolchains().join(tool);
     let partial = tool_dir.join(format!(".{v}.partial-{}", txn.id()));
     txn.mkdir_all(&tool_dir)?;
@@ -269,7 +266,8 @@ pub fn materialize(
             .len();
         let dest = partial.join(rel);
         if let Some(parent) = dest.parent() {
-            fs::create_dir_all(parent).map_err(io_err(parent))?;
+            // journaled, with explicit modes: never the umask's group-write
+            txn.mkdir_all(parent)?;
         }
         txn.link(&store.object_path(&id), &dest)?;
         entries.push(ReceiptFile {
@@ -297,6 +295,11 @@ pub fn materialize(
     let rpath = partial.join(RECEIPT_NAME);
     util::write_atomic(&rpath, receipt.to_json().as_bytes(), Some(0o644))
         .map_err(io_err(&rpath))?;
+    // The replacement is complete: the swap is the last step, two renames
+    // with nothing slow between them.
+    if util::exists_any(&final_dir) {
+        txn.delete(&final_dir)?;
+    }
     txn.move_path(&partial, &final_dir)?;
     Ok(receipt)
 }
@@ -397,13 +400,75 @@ pub fn installed(home: &Home) -> Vec<(String, Version)> {
     out
 }
 
-/// The objects every installed toolchain needs: the `keep` set for `gc`.
+/// The objects that must survive `gc`: those of every installed toolchain,
+/// those `bin/` links to (the shim and installer objects), and every object
+/// of a toolchain directory whose receipt cannot be read (kept by inode: a
+/// file linked from there is kept, whatever the receipt would have said).
+/// The values say who needs each object; `bin/<name>` entries carry version
+/// `0.0.0`. Where the platform has no inodes, an unreadable receipt keeps
+/// the whole store.
 pub fn referenced_objects(home: &Home) -> BTreeMap<ObjectId, Vec<(String, Version)>> {
     let mut m: BTreeMap<ObjectId, Vec<(String, Version)>> = BTreeMap::new();
     for (tool, v) in installed(home) {
         if let Ok(r) = read_receipt(home, &tool, &v) {
             for id in r.objects() {
                 m.entry(id).or_default().push((tool.clone(), v.clone()));
+            }
+        }
+    }
+    // Who links to the store by inode: bin/ and toolchains we cannot read.
+    let mut by_inode: BTreeMap<u64, Vec<(String, Version)>> = BTreeMap::new();
+    let mut keep_all: Option<(String, Version)> = None;
+    let zero = Version::parse("0.0.0").ok();
+    let mut note_file = |p: &Path, who: (String, Version)| match crate::platform::ino(p) {
+        Some(i) => by_inode.entry(i).or_default().push(who),
+        None => keep_all = Some(who),
+    };
+    if let (Ok(rd), Some(zero)) = (fs::read_dir(home.bin()), zero.as_ref()) {
+        for e in rd.flatten() {
+            let name = e.file_name().to_string_lossy().into_owned();
+            note_file(&e.path(), (format!("bin/{name}"), zero.clone()));
+        }
+    }
+    if let Ok(tools) = fs::read_dir(home.toolchains()) {
+        for t in tools.flatten() {
+            let tool = t.file_name().to_string_lossy().into_owned();
+            let Ok(vs) = fs::read_dir(t.path()) else {
+                continue;
+            };
+            for v in vs.flatten() {
+                let name = v.file_name().to_string_lossy().into_owned();
+                if name.starts_with('.') || read_receipt_at(&v.path(), &tool, &name).is_ok() {
+                    continue;
+                }
+                let ver = Version::parse(&name)
+                    .or_else(|_| Version::parse("0.0.0"))
+                    .ok();
+                let Some(ver) = ver else { continue };
+                let mut stack = vec![v.path()];
+                while let Some(d) = stack.pop() {
+                    let Ok(rd) = fs::read_dir(&d) else { continue };
+                    for e in rd.flatten() {
+                        match e.file_type() {
+                            Ok(ft) if ft.is_dir() => stack.push(e.path()),
+                            Ok(_) => note_file(&e.path(), (tool.clone(), ver.clone())),
+                            Err(_) => {}
+                        }
+                    }
+                }
+            }
+        }
+    }
+    if by_inode.is_empty() && keep_all.is_none() {
+        return m;
+    }
+    let store = home.object_store();
+    for (id, _) in store.all() {
+        if let Some(who) = &keep_all {
+            m.entry(id).or_default().push(who.clone());
+        } else if let Some(i) = crate::platform::ino(&store.object_path(&id)) {
+            if let Some(whos) = by_inode.get(&i) {
+                m.entry(id).or_default().extend(whos.iter().cloned());
             }
         }
     }

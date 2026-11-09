@@ -329,3 +329,57 @@ fn the_walk_stops_at_the_users_home() {
     );
     assert!(out(&o).starts_with("cig 1.21.0 "), "{}", out(&o));
 }
+
+#[test]
+fn an_oversized_or_non_text_pin_file_goes_to_the_slow_path_with_a_note() {
+    let root = scratch("oversized");
+    let h = home(&root);
+    // the pin sits after the 64 KB the shim reads: it must not be dropped
+    let p = root.join("p");
+    fs::create_dir_all(&p).unwrap();
+    let pad = " ".repeat(70_000);
+    fs::write(
+        p.join("cig-tasks.json"),
+        format!("{{\"tasks\": {{}}, \"pad\": \"{pad}\", \"carton\": \"0.2\"}}"),
+    )
+    .unwrap();
+    let o = run(&root, &h, "cig", &p, &["x"]);
+    assert!(
+        out(&o).starts_with("slow-path __resolve --tool cig"),
+        "{}",
+        out(&o)
+    );
+    assert!(
+        String::from_utf8_lossy(&o.stderr).contains("cig-tasks.json is too large or not text"),
+        "{}",
+        String::from_utf8_lossy(&o.stderr)
+    );
+    // cut inside a multi-byte character by the old cap: same answer
+    let q = root.join("q");
+    fs::create_dir_all(&q).unwrap();
+    fs::write(q.join("cigar.toml"), vec![0xff, 0xfe, b'x']).unwrap();
+    let o = run(&root, &h, "cig", &q, &[]);
+    assert!(out(&o).starts_with("slow-path"), "{}", out(&o));
+    // a small ordinary file is untouched by all this
+    let s = root.join("s");
+    fs::create_dir_all(&s).unwrap();
+    fs::write(s.join("cig-tasks.json"), r#"{"carton": "0.2"}"#).unwrap();
+    let o = run(&root, &h, "cig", &s, &[]);
+    assert!(out(&o).starts_with("cig 1.21.0 carton=0.2.0"));
+    assert!(o.stderr.is_empty());
+}
+
+#[test]
+fn a_prerelease_pin_is_the_resolvers_to_answer() {
+    let root = scratch("prerelease");
+    let h = home(&root);
+    let p = root.join("p");
+    fs::create_dir_all(&p).unwrap();
+    for pin in ["0.3.0-beta.1\n", "0.1.0+build\n", "0.1.\n", "0..1\n"] {
+        fs::write(p.join(".cig-carton"), pin).unwrap();
+        assert!(
+            out(&run(&root, &h, "cig", &p, &[])).starts_with("slow-path"),
+            "{pin:?}"
+        );
+    }
+}

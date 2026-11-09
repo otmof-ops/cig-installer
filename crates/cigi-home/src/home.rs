@@ -194,6 +194,19 @@ impl Home {
                     continue;
                 }
                 dirs.push(e.path());
+                // the version directories and their subdirectories too
+                let mut stack = vec![e.path()];
+                while let Some(d) = stack.pop() {
+                    let Ok(inner) = fs::read_dir(&d) else {
+                        continue;
+                    };
+                    for i in inner.flatten() {
+                        if i.file_type().map(|t| t.is_dir()).unwrap_or(false) {
+                            dirs.push(i.path());
+                            stack.push(i.path());
+                        }
+                    }
+                }
             }
         }
         for p in dirs {

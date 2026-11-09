@@ -200,6 +200,9 @@ fn crash_at(fault: &str) -> (Fx, Vec<String>, String, (bool, String, Option<i32>
     (Fx { tmp, home, lock }, snap, old_index, res)
 }
 
+// The child is aborted (process abort), which tests the journal's undo and the
+// recovery on the next run. It does not test durability: no power is cut, so
+// fsync ordering is not exercised. The comparison is on content and mode.
 #[test]
 fn killed_before_the_flip_is_rolled_back_to_the_byte() {
     for fault in [

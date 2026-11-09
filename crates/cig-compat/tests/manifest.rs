@@ -37,9 +37,12 @@ fn latest_and_newest_matching() {
         m.newest_matching(&one, Some(&installed)).unwrap().version,
         v("1.0.0")
     );
-    // a non-yanked carton beats a yanked one; a yanked one is still found when it is all there is
+    // a non-yanked carton beats a yanked one; only an exact pin still finds a yanked one
     let zero = Pin::parse("0.9").unwrap();
-    assert_eq!(m.newest_matching(&zero, None).unwrap().version, v("0.9.0"));
+    assert!(m.newest_matching(&zero, None).is_none());
+    assert!(m.newest_matching(&Pin::parse("0").unwrap(), None).is_none());
+    let exact = Pin::parse("0.9.0").unwrap();
+    assert_eq!(m.newest_matching(&exact, None).unwrap().version, v("0.9.0"));
     assert!(m.newest_matching(&Pin::parse("7").unwrap(), None).is_none());
     assert!(m.newest_matching(&one, Some(&[])).is_none());
     let m = spec_manifest();

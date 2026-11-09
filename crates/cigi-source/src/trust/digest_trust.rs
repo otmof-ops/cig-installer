@@ -258,7 +258,7 @@ impl Trust for DigestTrust {
             TrustLevel::Checksummed
         };
         if level < self.floor {
-            if let (TrustLevel::Attested, Some(why)) = (self.floor, attest_fail) {
+            if let (TrustLevel::Attested, Some(why)) = (self.floor, attest_fail.clone()) {
                 return Err(TrustError::AttestationFailed {
                     what: art.asset.clone(),
                     why,
@@ -277,7 +277,7 @@ impl Trust for DigestTrust {
                 why,
             });
         }
-        Ok(seal(
+        let mut admitted = seal(
             Verified {
                 level,
                 sha256: actual,
@@ -285,7 +285,18 @@ impl Trust for DigestTrust {
                 attested_by,
             },
             self,
-        ))
+        );
+        // Below the attested floor a failed check does not stop the install,
+        // but for a product that publishes attestations it is the one sign of
+        // a swapped artifact: it is said, not dropped.
+        if let Some(why) = attest_fail {
+            admitted = admitted.note(format!(
+                "{} failed its attestation check and is installed at `{}` only: {why}",
+                art.asset,
+                level.as_str()
+            ));
+        }
+        Ok(admitted)
     }
 }
 

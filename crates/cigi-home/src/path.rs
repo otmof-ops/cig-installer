@@ -3,6 +3,7 @@
 
 //! The PATH block in a shell profile (section 12.1 step 5).
 
+use std::fs;
 use std::path::{Path, PathBuf};
 
 use crate::error::PathError;
@@ -55,6 +56,22 @@ pub enum PathChange {
     /// The markers are there but the content is not ours (hand-edited, or a
     /// marker without its partner): left alone, `E1862`.
     Edited,
+    /// The profile is a symbolic link that leads nowhere usable (dangling, or
+    /// not to a file): left alone, the caller shows the block to add by hand.
+    Skipped,
+}
+
+/// Where a profile really lives. A symbolic link (a dotfiles repository, say)
+/// is followed: the block goes into the target, and the link stays a link.
+/// `None` when the link cannot be followed to a regular file.
+fn resolve_profile(p: &Path) -> Option<PathBuf> {
+    match fs::symlink_metadata(p) {
+        Ok(md) if md.file_type().is_symlink() => match fs::canonicalize(p) {
+            Ok(t) if t.is_file() => Some(t),
+            _ => None,
+        },
+        _ => Some(p.to_path_buf()),
+    }
 }
 
 fn dq_escape(s: &str) -> String {
@@ -182,12 +199,16 @@ pub fn add_path_block(
     shell: Shell,
     home: &Home,
 ) -> Result<PathChange, PathError> {
-    let (profile, block) = path_block(shell, home);
+    let (link, block) = path_block(shell, home);
+    let Some(profile) = resolve_profile(&link) else {
+        return Ok(PathChange::Skipped);
+    };
     let existing = read(&profile)?;
     let mut text = existing.clone().unwrap_or_default();
+    let crlf = text.contains("\r\n");
     match find_block(&text) {
         Found::At(s, e) => {
-            return Ok(if text[s..e] == block {
+            return Ok(if text[s..e].replace("\r\n", "\n") == block {
                 PathChange::AlreadyPresent
             } else {
                 PathChange::Edited
@@ -196,13 +217,21 @@ pub fn add_path_block(
         Found::Broken => return Ok(PathChange::Edited),
         Found::None => {}
     }
-    if !text.is_empty() {
-        if !text.ends_with('\n') {
-            text.push('\n');
+    // A profile that exists always gets the separator, an empty one too, so
+    // that removal can tell it from a file the add created. A CRLF profile
+    // gets CRLF line ends.
+    let nl = if crlf { "\r\n" } else { "\n" };
+    if existing.is_some() {
+        if !text.is_empty() && !text.ends_with('\n') {
+            text.push_str(nl);
         }
-        text.push('\n');
+        text.push_str(nl);
     }
-    text.push_str(&block);
+    if crlf {
+        text.push_str(&block.replace('\n', "\r\n"));
+    } else {
+        text.push_str(&block);
+    }
     if let Some(parent) = profile.parent() {
         txn.mkdir_all(parent)?;
     }
@@ -216,14 +245,18 @@ pub fn add_path_block(
 }
 
 /// Remove the block, and the blank line `add_path_block` put before it. A
-/// profile that held only the block is deleted. Byte-exact for a file that
+/// profile the add created (it held only the block) is deleted; one that
+/// existed, an empty one included, goes back byte for byte, CRLF too, when it
 /// ended with a newline before the add.
 pub fn remove_path_block(
     txn: &mut crate::journal::Txn,
     shell: Shell,
     home: &Home,
 ) -> Result<PathChange, PathError> {
-    let (profile, block) = path_block(shell, home);
+    let (link, block) = path_block(shell, home);
+    let Some(profile) = resolve_profile(&link) else {
+        return Ok(PathChange::Skipped);
+    };
     let Some(text) = read(&profile)? else {
         return Ok(PathChange::NotPresent);
     };
@@ -231,15 +264,20 @@ pub fn remove_path_block(
         Found::None => Ok(PathChange::NotPresent),
         Found::Broken => Ok(PathChange::Edited),
         Found::At(s, e) => {
-            if text[s..e] != block {
+            if text[s..e].replace("\r\n", "\n") != block {
                 return Ok(PathChange::Edited);
             }
             let mut start = s;
+            let mut separator = false;
             if start > 0 && text.as_bytes()[start - 1] == b'\n' {
                 start -= 1;
+                separator = true;
+                if start > 0 && text.as_bytes()[start - 1] == b'\r' {
+                    start -= 1;
+                }
             }
             let rest = format!("{}{}", &text[..start], &text[e..]);
-            if rest.is_empty() {
+            if rest.is_empty() && !separator {
                 txn.delete(&profile)?;
             } else {
                 let mode = platform::mode_of(&profile);
@@ -252,7 +290,10 @@ pub fn remove_path_block(
 
 /// Whether the profile has the exact block (for `doctor`).
 pub fn block_state(shell: Shell, home: &Home) -> Result<PathChange, PathError> {
-    let (profile, block) = path_block(shell, home);
+    let (link, block) = path_block(shell, home);
+    let Some(profile) = resolve_profile(&link) else {
+        return Ok(PathChange::Skipped);
+    };
     let Some(text) = read(&profile)? else {
         return Ok(PathChange::NotPresent);
     };
@@ -260,7 +301,7 @@ pub fn block_state(shell: Shell, home: &Home) -> Result<PathChange, PathError> {
         Found::None => PathChange::NotPresent,
         Found::Broken => PathChange::Edited,
         Found::At(s, e) => {
-            if text[s..e] == block {
+            if text[s..e].replace("\r\n", "\n") == block {
                 PathChange::AlreadyPresent
             } else {
                 PathChange::Edited

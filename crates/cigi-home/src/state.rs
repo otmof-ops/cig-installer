@@ -143,7 +143,24 @@ impl State {
         if found == 0 || found > STATE_FORMAT as u64 {
             return Err(format!("format {found}, this build knows {STATE_FORMAT}"));
         }
-        serde_json::from_value(val).map_err(|e| e.to_string())
+        let state: State = serde_json::from_value(val).map_err(|e| e.to_string())?;
+        state.check()?;
+        Ok(state)
+    }
+
+    /// One stick per tool: the index keeps one path per tool, so a second
+    /// would silently win. Refused on load and on save.
+    pub fn check(&self) -> Result<(), String> {
+        let mut seen = std::collections::BTreeSet::new();
+        for s in &self.sticks {
+            if !seen.insert(s.tool.as_str()) {
+                return Err(format!(
+                    "two sticks of {}; a tool has one stick at a time",
+                    s.tool
+                ));
+            }
+        }
+        Ok(())
     }
 
     /// Two-space pretty JSON with a trailing newline.
@@ -155,6 +172,7 @@ impl State {
 
     /// Write through the journal (saved copy, atomic rename).
     pub fn save_in(&self, txn: &mut Txn) -> Result<(), StateError> {
+        self.check().map_err(StateError::Usage)?;
         let p = txn.home().state_path();
         txn.write(&p, self.to_json().as_bytes(), Some(0o644))?;
         Ok(())
