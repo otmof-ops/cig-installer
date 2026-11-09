@@ -1,6 +1,6 @@
 // SPDX-FileCopyrightText: 2026 Jay Taylor (https://github.com/otmof-ops/cig-installer)
 // SPDX-License-Identifier: Apache-2.0
-//! Regression tests from the SEC-004 review of PR #36: shim-index paths and home directories.
+//! Regression tests from the security review of PR #36: shim-index paths and home directories.
 
 use cigi_home::state::Stick;
 use cigi_home::*;

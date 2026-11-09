@@ -23,7 +23,7 @@ fn toml_pin_ignores_arrays_and_strings_that_look_like_tables() {
     assert_eq!(pin_from_toml("m = [\ncarton = \"7\",\n]\n"), None);
 }
 
-/// The gap between the checks and the open (SEC-004, PR #37 re-review): even a fifo reached by
+/// The gap between the checks and the open (the security re-review of PR #37): even a fifo reached by
 /// the open itself returns at once, and the check on the opened file then refuses it.
 #[cfg(target_os = "linux")]
 #[test]

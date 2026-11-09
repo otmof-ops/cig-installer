@@ -25,7 +25,7 @@ use std::path::Path;
 use cigi_ui::{GlobalFlags, InstallerError, Report, Ui, EXIT_SHIM, EXIT_USAGE};
 use clap::Parser;
 
-use cli::{Cli, Command};
+use cli::{Cli, Command, SelfCmd, SelfSub};
 use cmd::Outcome;
 use cx::{Cx, Globals};
 
@@ -96,10 +96,14 @@ fn dispatch(cli: Cli, ui: Ui) -> i32 {
         Some(Command::List) => ("list", None),
         Some(Command::Which { cwd, .. }) => ("which", cwd.clone()),
         Some(Command::Resolve { cwd, .. }) => ("resolve", Some(cwd.clone())),
-        // ---- phase 3, the update lifecycle (drafter DEV-002) ----
+        // ---- the update lifecycle ----
         Some(Command::Update(_)) => ("update", None),
         Some(Command::Rollback { .. }) => ("rollback", None),
         // ---- end of the update lifecycle block ----
+        Some(Command::SelfCmd(_)) => ("self", None),
+        Some(Command::Gc { .. }) => ("gc", None),
+        Some(Command::Check { project, .. }) => ("check", project.clone()),
+        Some(Command::SelfCheck) => ("__selfcheck", None),
     };
     // the exit code a successful command ends with when it is not 0 (`update --check --exit-code`)
     let mut exit_override: Option<i32> = None;
@@ -140,7 +144,7 @@ fn dispatch(cli: Cli, ui: Ui) -> i32 {
                     Err(e) => Err(e),
                 }
             }
-            // ---- phase 3, the update lifecycle (drafter DEV-002) ----
+            // ---- the update lifecycle ----
             Some(Command::Update(c)) => flows::update::run(&mut cx, &update_args(c)).map(|u| {
                 if u.exit != 0 {
                     exit_override = Some(u.exit);
@@ -156,8 +160,23 @@ fn dispatch(cli: Cli, ui: Ui) -> i32 {
             )
             .map(Outcome::Report),
             // ---- end of the update lifecycle block ----
+            Some(Command::SelfCmd(SelfCmd {
+                sub: SelfSub::Update { check },
+            })) => cmd::self_cmd::update(&mut cx, *check),
+            Some(Command::Gc { dry_run, keep_days }) => cmd::gc::run(&mut cx, *dry_run, *keep_days),
+            Some(Command::Check { carton, .. }) => cmd::check::run(&mut cx, carton.as_deref()),
+            Some(Command::SelfCheck) => cmd::self_cmd::selfcheck(&mut cx),
             _ => Ok(Outcome::Report(Report::done("nothing to do"))),
         };
+        // the first good command of a freshly installed build says it is healthy (SPEC 12.4)
+        if result.is_ok()
+            && !matches!(
+                cli.command,
+                Some(Command::Resolve { .. } | Command::SelfCheck)
+            )
+        {
+            flows::self_update::mark_healthy(&cx);
+        }
         notice_cx = Some(cx);
         result
     })();
@@ -184,7 +203,7 @@ fn dispatch(cli: Cli, ui: Ui) -> i32 {
     }
 }
 
-// ---- phase 3, the update lifecycle (drafter DEV-002) ----
+// ---- the update lifecycle ----
 fn update_args(c: &cli::UpdateCmd) -> flows::update::UpdateArgs {
     flows::update::UpdateArgs {
         check: c.check,

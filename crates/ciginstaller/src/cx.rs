@@ -407,11 +407,11 @@ impl Cx {
 /// `CIGI_NOW` (epoch seconds) is honored only in builds with fault injection, so a release build
 /// cannot be told what time it is.
 #[cfg(feature = "fault-injection")]
-fn now_override() -> Option<i64> {
+pub(crate) fn now_override() -> Option<i64> {
     std::env::var("CIGI_NOW").ok()?.parse().ok()
 }
 #[cfg(not(feature = "fault-injection"))]
-fn now_override() -> Option<i64> {
+pub(crate) fn now_override() -> Option<i64> {
     None
 }
 

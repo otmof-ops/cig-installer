@@ -19,7 +19,7 @@ use serde_json::json;
 use super::install::{fetch_builds, finding_error, materialize_fetched, Fetched};
 use super::switch::{resync_shims, UpdateUndo, UNDO_KEY};
 use super::trial::{self, Resolved, TrialOutcome};
-use super::{present, save_and_flip, settle, tool_exe, yanked_in};
+use super::{present, save_and_flip, self_update, settle, tool_exe, yanked_in};
 use crate::cmd::install::no_such_channel;
 use crate::cx::{Cx, ManifestMode};
 use crate::errors::{bug, ie};
@@ -59,10 +59,49 @@ fn refused(code: &'static str, msg: impl Into<String>, fix: &str) -> InstallerEr
         .with_exit(EXIT_REFUSED)
 }
 
+/// Set on the re-exec after a self-update, so the new binary does not try again (one hop).
+const REEXEC_MARK: &str = "CIGI_SELF_UPDATED";
+
 /// SPEC 12.2 step 1: `self update` first, when the manifest holds a newer installer, and carry on
-/// with the new binary by re-exec. `self update` is built beside this flow; the main session calls
-/// it from here. Until then this does nothing, so `update` only moves cartons.
-fn self_update_first(_cx: &mut Cx, _a: &UpdateArgs) -> Result<(), InstallerError> {
+/// with the new binary by re-exec, with the same arguments. A dev build (not `bin/ciginstaller`)
+/// never replaces itself, so it updates the cartons only.
+fn self_update_first(cx: &mut Cx, _a: &UpdateArgs) -> Result<(), InstallerError> {
+    if std::env::var_os(REEXEC_MARK).is_some() || !self_update::is_managed(&cx.home) {
+        return Ok(());
+    }
+    let m = cx.manifest(ManifestMode::Fresh)?.clone();
+    if self_update::newer_installer(&m, &cx.target).is_none() {
+        return Ok(());
+    }
+    if !cfg!(unix) {
+        cx.note("a newer ciginstaller is offered, and self update is not built for this platform yet; updating cartons only");
+        return Ok(());
+    }
+    let rep = self_update::run_locked(cx, &self_update::SelfArgs { check: false })?;
+    cx.ui.say(&rep);
+    reexec(cx)
+}
+
+/// Run `bin/ciginstaller` in place of this process with the same arguments. The installer lock is
+/// let go first; the file it is held on closes on exec anyway (std opens with O_CLOEXEC).
+#[cfg(unix)]
+fn reexec(cx: &mut Cx) -> Result<(), InstallerError> {
+    use std::os::unix::process::CommandExt;
+    cx.release_lock();
+    let exe = cigi_home::shim_path(&cx.home, "ciginstaller");
+    let err = std::process::Command::new(&exe)
+        .arg0("ciginstaller")
+        .args(std::env::args_os().skip(1))
+        .env(REEXEC_MARK, "1")
+        .exec();
+    Err(InstallerError::new(
+        "E1853",
+        format!("the updated installer could not be started: {err}"),
+    )
+    .with_fix("ciginstaller update"))
+}
+#[cfg(not(unix))]
+fn reexec(_cx: &mut Cx) -> Result<(), InstallerError> {
     Ok(())
 }
 

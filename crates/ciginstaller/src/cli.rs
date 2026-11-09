@@ -94,7 +94,7 @@ pub enum Command {
         #[arg(long, value_name = "DIR")]
         cwd: Option<PathBuf>,
     },
-    // ---- phase 3, the update lifecycle (drafter DEV-002): update, rollback ----
+    // ---- the update lifecycle: update, rollback ----
     /// Check, choose, verify, trial and switch to a newer carton (SPEC 12.2).
     Update(UpdateCmd),
     /// Back to the previous carton, or one tool's build in it (SPEC 12.3).
@@ -106,6 +106,29 @@ pub enum Command {
         dry_run: bool,
     },
     // ---- end of the update lifecycle block ----
+    /// Update ciginstaller itself.
+    #[command(name = "self")]
+    SelfCmd(SelfCmd),
+    /// Remove cartons unused for `keep_days`, and the store objects nothing references.
+    Gc {
+        /// Say what would go and what it would free; change nothing.
+        #[arg(long)]
+        dry_run: bool,
+        /// Remove what has been unused for longer than this many days (default: the `keep_days` setting).
+        #[arg(long, value_name = "N")]
+        keep_days: Option<u32>,
+    },
+    /// The marry-up matrix: this machine's combination, or one carton's.
+    Check {
+        /// Check this carton (an exact version or a pin) instead of the machine's.
+        #[arg(long, value_name = "V")]
+        carton: Option<String>,
+        /// Also check the pins of the project in this directory.
+        #[arg(long, value_name = "DIR")]
+        project: Option<PathBuf>,
+    },
+    #[command(name = "__selfcheck", hide = true)]
+    SelfCheck,
     #[command(name = "__resolve", hide = true)]
     Resolve {
         #[arg(long)]
@@ -181,7 +204,7 @@ pub enum CartonSub {
     Show { version: String },
 }
 
-// ---- phase 3, the update lifecycle (drafter DEV-002) ----
+// ---- the update lifecycle ----
 #[derive(Args)]
 pub struct UpdateCmd {
     /// Only look: nothing is installed, fetched beyond the manifest, or written beyond its cache.
@@ -217,4 +240,20 @@ pub struct UpdateCmd {
     /// Print the plan and write nothing.
     #[arg(long)]
     pub dry_run: bool,
+}
+
+#[derive(Args)]
+pub struct SelfCmd {
+    #[command(subcommand)]
+    pub sub: SelfSub,
+}
+
+#[derive(Subcommand)]
+pub enum SelfSub {
+    /// Update ciginstaller itself to the newest build on the channel.
+    Update {
+        /// Say whether a newer ciginstaller exists; change nothing.
+        #[arg(long, alias = "dry-run")]
+        check: bool,
+    },
 }

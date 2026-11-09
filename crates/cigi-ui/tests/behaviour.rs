@@ -957,7 +957,7 @@ fn errors_get_kind_exit_and_catchphrase_from_the_registry() {
 
 #[test]
 fn text_from_outside_never_reaches_the_terminal_as_control_codes() {
-    // a hostile pin file or manifest field (SEC-004, PR #37): clear screen, title, BEL, a
+    // a hostile pin file or manifest field (the security review of PR #37): clear screen, title, BEL, a
     // fake line, a bidi override
     let evil = "carton \x1b[2J\x1b]0;pwned\x07 x\n[ok] fake \u{202e}txt\u{9b}";
     for env in [tty(), Env::default()] {

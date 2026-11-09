@@ -1,6 +1,6 @@
 // SPDX-FileCopyrightText: 2026 Jay Taylor (https://github.com/otmof-ops/cig-installer)
 // SPDX-License-Identifier: Apache-2.0
-//! Regression tests from the SEC-004 review of PR #36: unbounded tar extension headers and the
+//! Regression tests from the security review of PR #36: unbounded tar extension headers and the
 //! pax `size` / `path` differential.
 
 use cigi_source::unpack_tar_gz;
