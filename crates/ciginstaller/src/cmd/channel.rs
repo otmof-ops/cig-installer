@@ -11,7 +11,7 @@ use serde_json::json;
 
 use super::install::no_such_channel;
 use super::Outcome;
-use crate::cx::Cx;
+use crate::cx::{Cx, FetchRefused};
 use crate::errors::ie;
 use crate::flows::settle;
 
@@ -37,13 +37,13 @@ pub fn run(cx: &mut Cx, name: Option<&str>) -> Result<Outcome, InstallerError> {
     // the layout (and its modes) and the lock first: the fetch writes the manifest cache
     cx.lock_and_recover()?;
     let admitted = cx.fetch_manifest(name).map_err(|e| match e {
-        FetchError::NotFound { .. } => InstallerError::new(
+        FetchRefused::Fetch(FetchError::NotFound { .. }) => InstallerError::new(
             "E1812",
             format!("the {name} channel has no manifest yet, so this machine stays on {current}"),
         )
         .with_fix(format!("ciginstaller channel {current}"))
         .with_exit(EXIT_REFUSED),
-        other => ie(other),
+        other => other.into_error(),
     })?;
     // the checks `manifest()` makes of every admitted document: a replay of another document at
     // a sequence already seen is refused, and the trust notes are said

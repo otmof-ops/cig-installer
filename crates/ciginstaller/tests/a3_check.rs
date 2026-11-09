@@ -403,3 +403,54 @@ fn a3_check_cli_project_pins_are_checked_against_what_is_installed() {
     assert_eq!(o.status.code(), Some(2), "{}", text(&o));
     assert!(text(&o).contains("E1811"), "{}", text(&o));
 }
+
+/// SEC-004 finding 6: a different document at a sequence already seen is not read from the
+/// cache by anyone (`check`, the resolver and the switch checks all go through it), and a fetch
+/// that meets one puts the cache back as it was, so a yank the first document carried stays known.
+#[test]
+fn a3_check_replayed_manifest_never_unyanks() {
+    let mut fx = fixture();
+    fx.carton("0.1.0", &[("cig", "1.20.0"), ("cigo", "1.16.0")]);
+    fx.carton("0.2.0", &[("cig", "1.21.0"), ("cigo", "1.17.0")]);
+    fx.yank_carton("0.2.0", "rollback skipped a file");
+    fx.publish("stable"); // sequence 1, with the yank
+    ok(&cigi(&fx, &["install", "carton", "--carton", "0.1.0"]));
+    let cache = fx.cigscript().join("installer/cache/manifests/stable");
+    let first = std::fs::read(cache.join("manifest.toml")).unwrap();
+    assert!(String::from_utf8_lossy(&first).contains("rollback skipped a file"));
+
+    // the mirror now serves another document at the same sequence, without the yank
+    fx.carton("0.2.0", &[("cig", "1.21.0"), ("cigo", "1.17.0")]);
+    fx.publish_with(
+        "stable",
+        &cigi_testkit::PublishOpts {
+            sequence: Some(1),
+            ..Default::default()
+        },
+    );
+    let o = cigi(&fx, &["install", "carton", "--carton", "0.2.0"]);
+    assert!(!o.status.success(), "{}", text(&o));
+    assert!(text(&o).contains("E1824"), "{}", text(&o));
+    // the fetch wrote the replay and put the first document back
+    assert_eq!(std::fs::read(cache.join("manifest.toml")).unwrap(), first);
+    let o = cigi(&fx, &["--offline", "check", "--carton", "0.2.0"]);
+    ok(&o);
+    assert!(text(&o).contains("E1803"), "{}", text(&o));
+
+    // and a replay that is already in the cache is not read (the old hole, made by hand)
+    let new = std::fs::read(fx.releases.join("manifest-stable.toml")).unwrap();
+    let hex = cigi_testkit::sha256_hex(&new);
+    std::fs::write(cache.join("manifest.toml"), &new).unwrap();
+    std::fs::write(
+        cache.join("manifest.toml.sha256"),
+        format!("{hex}  manifest-stable.toml\n"),
+    )
+    .unwrap();
+    let mut meta: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(cache.join("fetched.json")).unwrap()).unwrap();
+    meta["sha256"] = hex.into();
+    std::fs::write(cache.join("fetched.json"), meta.to_string()).unwrap();
+    let o = cigi(&fx, &["--offline", "check", "--carton", "0.2.0"]);
+    assert_eq!(o.status.code(), Some(2), "{}", text(&o));
+    assert!(text(&o).contains("E1824"), "{}", text(&o));
+}

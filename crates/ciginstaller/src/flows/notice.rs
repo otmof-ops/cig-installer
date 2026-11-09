@@ -97,6 +97,15 @@ pub fn maybe_notify(cx: &Cx) {
     let manifest = if fresh || n.checked.as_deref() == Some(day.as_str()) {
         cx.peek_manifest()
     } else {
+        // The fetch writes the manifest cache: it takes the installer lock without waiting, and
+        // the notice is skipped when another installer holds it (or this command still does).
+        let _guard = match cx.lock_ref() {
+            Ok(_) => None,
+            Err(_) => match cx.home.lock_with(std::time::Duration::ZERO, &mut |_| {}) {
+                Ok(l) => Some(l),
+                Err(_) => return,
+            },
+        };
         n.checked = Some(day.clone());
         write(cx, &n);
         cx.fetch_manifest(&channel)

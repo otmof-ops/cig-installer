@@ -475,6 +475,35 @@ pub fn referenced_objects(home: &Home) -> BTreeMap<ObjectId, Vec<(String, Versio
     m
 }
 
+/// The names come from `state.json` and from directory listings: only a tool name the manifest
+/// rules allow and a version that is plain text may reach a path.
+fn check_toolchain_name(tool: &str, v: &Version) -> Result<(), ToolchainError> {
+    let version = v.to_string();
+    if !crate::shims::shim_name_ok(tool) || version.contains(['/', '\\']) || version.contains("..")
+    {
+        return Err(ToolchainError::BadPath(format!(
+            "{tool} {version} is not a toolchain name"
+        )));
+    }
+    Ok(())
+}
+
+/// Remove a toolchain directory outside any transaction, after the transaction that stopped
+/// using it has committed (`gc`): best effort, idempotent, same name rules as
+/// [`remove_toolchain`]. Nothing runs from it any more, so a crash before this leaves only a
+/// directory the next `gc` removes.
+pub fn remove_toolchain_now(home: &Home, tool: &str, v: &Version) -> Result<(), ToolchainError> {
+    check_toolchain_name(tool, v)?;
+    let dir = home.toolchain(tool, v);
+    match fs::remove_dir_all(&dir) {
+        Ok(()) => {}
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+        Err(e) => return Err(io_err(&dir)(e)),
+    }
+    let _ = fs::remove_dir(home.toolchains().join(tool)); // only succeeds when empty
+    Ok(())
+}
+
 /// Remove a whole toolchain (journaled: it is moved into the txn directory,
 /// so a rollback puts it back byte for byte).
 pub fn remove_toolchain(
@@ -483,6 +512,7 @@ pub fn remove_toolchain(
     tool: &str,
     v: &Version,
 ) -> Result<(), ToolchainError> {
+    check_toolchain_name(tool, v)?;
     txn.delete(&home.toolchain(tool, v))?;
     Ok(())
 }

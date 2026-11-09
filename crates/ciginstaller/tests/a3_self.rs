@@ -354,3 +354,39 @@ fn a3_update_updates_the_installer_first_and_carries_on_as_it() {
     assert_eq!(o.status.code(), Some(0), "{t}");
     assert_eq!(state(&fx)["installer"]["version"], "0.1.1");
 }
+
+/// A read-only run (`--check`, `--dry-run`) of a build that is not yet marked healthy writes
+/// nothing to `state.json`; the first run that may write marks it.
+#[test]
+fn a3_self_update_read_only_runs_leave_state_alone() {
+    let fx = setup(false);
+    let p = fx.cigscript().join("installer/state.json");
+    let mut s = state(&fx);
+    s["installer"]["healthy"] = false.into();
+    s["installer"]["first_ok_run"] = serde_json::Value::Null;
+    std::fs::write(&p, serde_json::to_string_pretty(&s).unwrap() + "\n").unwrap();
+    let bytes = std::fs::read(&p).unwrap();
+    for args in [
+        &["--yes", "update", "--check"][..],
+        &["--yes", "gc", "--dry-run"],
+        &[
+            "--yes",
+            "install",
+            "carton",
+            "--carton",
+            "0.1.0",
+            "--dry-run",
+        ],
+        &["--yes", "self", "update", "--check"],
+    ] {
+        let o = output(managed(&fx).args(args));
+        ok(&o);
+        assert_eq!(
+            std::fs::read(&p).unwrap(),
+            bytes,
+            "{args:?} wrote state.json"
+        );
+    }
+    ok(&output(managed(&fx).args(["--yes", "list"])));
+    assert_eq!(state(&fx)["installer"]["healthy"], true);
+}
