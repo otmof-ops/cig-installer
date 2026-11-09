@@ -17,10 +17,10 @@ jobs:
   build:
     name: build (${{ matrix.asset }})
     runs-on: ${{ matrix.os }}
+    # This job compiles dependencies' build scripts: it holds no token beyond reading the code.
+    # The attestation is signed in its own job, below, which runs nothing it downloads.
     permissions:
       contents: read
-      id-token: write
-      attestations: write
     strategy:
       fail-fast: true
       matrix:
@@ -69,20 +69,36 @@ jobs:
           check="$(mktemp -d)"
           tar -xzf "out/$name" -C "$check"
           "$check/ciginstaller" --version | tee /dev/stderr | grep -q "$ver"
-      - name: attest the build (the installer's self update checks this with gh attestation verify)
-        uses: actions/attest-build-provenance@v2
-        with:
-          subject-path: out/ciginstaller-v*-${{ matrix.asset }}.tar.gz
       - uses: actions/upload-artifact@v4
         with:
           name: ciginstaller-${{ matrix.asset }}
           path: out/*
           if-no-files-found: error
 
+  # The attestation, apart from the build: this job holds the signing token and runs nothing it
+  # downloaded, only the attestation action over the tarballs' bytes.
+  attest:
+    name: attest the builds
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: assets
+          merge-multiple: true
+      - name: attest the build (the installer's self update checks this with gh attestation verify)
+        uses: actions/attest-build-provenance@v2
+        with:
+          subject-path: assets/ciginstaller-v*-linux-*.tar.gz
+
   # One job writes every asset, so no two jobs ever write one release at once.
   draft:
     name: draft release
-    needs: build
+    needs: [build, attest]
     runs-on: ubuntu-latest
     permissions:
       contents: write
