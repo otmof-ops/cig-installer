@@ -1,0 +1,12 @@
+--- stdout ---
+· carton 0.1.0 → 0.1.1: cig 1.20.0 → 1.20.1   (cigo, cigcompile unchanged)
+  product      installed   carton 0.1.1   changes
+  cig             1.20.0         1.20.1   programs refuse instead of turning in…
+  cigo            1.17.0         1.17.0   —
+  cigcompile       0.2.0          0.2.0   —
+✓ carton 0.1.1 installed; trial: 14 scripts dry-ran the same on the new cig
+  → nothing to do. ciginstaller rollback puts 0.1.0 back.
+--- stderr ---
+● checking manifest (stable) ...
+● trial: cig on 14 scripts in ~/work/site
+· carton 0.1.2 is out: ciginstaller update

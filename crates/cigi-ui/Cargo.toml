@@ -1,0 +1,17 @@
+[package]
+name = "cigi-ui"
+description = "ciginstaller's output grammar, palette, tables, progress, prompts, JSON and error registry"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[dependencies]
+cig-compat = { path = "../cig-compat" }
+serde = { version = "1", features = ["derive"] }
+serde_json = { workspace = true }
+toml = "0.8"
+
+[dev-dependencies]

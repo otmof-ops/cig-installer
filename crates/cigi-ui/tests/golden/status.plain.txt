@@ -1,0 +1,6 @@
+--- stdout ---
+ok: carton 0.1.0: cig 1.20.0, cigo 1.17.0, cigcompile 0.2.0
+  channel stable, trust pinned 1, checksummed 2
+  waiting: carton 0.1.1 (cig 1.20.0 → 1.20.1)
+  next: ciginstaller update
+--- stderr ---

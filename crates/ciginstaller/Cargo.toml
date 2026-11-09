@@ -1,0 +1,24 @@
+[package]
+name = "ciginstaller"
+description = "Installs, pins, updates, repairs and removes the CigScript family"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[[bin]]
+name = "ciginstaller"
+path = "src/main.rs"
+
+[dependencies]
+cig-compat = { workspace = true }
+cigi-ui = { path = "../cigi-ui" }
+clap = { version = "4", features = ["derive"] }
+
+[dev-dependencies]
+cigi-testkit = { workspace = true }
+cigi-home = { workspace = true }
+tempfile = { workspace = true }
+serde_json = { workspace = true }

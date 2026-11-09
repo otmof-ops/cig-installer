@@ -1,0 +1,6 @@
+--- stdout ---
+--- stderr ---
+--- rendered ---
+question: remove everything ciginstaller added?  toolchains, store, shims, profile blocks
+  choices: yes (y), no (n, default)
+  (enter = no; this cannot be undone)

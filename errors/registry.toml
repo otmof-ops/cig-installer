@@ -1,0 +1,1190 @@
+# SPDX-FileCopyrightText: 2026 Jay Taylor (https://github.com/otmof-ops/cig-installer)
+# SPDX-License-Identifier: Apache-2.0
+#
+# The ciginstaller error-code registry (E1800-E1899, SPEC section 11.3), in the schema of
+# cig's own registry (cig-script errors/registry.toml): `[[range]]`, `[[no]]`, `[[probe]]`
+# and `[[code]]` with `[[code.cause]]`. `ciginstaller explain` embeds this file.
+#
+# Rules, the same as cig's: a code never changes meaning; a retired code is never reused;
+# every code has a `fix` in the shape "what to type next", at least one ranked cause with a
+# named read-only probe (or `none`), and a `no`. Every entry is tagged `installer` so cig's
+# tests/registry.rs can treat them like cig-orchestrator's `orchestrator` tag; that tag, the
+# `arises` values and the new probes below need a CigScript follow-up (SPEC section 13)
+# before `cig explain` serves these codes. `planned` marks codes emitted by another tool later.
+#
+# The [[no]] block is copied verbatim from cig's registry.
+
+version = 1
+
+# ----- ranges ----------------------------------------------------------------------------
+# One kind per range (usage, runtime or internal, as cig's diagnostics know them).
+
+[[range]]
+from = "E1800"
+to = "E1819"
+family = "installer"
+kind = "usage"
+meaning = "the installer: carton and tool combinations that do not fit (marry-up), and cartons, channels, packs and tools that do not exist"
+
+[[range]]
+from = "E1820"
+to = "E1839"
+family = "installer"
+kind = "runtime"
+meaning = "the installer: fetching and trusting artifacts, the store, toolchains and transactions"
+
+[[range]]
+from = "E1840"
+to = "E1879"
+family = "installer"
+kind = "usage"
+meaning = "the installer: shims, pins, updates, rollbacks, repair, uninstall, and the command line"
+
+[[range]]
+from = "E1890"
+to = "E1899"
+family = "installer"
+kind = "internal"
+meaning = "internal: a bug in the installer, or a journal it cannot recover"
+
+# ----- the four kinds of no (copied verbatim from cig) ------------------------------------
+
+[[no]]
+id = "none"
+hear = "not one of the four"
+whose = "a mistake in the text, in the arithmetic, or in CigScript"
+manual = "syntax, type or logic error; an internal error"
+
+[[no]]
+id = "cant-see-any"
+hear = "can't see any ciggies bro"
+whose = "yours: you're pointed at the wrong place"
+manual = "wrong address: a path, a name, a directory not on PATH; ENOENT"
+
+[[no]]
+id = "never-heard-of-you"
+hear = "never heard of you"
+whose = "the door: it doesn't know you"
+manual = "401 Unauthorized; authentication failure"
+
+[[no]]
+id = "these-are-mine"
+hear = "these are MY ciggies"
+whose = "the door: it knows you and said no"
+manual = "403 Forbidden; permission denied; a lock; a refusal by policy"
+
+[[no]]
+id = "dont-have-any"
+hear = "don't have any over here"
+whose = "nobody's: right place, right you, nothing there"
+manual = "404 from the server's side; an empty result"
+
+[[no]]
+id = "depends"
+hear = "one of the four; the message says which"
+whose = "read the operating-system reason in the message"
+manual = "ENOENT, EACCES, ENOSPC and friends, each mapped in the causes below"
+
+# ----- probes: the read-only checks doctor may run to confirm a cause --------------------
+# Reused from cig (same names, same text) first, then the installer's own. A probe reads; it
+# never writes, never re-runs the failing command and never touches the network.
+
+[[probe]]
+name = "none"
+reads = "nothing: the cause cannot be confirmed by looking, only suggested"
+
+[[probe]]
+name = "path-exists"
+reads = "stat of the path named in the message"
+
+[[probe]]
+name = "path-permissions"
+reads = "mode bits and owner of the path, or of its nearest existing ancestor"
+
+[[probe]]
+name = "disk-free"
+reads = "free space on the filesystem holding the path or the state directory"
+
+[[probe]]
+name = "state-dir-writable"
+reads = "whether the state directory (CIGSCRIPT_HOME or ~/.cigscript) can be written"
+
+[[probe]]
+name = "on-path"
+reads = "each directory on PATH, looking for the program named in the message"
+
+[[probe]]
+name = "file-hash"
+reads = "the current hash of a file against the hash the journal recorded"
+
+[[probe]]
+name = "release-manifest"
+reads = "the cached release manifest and the checksum file for the asset"
+
+[[probe]]
+name = "manifest-cache"
+reads = "the cached manifest for the channel under installer/cache/manifests: its sequence, expiry and fetch time"
+
+[[probe]]
+name = "channel-list"
+reads = "the channels the cached manifest knows"
+
+[[probe]]
+name = "carton-list"
+reads = "the cartons in the cached manifest and the cartons installed under toolchains"
+
+[[probe]]
+name = "pack-list"
+reads = "the packs the cartons in the cached manifest define"
+
+[[probe]]
+name = "tool-list"
+reads = "the tools the cached manifest defines"
+
+[[probe]]
+name = "target-builds"
+reads = "the manifest's builds for this operating system and architecture"
+
+[[probe]]
+name = "installed-cartons"
+reads = "the cartons recorded in installer/state.json against the toolchain directories on disk"
+
+[[probe]]
+name = "manifest-pins"
+reads = "the manifest signing pins compiled into this ciginstaller, against the manifest's digest"
+
+[[probe]]
+name = "trust-level"
+reads = "the trust level recorded for the install and the floor set in installer/config"
+
+[[probe]]
+name = "receipt-verify"
+reads = "every file of the toolchain against its .cigi-receipt.json (sha256, size, mode)"
+
+[[probe]]
+name = "shim-index-agrees"
+reads = "installer/shim-index against installer/state.json and the toolchains on disk"
+
+[[probe]]
+name = "txn-journal"
+reads = "the journal files under installer/txn, looking for one with no commit or rollback line"
+
+[[probe]]
+name = "lock-holder"
+reads = "the pid written in installer/lock, and whether that process still exists"
+
+[[probe]]
+name = "home-ownership"
+reads = "owner and mode bits of the home directory and the directories the installer writes into"
+
+[[probe]]
+name = "pin-file"
+reads = "the project's .cig-carton, cig-tasks.json and cigar.toml, parsed as the shim and the resolver read them"
+
+[[probe]]
+name = "shim-names"
+reads = "the file names in bin/ against the tools the installer shims"
+
+[[probe]]
+name = "path-order"
+reads = "each directory on PATH in order, looking for another copy of a shimmed tool ahead of bin/"
+
+[[probe]]
+name = "profile-block"
+reads = "the marked ciginstaller block in each shell profile, against the text the installer would write"
+
+[[probe]]
+name = "previous-carton"
+reads = "state.json's previous carton and whether its toolchains are installed"
+
+[[probe]]
+name = "update-history"
+reads = "the last updates recorded in installer/state.json"
+
+[[probe]]
+name = "project-pins"
+reads = "the carton and tool pins of the current project against the carton an update would install"
+
+[[probe]]
+name = "installer-binary"
+reads = "the running executable's path against bin/ciginstaller and the previous copy under installer/previous"
+
+[[probe]]
+name = "platform-support"
+reads = "the operating system and architecture against the manifest's targets"
+
+[[probe]]
+name = "config-offline"
+reads = "the offline flag and the CIGI_OFFLINE environment variable"
+
+[[probe]]
+name = "terminal"
+reads = "whether stdin and stdout are terminals"
+
+# ----- codes ------------------------------------------------------------------------------
+
+[[code]]
+code = "E1800"
+title = "combination refused"
+meaning = "The carton, sticks and project pins you asked for do not fit together, and a more specific rule has not named the reason. Nothing was changed."
+fix = "`ciginstaller check`"
+no = "these-are-mine"
+arises = ["any"]
+tags = ["installer"]
+since = "0.1.0"
+related = ["E1801", "E1802"]
+[[code.cause]]
+why = "two products in the combination refuse each other"
+probe = "manifest-cache"
+remedy = "`ciginstaller check` names the pair; pick a carton that holds both: `ciginstaller carton list`"
+[[code.cause]]
+why = "a project pin conflicts with the installed carton"
+probe = "project-pins"
+remedy = "`ciginstaller check --project <dir>`, then `ciginstaller pin carton <pin>`"
+
+[[code]]
+code = "E1801"
+title = "a product needs another"
+meaning = "One product in the combination needs a version of another that is not there, for example cigo needs a cig at or above its minimum."
+fix = "`ciginstaller carton list`, then `ciginstaller carton <version>` for one that holds both"
+no = "these-are-mine"
+arises = ["any"]
+tags = ["installer", "ci-likely"]
+since = "0.1.0"
+related = ["E1800"]
+[[code.cause]]
+why = "the project pins a cig older than the cigo in the carton accepts"
+no = "these-are-mine"
+probe = "project-pins"
+remedy = "`ciginstaller check`, then pin a carton whose cig satisfies it: `ciginstaller pin carton <pin>`"
+[[code.cause]]
+why = "a stick replaced one product with a build the others do not accept"
+probe = "installed-cartons"
+remedy = "`ciginstaller check`, then `ciginstaller install carton` to put the carton's own build back"
+
+[[code]]
+code = "E1802"
+title = "a stick does not fit its carton"
+meaning = "A single tool installed on its own (a stick) is outside what its carton says it works with."
+fix = "`ciginstaller check`, then `ciginstaller install carton --carton <version>`"
+no = "these-are-mine"
+arises = ["any"]
+tags = ["installer"]
+since = "0.1.0"
+related = ["E1800", "E1801"]
+[[code.cause]]
+why = "the stick's build is newer or older than the carton allows"
+probe = "installed-cartons"
+remedy = "`ciginstaller check` shows the allowed range; install the carton's build"
+
+[[code]]
+code = "E1803"
+title = "yanked version or carton in use"
+meaning = "A version or carton that its maintainers withdrew is installed or about to be. This is a warning; the machine keeps working."
+fix = "`ciginstaller update`"
+no = "these-are-mine"
+arises = ["any"]
+tags = ["installer", "ci-likely"]
+since = "0.1.0"
+related = ["E1804"]
+[[code.cause]]
+why = "the installed carton was yanked after you installed it"
+no = "these-are-mine"
+probe = "manifest-cache"
+remedy = "`ciginstaller update` moves to the newest carton that is not yanked"
+[[code.cause]]
+why = "a project pins a yanked carton"
+probe = "project-pins"
+remedy = "`ciginstaller pin carton <pin>` with a carton that is not yanked"
+
+[[code]]
+code = "E1804"
+title = "security advisory"
+meaning = "The manifest carries an advisory for a version you have installed. Shown once per version."
+fix = "`ciginstaller update`"
+no = "none"
+arises = ["any"]
+tags = ["installer", "ci-likely"]
+since = "0.1.0"
+related = ["E1803"]
+[[code.cause]]
+why = "an advisory in the manifest names an installed build"
+probe = "manifest-cache"
+remedy = "`ciginstaller update` installs the carton that fixes it; `ciginstaller carton show <version>` lists the advisory"
+
+[[code]]
+code = "E1805"
+title = "compiled program against installed cig"
+meaning = "A program built by cigcompile needs a different cig than the one installed. Emitted by cig once it calls the installer's check."
+fix = "`ciginstaller carton list`, then `ciginstaller carton <version>` for the cig the program needs"
+no = "these-are-mine"
+arises = ["compile"]
+tags = ["installer", "planned", "compiler"]
+since = "0.1.0"
+related = ["E1801"]
+[[code.cause]]
+why = "the program was compiled against a cig the installed carton does not hold"
+probe = "installed-cartons"
+remedy = "install the carton that holds that cig, or rebuild the program with `cigcompile`"
+
+[[code]]
+code = "E1806"
+title = "journal format against this cig"
+meaning = "A burn journal was written in a format the installed cig does not read. Emitted by cig once it calls the installer's check."
+fix = "`ciginstaller carton list`, then `ciginstaller carton <version>` for a cig that reads it"
+no = "these-are-mine"
+arises = ["unburn"]
+tags = ["installer", "planned"]
+since = "0.1.0"
+related = ["E1805"]
+[[code.cause]]
+why = "the journal was written by a newer cig than the one now installed"
+probe = "installed-cartons"
+remedy = "install the carton with that cig or a newer one"
+
+[[code]]
+code = "E1807"
+title = "operating system or kernel below a minimum"
+meaning = "A product in the carton needs a newer operating system or kernel than this machine has."
+fix = "`ciginstaller carton list`, then `ciginstaller carton <version>` for one that supports this system"
+no = "these-are-mine"
+arises = ["any"]
+tags = ["installer", "ci-likely"]
+since = "0.1.0"
+related = ["E1815", "E1872"]
+[[code.cause]]
+why = "the carton's os_min is above this machine's version"
+probe = "platform-support"
+remedy = "install an older carton that lists this system, or upgrade the system"
+
+[[code]]
+code = "E1808"
+title = "a package's requirements"
+meaning = "A package a project adds needs a product version the carton does not provide. Emitted by cigo once it calls the installer's check."
+fix = "`ciginstaller check --project <dir>`"
+no = "these-are-mine"
+arises = ["any"]
+tags = ["installer", "planned"]
+since = "0.1.0"
+related = ["E1801"]
+[[code.cause]]
+why = "the package declares a minimum for cig or cigo above the installed build"
+probe = "project-pins"
+remedy = "install a carton that satisfies it: `ciginstaller carton list`"
+
+[[code]]
+code = "E1810"
+title = "no manifest"
+meaning = "The installer has no manifest to work from: it is offline and the cache is empty, or the channel returned nothing."
+fix = "`ciginstaller update --check`, online, to fetch the manifest"
+no = "dont-have-any"
+arises = ["any"]
+tags = ["installer", "ci-likely"]
+since = "0.1.0"
+related = ["E1873", "E1812"]
+[[code.cause]]
+why = "offline, with no cached manifest for the channel"
+no = "dont-have-any"
+probe = "manifest-cache"
+remedy = "connect, then run `ciginstaller update --check`"
+[[code.cause]]
+why = "the cache directory was removed or never written"
+probe = "state-dir-writable"
+remedy = "`ciginstaller update --check` rebuilds it"
+
+[[code]]
+code = "E1811"
+title = "no such carton"
+meaning = "The carton you named is not on this channel. The message says the newest that is, and where the one you asked for lives."
+fix = "`ciginstaller carton list`"
+no = "cant-see-any"
+arises = ["any"]
+tags = ["installer", "beginner-likely"]
+since = "0.1.0"
+related = ["E1812", "E1816"]
+[[code.cause]]
+why = "the version is mistyped"
+no = "cant-see-any"
+probe = "carton-list"
+remedy = "`ciginstaller carton list` shows the real names"
+[[code.cause]]
+why = "the carton is on another channel"
+no = "cant-see-any"
+probe = "channel-list"
+remedy = "`ciginstaller channel <name>`, then `ciginstaller carton list`"
+[[code.cause]]
+why = "the manifest in the cache is stale"
+probe = "manifest-cache"
+remedy = "`ciginstaller update --check` refetches it"
+
+[[code]]
+code = "E1812"
+title = "no such channel"
+meaning = "The channel name is not one the installer knows."
+fix = "`ciginstaller config list`, then `ciginstaller channel stable`"
+no = "cant-see-any"
+arises = ["any"]
+tags = ["installer", "beginner-likely"]
+since = "0.1.0"
+related = ["E1811"]
+[[code.cause]]
+why = "the channel name is mistyped"
+no = "cant-see-any"
+probe = "channel-list"
+remedy = "use stable, beta or a name from `ciginstaller config get channel`"
+
+[[code]]
+code = "E1813"
+title = "no such pack"
+meaning = "The pack you named is not defined by this carton."
+fix = "`ciginstaller carton show <version>` lists the packs"
+no = "cant-see-any"
+arises = ["any"]
+tags = ["installer", "beginner-likely"]
+since = "0.1.0"
+related = ["E1814"]
+[[code.cause]]
+why = "the pack name is mistyped, or the carton predates the pack"
+no = "cant-see-any"
+probe = "pack-list"
+remedy = "`ciginstaller carton show <version>`, then `ciginstaller install pack <name>`"
+
+[[code]]
+code = "E1814"
+title = "no such tool"
+meaning = "The tool you named is not one the installer manages."
+fix = "`ciginstaller list`"
+no = "cant-see-any"
+arises = ["any"]
+tags = ["installer", "beginner-likely"]
+since = "0.1.0"
+related = ["E1813", "E1843"]
+[[code.cause]]
+why = "the tool name is mistyped"
+no = "cant-see-any"
+probe = "tool-list"
+remedy = "`ciginstaller list` shows the tools the installer manages"
+
+[[code]]
+code = "E1815"
+title = "no build for this platform"
+meaning = "The carton has no build of a product for this operating system and architecture."
+fix = "`ciginstaller carton show <version> --verbose` lists the targets"
+no = "dont-have-any"
+arises = ["any"]
+tags = ["installer", "ci-likely"]
+since = "0.1.0"
+related = ["E1872", "E1807"]
+[[code.cause]]
+why = "the product is not built for this target in this carton"
+no = "dont-have-any"
+probe = "target-builds"
+remedy = "pick a carton with a build for this target: `ciginstaller carton list --all`"
+[[code.cause]]
+why = "the manifest in the cache is older than the release that added the target"
+probe = "manifest-cache"
+remedy = "`ciginstaller update --check` refetches it"
+
+[[code]]
+code = "E1816"
+title = "carton not installed"
+meaning = "The carton exists, but it is not installed on this machine, so it cannot be used or pinned from here."
+fix = "`ciginstaller install carton --carton <version>`"
+no = "dont-have-any"
+arises = ["any"]
+tags = ["installer", "ci-likely"]
+since = "0.1.0"
+related = ["E1811", "E1842"]
+[[code.cause]]
+why = "CIGI_CARTON or a command names a carton that was never installed"
+no = "dont-have-any"
+probe = "installed-cartons"
+remedy = "`ciginstaller install carton --carton <version>`, then run again"
+[[code.cause]]
+why = "the carton was removed by gc or remove carton"
+probe = "installed-cartons"
+remedy = "`ciginstaller install carton --carton <version>`"
+
+[[code]]
+code = "E1820"
+title = "download failed"
+meaning = "A file could not be fetched from the source after retries. Nothing partial was kept."
+fix = "`ciginstaller install carton`, and add `--offline` once a copy is cached"
+no = "depends"
+arises = ["any"]
+tags = ["installer", "ci-likely"]
+since = "0.1.0"
+related = ["E1873", "E1821"]
+[[code.cause]]
+why = "the network is down or the host is unreachable"
+no = "depends"
+probe = "release-manifest"
+remedy = "check the connection, then run the command again"
+[[code.cause]]
+why = "the source returned 404 or 5xx for an asset the manifest lists"
+no = "dont-have-any"
+probe = "release-manifest"
+remedy = "wait and retry; `ciginstaller config get mirror` shows the source in use"
+[[code.cause]]
+why = "a proxy or firewall is cutting the transfer"
+probe = "none"
+remedy = "retry on another network, or point at a mirror: `ciginstaller config set mirror <url>`"
+
+[[code]]
+code = "E1821"
+title = "digest or size mismatch"
+meaning = "A downloaded file does not match the digest or size the manifest promises. It was deleted and nothing was installed."
+fix = "`ciginstaller install carton`, to fetch it again"
+no = "never-heard-of-you"
+arises = ["any"]
+tags = ["installer", "ci-likely"]
+since = "0.1.0"
+related = ["E1827", "E1822"]
+[[code.cause]]
+why = "the download was cut or corrupted in transit"
+no = "depends"
+probe = "none"
+remedy = "run the command again; the file is fetched fresh"
+[[code.cause]]
+why = "the release asset was replaced after the manifest was made"
+no = "never-heard-of-you"
+probe = "release-manifest"
+remedy = "do not retry in a loop; report it at https://github.com/otmof-ops/cig-installer/issues"
+
+[[code]]
+code = "E1822"
+title = "trust floor not met"
+meaning = "The artifact is verified at a lower level than the floor you set with `trust`, so it was refused."
+fix = "`ciginstaller config get trust`"
+no = "these-are-mine"
+arises = ["any"]
+tags = ["installer", "ci-likely"]
+since = "0.1.0"
+related = ["E1827", "E1828"]
+[[code.cause]]
+why = "only one source agrees, so it is checksummed, and trust is set higher"
+no = "these-are-mine"
+probe = "trust-level"
+remedy = "lower the floor on purpose with `ciginstaller config set trust checksummed`, or install from the source that attests"
+[[code.cause]]
+why = "the manifest's pin for this artifact is missing in this release of ciginstaller"
+probe = "manifest-pins"
+remedy = "`ciginstaller self update`"
+
+[[code]]
+code = "E1823"
+title = "manifest expired"
+meaning = "The manifest's expiry date has passed, so the installer will not act on it."
+fix = "`ciginstaller update --check`"
+no = "these-are-mine"
+arises = ["any"]
+tags = ["installer", "ci-likely"]
+since = "0.1.0"
+related = ["E1824", "E1810"]
+[[code.cause]]
+why = "the cached manifest is old and the source has not been reached since"
+no = "these-are-mine"
+probe = "manifest-cache"
+remedy = "connect and run `ciginstaller update --check`"
+[[code.cause]]
+why = "this machine's clock is wrong"
+probe = "none"
+remedy = "fix the clock, then `ciginstaller update --check`"
+[[code.cause]]
+why = "the maintainers have not published a fresh manifest"
+probe = "release-manifest"
+remedy = "wait, or use a mirror that has a newer one"
+
+[[code]]
+code = "E1824"
+title = "manifest sequence went backwards"
+meaning = "The manifest offered has a lower sequence number than one already seen. It is refused so an old manifest cannot be replayed."
+fix = "`ciginstaller update --check`"
+no = "these-are-mine"
+arises = ["any"]
+tags = ["installer", "ci-likely"]
+since = "0.1.0"
+related = ["E1823", "E1825"]
+[[code.cause]]
+why = "a mirror serves an older manifest than the source"
+no = "these-are-mine"
+probe = "manifest-cache"
+remedy = "switch source: `ciginstaller config set mirror <url>`, or unset it"
+[[code.cause]]
+why = "a replayed manifest"
+no = "these-are-mine"
+probe = "manifest-pins"
+remedy = "do not install from this source; report it at https://github.com/otmof-ops/cig-installer/issues"
+
+[[code]]
+code = "E1825"
+title = "manifest malformed or format too new"
+meaning = "The manifest cannot be read: it is malformed, breaks a validation rule, or uses a format this ciginstaller does not know."
+fix = "`ciginstaller self update`"
+no = "none"
+arises = ["any"]
+tags = ["installer", "ci-likely"]
+since = "0.1.0"
+related = ["E1824"]
+[[code.cause]]
+why = "the manifest's format is newer than this ciginstaller"
+probe = "manifest-cache"
+remedy = "`ciginstaller self update`"
+[[code.cause]]
+why = "the file was cut off or edited"
+probe = "manifest-cache"
+remedy = "`ciginstaller update --check` fetches it again"
+
+[[code]]
+code = "E1826"
+title = "unsafe archive"
+meaning = "An archive holds a path outside its folder, a link that leaves it, a device file, a file over 256 MB, or more than 20 000 entries. Nothing was unpacked into the home."
+fix = "`ciginstaller install carton`, and report it if it happens again"
+no = "these-are-mine"
+arises = ["any"]
+tags = ["installer", "ci-likely"]
+since = "0.1.0"
+related = ["E1821"]
+[[code.cause]]
+why = "the archive was tampered with, or is not one of ours"
+no = "these-are-mine"
+probe = "none"
+remedy = "do not extract it by hand; report it at https://github.com/otmof-ops/cig-installer/issues"
+
+[[code]]
+code = "E1827"
+title = "sidecar missing or disagrees"
+meaning = "The .sha256 file beside an asset is missing, or it names a different digest than the asset or the manifest."
+fix = "`ciginstaller install carton`, to fetch both again"
+no = "never-heard-of-you"
+arises = ["any"]
+tags = ["installer", "ci-likely"]
+since = "0.1.0"
+related = ["E1821", "E1822"]
+[[code.cause]]
+why = "the release has no .sha256 asset for this file"
+no = "dont-have-any"
+probe = "release-manifest"
+remedy = "wait for the maintainers to republish, or use another carton"
+[[code.cause]]
+why = "the sidecar and the asset were published from different builds"
+no = "never-heard-of-you"
+probe = "release-manifest"
+remedy = "retry later; if it persists report it at https://github.com/otmof-ops/cig-installer/issues"
+
+[[code]]
+code = "E1828"
+title = "attestation failed"
+meaning = "trust is set to attested and the build's provenance attestation is missing or does not verify."
+fix = "`ciginstaller config get trust`"
+no = "never-heard-of-you"
+arises = ["any"]
+tags = ["installer"]
+since = "0.1.0"
+related = ["E1822"]
+[[code.cause]]
+why = "the artifact has no attestation"
+no = "never-heard-of-you"
+probe = "trust-level"
+remedy = "install a build that has one, or lower the floor on purpose: `ciginstaller config set trust pinned`"
+[[code.cause]]
+why = "the attestation does not match the file"
+no = "never-heard-of-you"
+probe = "trust-level"
+remedy = "do not install; report it at https://github.com/otmof-ops/cig-installer/issues"
+
+[[code]]
+code = "E1830"
+title = "an owned file is unreadable or too new"
+meaning = "A file the installer keeps (state, config, index, receipt) cannot be read, or was written by a newer ciginstaller."
+fix = "`ciginstaller self update`, then `ciginstaller doctor`"
+no = "none"
+arises = ["any"]
+tags = ["installer"]
+since = "0.1.0"
+related = ["E1891", "E1835"]
+[[code.cause]]
+why = "the file was written by a newer ciginstaller"
+probe = "installed-cartons"
+remedy = "`ciginstaller self update`"
+[[code.cause]]
+why = "the file is damaged"
+probe = "path-permissions"
+remedy = "`ciginstaller doctor` names the file; `ciginstaller repair` rebuilds what it can"
+
+[[code]]
+code = "E1831"
+title = "installed file differs from its receipt"
+meaning = "A file in an installed toolchain is missing, changed or extra compared with the receipt written at install time."
+fix = "`ciginstaller repair`"
+no = "none"
+arises = ["doctor"]
+tags = ["installer", "ci-likely"]
+since = "0.1.0"
+related = ["E1860"]
+[[code.cause]]
+why = "a tool rewrote its own file in place, or a file was edited by hand"
+probe = "receipt-verify"
+remedy = "`ciginstaller repair` restores it from the store"
+[[code.cause]]
+why = "the disk corrupted a file"
+probe = "file-hash"
+remedy = "`ciginstaller repair` restores it from the store or a fresh download"
+
+[[code]]
+code = "E1832"
+title = "an interrupted change was recovered"
+meaning = "A previous install or update stopped part way. The installer found its journal and put the machine back as it was, or finished it. This is a note."
+fix = "`ciginstaller doctor`"
+no = "none"
+arises = ["any"]
+tags = ["installer"]
+since = "0.1.0"
+related = ["E1891"]
+[[code.cause]]
+why = "a crash, a kill or a power cut during an earlier command"
+probe = "txn-journal"
+remedy = "nothing to do; `ciginstaller history` shows what was recovered"
+
+[[code]]
+code = "E1833"
+title = "rollback incomplete"
+meaning = "A rollback could not undo every step. The machine may be part way between two states."
+fix = "`ciginstaller doctor`"
+no = "none"
+arises = ["any"]
+tags = ["installer"]
+since = "0.1.0"
+related = ["E1832", "E1891"]
+[[code.cause]]
+why = "a file a step needs to undo is missing"
+probe = "txn-journal"
+remedy = "`ciginstaller doctor` lists what is left; `ciginstaller repair` restores toolchains"
+[[code.cause]]
+why = "the disk refused a write during the undo"
+probe = "disk-free"
+remedy = "free space, then `ciginstaller doctor`"
+
+[[code]]
+code = "E1834"
+title = "another ciginstaller holds the lock"
+meaning = "Another ciginstaller is changing this home. This one waited 30 seconds and gave up."
+fix = "`ciginstaller doctor`"
+no = "these-are-mine"
+arises = ["any"]
+tags = ["installer", "ci-likely"]
+since = "0.1.0"
+related = ["E1832"]
+[[code.cause]]
+why = "another install or update is still running"
+no = "these-are-mine"
+probe = "lock-holder"
+remedy = "wait for it, then run the command again"
+[[code.cause]]
+why = "a process died holding the lock file and the pid was reused"
+probe = "lock-holder"
+remedy = "`ciginstaller doctor` checks the pid; remove installer/lock only when no ciginstaller runs"
+
+[[code]]
+code = "E1835"
+title = "home directory unsafe or unwritable"
+meaning = "The installer will not write into a directory that others can write to, that another user owns, or that it cannot write to at all."
+fix = "`ciginstaller doctor`, or set CIGSCRIPT_HOME to a directory you own"
+no = "these-are-mine"
+arises = ["any"]
+tags = ["installer", "ci-likely"]
+since = "0.1.0"
+related = ["E1830", "E1836"]
+[[code.cause]]
+why = "the directory is group- or world-writable, or owned by another user"
+no = "these-are-mine"
+probe = "home-ownership"
+remedy = "chmod go-w the directory and check its owner with `ls -ld`"
+[[code.cause]]
+why = "the home is on a read-only filesystem"
+no = "these-are-mine"
+probe = "state-dir-writable"
+remedy = "set CIGSCRIPT_HOME to a writable location"
+
+[[code]]
+code = "E1836"
+title = "disk full"
+meaning = "There is not enough free space to stage and install what you asked for. Nothing was changed."
+fix = "`ciginstaller gc --dry-run`"
+no = "depends"
+arises = ["any"]
+tags = ["installer", "ci-likely", "resource"]
+since = "0.1.0"
+related = ["E1835"]
+[[code.cause]]
+why = "the filesystem holding the home is full"
+no = "depends"
+probe = "disk-free"
+remedy = "`ciginstaller gc` removes cartons and store objects nothing uses"
+
+[[code]]
+code = "E1840"
+title = "nothing installed for this tool"
+meaning = "A shim was run and no installed carton or stick has this tool, or the build it points to is gone."
+fix = "`ciginstaller install carton`"
+no = "dont-have-any"
+arises = ["any"]
+tags = ["installer", "beginner-likely", "ci-likely"]
+since = "0.1.0"
+related = ["E1842", "E1844"]
+[[code.cause]]
+why = "ciginstaller has not installed anything yet"
+no = "dont-have-any"
+probe = "installed-cartons"
+remedy = "`ciginstaller install carton`"
+[[code.cause]]
+why = "the build on disk was removed"
+probe = "receipt-verify"
+remedy = "`ciginstaller repair`"
+[[code.cause]]
+why = "the carton does not contain this tool"
+no = "dont-have-any"
+probe = "installed-cartons"
+remedy = "`ciginstaller list` shows which tools are present"
+
+[[code]]
+code = "E1841"
+title = "pin file unreadable"
+meaning = "A project pin file (.cig-carton, cig-tasks.json or cigar.toml) cannot be read or its carton value cannot be understood."
+fix = "`ciginstaller pin carton <pin>` writes a good one"
+no = "depends"
+arises = ["any"]
+tags = ["installer", "beginner-likely"]
+since = "0.1.0"
+related = ["E1842"]
+[[code.cause]]
+why = "the file has a pin in a form the installer does not know"
+no = "none"
+probe = "pin-file"
+remedy = "`ciginstaller pin carton 0.1` rewrites it"
+[[code.cause]]
+why = "the file cannot be read"
+no = "these-are-mine"
+probe = "path-permissions"
+remedy = "chmod u+r the file"
+
+[[code]]
+code = "E1842"
+title = "pinned carton unavailable and fetching refused"
+meaning = "The project pins a carton that is not installed, and fetching is off (pin_fetch, offline, or no TTY with ask)."
+fix = "`ciginstaller install carton --carton <version>`"
+no = "dont-have-any"
+arises = ["any"]
+tags = ["installer", "ci-likely"]
+since = "0.1.0"
+related = ["E1816", "E1873"]
+[[code.cause]]
+why = "pin_fetch is never, or ask with no terminal"
+no = "dont-have-any"
+probe = "config-offline"
+remedy = "`ciginstaller install carton --carton <version>`, or `ciginstaller config set pin_fetch auto`"
+[[code.cause]]
+why = "--offline was given"
+no = "dont-have-any"
+probe = "config-offline"
+remedy = "run again online, or install the carton first"
+
+[[code]]
+code = "E1843"
+title = "no per-tool pin file for this tool"
+meaning = "Only cig has its own pin file. Other tools are pinned through the carton."
+fix = "`ciginstaller pin carton <pin>`"
+no = "cant-see-any"
+arises = ["any"]
+tags = ["installer", "beginner-likely"]
+since = "0.1.0"
+related = ["E1814"]
+[[code.cause]]
+why = "you asked to pin a tool that has no pin file of its own"
+no = "cant-see-any"
+probe = "pin-file"
+remedy = "`ciginstaller pin carton <pin>` pins every tool in that carton"
+
+[[code]]
+code = "E1844"
+title = "shim misnamed or shadowed"
+meaning = "A shim was run under a name that is not a tool it serves, points at itself, or another copy of the tool comes first on PATH."
+fix = "`ciginstaller shims sync`"
+no = "cant-see-any"
+arises = ["any"]
+tags = ["installer", "ci-likely"]
+since = "0.1.0"
+related = ["E1845", "E1840"]
+[[code.cause]]
+why = "the shim file was renamed or copied under another name"
+no = "cant-see-any"
+probe = "shim-names"
+remedy = "`ciginstaller shims sync` rewrites the shims"
+[[code.cause]]
+why = "another cig or cigo is earlier on PATH"
+no = "cant-see-any"
+probe = "path-order"
+remedy = "put ~/.cigscript/bin first; `ciginstaller doctor` prints the line"
+[[code.cause]]
+why = "the shim index points a tool at bin/ itself"
+probe = "shim-index-agrees"
+remedy = "`ciginstaller shims sync` rewrites the index"
+
+[[code]]
+code = "E1845"
+title = "PATH block missing or hand-edited"
+meaning = "The block the installer adds to your shell profile is gone or changed, so the shims may not be found."
+fix = "`ciginstaller doctor`"
+no = "cant-see-any"
+arises = ["doctor"]
+tags = ["installer", "beginner-likely"]
+since = "0.1.0"
+related = ["E1862", "E1844"]
+[[code.cause]]
+why = "the profile was replaced or the block deleted"
+no = "cant-see-any"
+probe = "profile-block"
+remedy = "add it back: `ciginstaller install carton`, which adds the block only where it is missing"
+[[code.cause]]
+why = "the block was edited by hand"
+probe = "profile-block"
+remedy = "leave it as it is, or delete the block and run `ciginstaller doctor`"
+
+[[code]]
+code = "E1850"
+title = "downgrade refused"
+meaning = "The carton you asked for is older than the one installed. Downgrades need to be asked for."
+fix = "`ciginstaller update --to <carton> --allow-downgrade`"
+no = "these-are-mine"
+arises = ["update"]
+tags = ["installer", "irreversible-involved"]
+since = "0.1.0"
+related = ["E1852"]
+[[code.cause]]
+why = "--to names an older carton"
+no = "these-are-mine"
+probe = "installed-cartons"
+remedy = "add --allow-downgrade, or use `ciginstaller rollback` to go back one step"
+
+[[code]]
+code = "E1851"
+title = "trial found differences and was declined"
+meaning = "The trial of the new cig on your projects planned something differently, and you declined (or there was no terminal to ask). Nothing was switched."
+fix = "`ciginstaller update --trial-only`"
+no = "these-are-mine"
+arises = ["update"]
+tags = ["installer"]
+since = "0.1.0"
+related = ["E1854"]
+[[code.cause]]
+why = "the new cig plans a script differently from the old"
+no = "these-are-mine"
+probe = "update-history"
+remedy = "review with `ciginstaller update --trial-only`, then accept with `ciginstaller update`"
+[[code.cause]]
+why = "no terminal to ask on"
+probe = "terminal"
+remedy = "run `ciginstaller update` in a terminal, or add --no-trial on purpose"
+
+[[code]]
+code = "E1852"
+title = "nothing to roll back to"
+meaning = "There is no previous carton recorded, or it is no longer installed."
+fix = "`ciginstaller list`"
+no = "dont-have-any"
+arises = ["any"]
+tags = ["installer"]
+since = "0.1.0"
+related = ["E1816"]
+[[code.cause]]
+why = "no update has happened since install"
+no = "dont-have-any"
+probe = "previous-carton"
+remedy = "nothing to do; `ciginstaller history` shows what changed"
+[[code.cause]]
+why = "the previous carton was removed"
+probe = "previous-carton"
+remedy = "`ciginstaller install carton --carton <version>`, then `ciginstaller use <version>`"
+
+[[code]]
+code = "E1853"
+title = "self-update failed and the old binary was restored"
+meaning = "The new ciginstaller did not start cleanly, so the old one was put back. Nothing else changed."
+fix = "`ciginstaller self update --check`"
+no = "none"
+arises = ["update"]
+tags = ["installer"]
+since = "0.1.0"
+related = ["E1832"]
+[[code.cause]]
+why = "the new binary failed its self-check"
+probe = "installer-binary"
+remedy = "report it at https://github.com/otmof-ops/cig-installer/issues with `ciginstaller --version`"
+[[code.cause]]
+why = "this is a development build, which never replaces itself"
+probe = "installer-binary"
+remedy = "run the copy in ~/.cigscript/bin/ciginstaller"
+
+[[code]]
+code = "E1854"
+title = "update blocked by this project's pins"
+meaning = "This project's pins do not allow the carton the update would move to, so the update was held."
+fix = "`ciginstaller check --project <dir>`"
+no = "these-are-mine"
+arises = ["update"]
+tags = ["installer"]
+since = "0.1.0"
+related = ["E1851", "E1850"]
+[[code.cause]]
+why = "the project pins a carton older than the target"
+no = "these-are-mine"
+probe = "project-pins"
+remedy = "change the pin with `ciginstaller pin carton <pin>`, or update with `--project <other-dir>`"
+
+[[code]]
+code = "E1860"
+title = "repair could not restore a file"
+meaning = "A damaged file was not in the store and could not be downloaded again, so it was left as it is."
+fix = "`ciginstaller repair --tool <tool>`, online"
+no = "none"
+arises = ["doctor"]
+tags = ["installer"]
+since = "0.1.0"
+related = ["E1831", "E1820"]
+[[code.cause]]
+why = "the store object was removed and the network is unreachable"
+probe = "file-hash"
+remedy = "connect, then `ciginstaller repair`"
+[[code.cause]]
+why = "the carton the file came from was yanked or removed from the source"
+probe = "release-manifest"
+remedy = "`ciginstaller carton <version>` for one that is available"
+
+[[code]]
+code = "E1861"
+title = "--purge needs OS authentication"
+meaning = "Removing user data is not built into this release; it would have to ask your operating system, not the terminal."
+fix = "`ciginstaller uninstall --all`"
+no = "these-are-mine"
+arises = ["any"]
+tags = ["installer", "irreversible-involved"]
+since = "0.1.0"
+related = ["E1862"]
+[[code.cause]]
+why = "--purge was given"
+no = "these-are-mine"
+probe = "none"
+remedy = "`ciginstaller uninstall --all` removes what the installer added and leaves your data"
+
+[[code]]
+code = "E1862"
+title = "a profile block was edited and is left alone"
+meaning = "The block in a shell profile no longer matches what the installer wrote, so it is not removed or rewritten."
+fix = "`ciginstaller doctor`"
+no = "these-are-mine"
+arises = ["any"]
+tags = ["installer"]
+since = "0.1.0"
+related = ["E1845"]
+[[code.cause]]
+why = "you edited the marked block"
+no = "these-are-mine"
+probe = "profile-block"
+remedy = "edit the profile yourself: delete the lines between the ciginstaller markers"
+
+[[code]]
+code = "E1870"
+title = "usage"
+meaning = "The command line is wrong: an unknown flag, a missing argument or a bad value."
+fix = "`ciginstaller --help`, or `ciginstaller <command> --help`"
+no = "none"
+arises = ["any"]
+tags = ["installer", "beginner-likely"]
+since = "0.1.0"
+related = ["E1871"]
+[[code.cause]]
+why = "a flag or argument is wrong"
+probe = "none"
+remedy = "`ciginstaller <command> --help` shows the flags"
+
+[[code]]
+code = "E1871"
+title = "a question was needed and there is no TTY"
+meaning = "The command needs an answer and there is no terminal to ask on, so the safe default was taken, which was no."
+fix = "`ciginstaller <command> --yes`, if you mean it"
+no = "none"
+arises = ["any"]
+tags = ["installer", "ci-likely"]
+since = "0.1.0"
+related = ["E1842", "E1851"]
+[[code.cause]]
+why = "running in CI, a pipe or a script"
+no = "none"
+probe = "terminal"
+remedy = "add --yes (irreversible steps also need --yes-irreversible), or set the config key the question is about"
+
+[[code]]
+code = "E1872"
+title = "platform not supported"
+meaning = "ciginstaller or a product does not support this operating system or architecture."
+fix = "`ciginstaller carton show <version> --verbose` lists the targets"
+no = "dont-have-any"
+arises = ["any"]
+tags = ["installer", "ci-likely"]
+since = "0.1.0"
+related = ["E1815", "E1807"]
+[[code.cause]]
+why = "this architecture has no builds in any carton"
+no = "dont-have-any"
+probe = "platform-support"
+remedy = "build from source following the product's own instructions"
+
+[[code]]
+code = "E1873"
+title = "offline was requested and the step needs the network"
+meaning = "--offline or the offline setting is on, and this step has to fetch something that is not cached."
+fix = "`ciginstaller <command>` without --offline"
+no = "these-are-mine"
+arises = ["any"]
+tags = ["installer", "ci-likely"]
+since = "0.1.0"
+related = ["E1810", "E1820", "E1842"]
+[[code.cause]]
+why = "--offline is set, or offline = true in the config"
+no = "these-are-mine"
+probe = "config-offline"
+remedy = "run the command without --offline, or fetch first and keep working offline"
+
+[[code]]
+code = "E1890"
+title = "a bug in the installer"
+meaning = "ciginstaller hit a state it believes cannot happen. The machine was not changed."
+fix = "`ciginstaller doctor`, then report it at https://github.com/otmof-ops/cig-installer/issues"
+no = "none"
+arises = ["any"]
+tags = ["installer"]
+since = "0.1.0"
+related = ["E1891"]
+[[code.cause]]
+why = "an internal assertion failed"
+probe = "none"
+remedy = "report it with the command, `ciginstaller --version` and the message"
+
+[[code]]
+code = "E1891"
+title = "a journal could not be recovered"
+meaning = "An interrupted change left a journal the installer cannot read or replay. The journal is kept for inspection."
+fix = "`ciginstaller doctor`"
+no = "none"
+arises = ["any"]
+tags = ["installer"]
+since = "0.1.0"
+related = ["E1832", "E1833"]
+[[code.cause]]
+why = "the journal is cut off or from a newer ciginstaller"
+probe = "txn-journal"
+remedy = "`ciginstaller self update`, then `ciginstaller doctor`"
+[[code.cause]]
+why = "a file the journal refers to was removed"
+probe = "txn-journal"
+remedy = "`ciginstaller repair`, then `ciginstaller doctor`"

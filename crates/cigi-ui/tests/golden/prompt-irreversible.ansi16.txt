@@ -1,0 +1,5 @@
+--- stdout ---
+--- stderr ---
+--- rendered ---
+␛[33m?␛[0m remove everything ciginstaller added?  toolchains, store, shims, profile blocks
+  [y]es  [N]o                                ␛[2m(enter = no; this cannot be undone)␛[0m

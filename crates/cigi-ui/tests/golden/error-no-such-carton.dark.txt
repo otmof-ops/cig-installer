@@ -1,0 +1,7 @@
+--- stdout ---
+--- stderr ---
+␛[38;2;239;68;68m✗␛[0m error[E1811 installer]: can't see any ciggies bro: there's no carton 1.4 on the stable channel
+  ␛[38;2;156;163;175m= subject:␛[0m 1.4
+  ␛[38;2;156;163;175m= hint:␛[0m newest on stable is 0.1.1; 0.2.0-beta.2 is on beta
+  ␛[38;2;156;163;175m= explain:␛[0m ciginstaller explain E1811
+  ␛[38;2;156;163;175m= fix:␛[0m ciginstaller carton 0.1.1, or ciginstaller channel beta

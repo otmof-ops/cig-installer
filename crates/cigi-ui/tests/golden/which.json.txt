@@ -1,0 +1,3 @@
+--- stdout ---
+{"ok":true,"command":"which","headline":"cigo 1.17.0, from carton 0.1.0 (pinned in .cig-carton)","detail":["/home/u/.cigscript/toolchains/cigo/1.17.0/bin/cigo"],"next":null,"code":null,"data":{"tool":"cigo","build":"1.17.0","carton":"0.1.0","path":"/home/u/.cigscript/toolchains/cigo/1.17.0/bin/cigo"}}
+--- stderr ---

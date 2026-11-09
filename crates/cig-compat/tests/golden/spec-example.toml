@@ -1,0 +1,100 @@
+# The example of section 6.1 of the build contract, made complete.
+format    = 1
+channel   = "stable"
+sequence  = 7
+generated = 2026-11-12T10:00:00Z
+expires   = 2026-12-12T10:00:00Z
+
+[tool.cig]
+repo    = "otmof-ops/cig-script"
+tag     = "v{version}"
+layout  = "binary"
+asset   = "cig-v{version}-{os}-{arch}{exe}"
+sidecar = "{asset}.sha256"
+shims   = [ { name = "cig", path = "bin/cig", windows_path = "bin/cig.exe" } ]
+targets = [ "freebsd-x86_64", "linux-aarch64", "linux-arm", "linux-x86_64", "macos-aarch64", "macos-x86_64", "windows-aarch64", "windows-x86_64" ]
+attests = true
+
+[tool.cigo]
+repo    = "otmof-ops/cig-orchestrator"
+tag     = "v{version}"
+layout  = "archive"
+asset   = "cig-orchestrator-v{version}.tar.gz"
+sidecar = "{asset}.sha256"
+strip   = 1
+shims   = [ { name = "cigo", path = "bin/cigo", windows_path = "bin/cigo.cmd" } ]
+targets = [ "any" ]
+attests = false
+
+[tool.cigcompile]
+repo    = "otmof-ops/cig-compile"
+tag     = "v{version}"
+layout  = "binary"
+asset   = "cigcompile-v{version}-{os}-{arch}{exe}"
+sidecar = "{asset}.sha256"
+shims   = [ { name = "cigcompile", path = "bin/cigcompile", windows_path = "bin/cigcompile.exe" } ]
+targets = [ "freebsd-x86_64", "linux-aarch64", "linux-arm", "linux-x86_64", "macos-aarch64", "macos-x86_64", "windows-aarch64", "windows-x86_64" ]
+
+[tool.ciginstaller]
+repo    = "otmof-ops/cig-installer"
+tag     = "v{version}"
+layout  = "archive"
+asset   = "ciginstaller-v{version}-{os}-{arch}.tar.gz"
+sidecar = "{asset}.sha256"
+strip   = 0
+shims   = []
+targets = [ "linux-x86_64", "linux-aarch64", "macos-aarch64", "macos-x86_64", "windows-x86_64", "windows-aarch64" ]
+
+[build.cig."1.20.0"]
+released = 2026-11-02
+[build.cig."1.20.0".linux-x86_64]
+sha256 = "4649fda09236ada8a2ade2460c33db9cfa4b2f4dba40186099118a6a3b2dc8e3"
+size   = 13010720
+
+[build.cigo."1.17.0"]
+released = 2026-11-08
+[build.cigo."1.17.0".any]
+sha256 = "97d38b2b90e4110fbe20d9c2ee1b25f4fbd95e7bfeadce55cd06557dd0b45c3b"
+size   = 123456
+
+[build.cigcompile."0.2.0"]
+[build.cigcompile."0.2.0".linux-x86_64]
+sha256 = "1111111111111111111111111111111111111111111111111111111111111111"
+size   = 4000000
+
+[build.ciginstaller."0.1.0"]
+[build.ciginstaller."0.1.0".linux-x86_64]
+sha256 = "2222222222222222222222222222222222222222222222222222222222222222"
+size   = 3000000
+url    = "https://example.invalid/ciginstaller-v0.1.0-linux-x86_64.tar.gz"
+
+[carton."0.1.0"]
+released     = 2026-11-12
+notes        = "first carton: cig, cigo, cigcompile"
+tested       = []
+cig          = "1.20.0"
+cigo         = "1.17.0"
+cigcompile   = "0.2.0"
+ciginstaller = "0.1.0"
+[carton."0.1.0".packs]
+dev     = [ "cig", "cigo" ]
+builder = [ "cig", "cigo", "cigcompile" ]
+
+[product.cigo."1.17.0"]
+requires = { cig = ">=1.16.1, <2" }
+[product.cigcompile."0.2.0"]
+requires = { }
+embeds   = { cig_runtime = "1.18.0", journal_format = 3 }
+os_min   = { linux = "kernel 3.10", windows = "10" }
+
+[yanked]
+"carton 0.0.9" = "cigo could skip a file on rollback after a box apply; use 0.1.0 or later"
+"cigo 1.4.1"   = { reason = "example", fixed_in = "1.4.2" }
+
+[[advisory]]
+id = "CIGI-2026-0001"
+affects = [ "carton <0.1.0" ]
+fixed_in = "0.1.0"
+severity = "security"
+summary = "an example advisory"
+url = "https://github.com/otmof-ops/cig-installer/security/advisories/example"

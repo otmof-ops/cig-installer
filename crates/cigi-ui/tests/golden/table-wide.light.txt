@@ -1,0 +1,6 @@
+--- stdout ---
+  ␛[38;2;107;114;128mproduct␛[0m      ␛[38;2;107;114;128minstalled␛[0m   ␛[38;2;107;114;128mcarton 0.1.1␛[0m   ␛[38;2;107;114;128mchanges␛[0m
+  cig             1.20.0         ␛[38;2;234;88;12m1.20.1␛[0m   programs refuse instead of turning into cig; the trial reports plan differences per script (#134-#137)
+  cigo            1.17.0         1.17.0   —
+  cigcompile       0.2.0          0.2.0   —
+--- stderr ---

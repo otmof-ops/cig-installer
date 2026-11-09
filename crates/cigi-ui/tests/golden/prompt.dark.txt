@@ -1,0 +1,6 @@
+--- stdout ---
+--- stderr ---
+--- rendered ---
+␛[38;2;234;179;8m?␛[0m update to carton 0.1.1?  cig 1.20.0 → 1.20.1, cigo unchanged
+  the trial ran clean. ciginstaller rollback undoes it.
+  [Y]es  [n]o  [s]how changes                                      ␛[38;2;156;163;175m(enter = yes)␛[0m
