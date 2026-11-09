@@ -125,7 +125,15 @@ impl Cx {
 
     /// Layout and permission checks, the lock, `recover`, then a fresh read of `state.json`
     /// (every mutating command starts here, SPEC 12).
+    ///
+    /// Idempotent: when this `Cx` already holds the lock (a flow that calls another flow, the
+    /// slow path's second install) it only reloads `state.json`; taking the lock a second time
+    /// from the same process would wait on itself.
     pub fn lock_and_recover(&mut self) -> Result<(), InstallerError> {
+        if self.lock.is_some() {
+            self.state = State::load(&self.home).map_err(ie)?;
+            return Ok(());
+        }
         // permissions are checked before anything is written, and again once the layout exists
         self.home.check_permissions().map_err(ie)?;
         self.home.ensure_layout().map_err(ie)?;
@@ -186,6 +194,12 @@ impl Cx {
         self.lock = Some(lock);
         self.state = State::load(&self.home).map_err(ie)?;
         Ok(())
+    }
+
+    /// Let go of the installer lock (a no-op when it is not held). The slow path calls this
+    /// before it spawns the tool, so a long run of the tool does not block other installers.
+    pub fn release_lock(&mut self) {
+        self.lock = None;
     }
 
     /// Open the transaction of a flow. `lock_and_recover` must have run.
@@ -263,6 +277,36 @@ impl Cx {
             .get()
             .map(|a| a.get())
             .ok_or_else(|| bug("the manifest cell is empty after it was set"))
+    }
+
+    /// The cached manifest, read without the network and without being remembered: a later
+    /// `manifest(Fresh)` in the same command still fetches. `None` when there is no usable cache.
+    pub fn peek_manifest(&self) -> Option<Manifest> {
+        if let Some(m) = self.manifest.get() {
+            return Some(m.get().clone());
+        }
+        let channel = self.channel();
+        let seen = self
+            .state
+            .manifest
+            .as_ref()
+            .filter(|m| m.channel == channel)
+            .map(|m| m.sequence);
+        let opts = ManifestOpts {
+            offline: true,
+            seen_sequence: seen,
+            now: now_override(),
+            fetch_attestation: false,
+        };
+        get_manifest_with(
+            self.source.as_ref(),
+            &self.trust,
+            &self.home,
+            &channel,
+            &opts,
+        )
+        .ok()
+        .map(|a| a.get().clone())
     }
 
     /// A different document at a sequence already recorded for the channel is refused (E1824).

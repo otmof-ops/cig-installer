@@ -326,7 +326,24 @@ pub fn run_locked(cx: &mut Cx, a: &InstallArgs) -> Result<Report, InstallerError
         What::Pick(n) => format!("{} of carton {cv}", n.join(", ")),
         What::Stick(t) => format!("stick {t} of carton {cv}"),
     };
-    if todo.is_empty() && recorded && cx.state.machine_carton.is_some() {
+    // A stick, pack or pick is for tools that run without a pin: "already installed" also means
+    // the machine carton has each of them at this build, or a stick row names it (a record in
+    // some other carton is reachable only through a pin).
+    let reachable = matches!(a.what, What::Carton)
+        || want.iter().all(|(t, v)| {
+            let vs = v.to_string();
+            let on_machine = machine
+                .as_deref()
+                .and_then(|m| cx.state.cartons.get(m))
+                .is_some_and(|r| r.tools.get(t) == Some(&vs));
+            on_machine
+                || cx
+                    .state
+                    .sticks
+                    .iter()
+                    .any(|s| &s.tool == t && s.version == vs)
+        });
+    if todo.is_empty() && recorded && reachable && cx.state.machine_carton.is_some() {
         return Ok(Report::done(format!("{what_text} is already installed"))
             .data(json!({ "carton": cv.to_string(), "installed": [], "changed": false })));
     }
@@ -439,6 +456,20 @@ pub fn run_locked(cx: &mut Cx, a: &InstallArgs) -> Result<Report, InstallerError
     }
     for w in &warnings {
         rep = rep.detail(format!("warning {w}"));
+    }
+    if !matches!(a.what, What::Carton) {
+        if let (Some(mc), Some(mrec)) = (
+            machine.as_deref().filter(|m| *m != cv.to_string()),
+            machine.as_deref().and_then(|m| cx.state.cartons.get(m)),
+        ) {
+            for (t, v) in &want {
+                if mrec.tools.get(t).is_some_and(|b| *b != v.to_string()) {
+                    rep = rep.detail(format!(
+                        "{t} {v} is recorded, but the machine's carton {mc} has its own {t}, which runs first; pin carton {cv} to use this one"
+                    ));
+                }
+            }
+        }
     }
     let path_note = match applied.path {
         Some(PathChange::Added) => {
@@ -660,15 +691,16 @@ fn apply(cx: &mut Cx, txn: &mut Txn, p: &Plan<'_>) -> Result<Applied, InstallerE
     if state.machine_carton.is_none() {
         state.machine_carton = Some(cvs.clone());
     } else if !matches!(p.args.what, What::Carton) && old_machine.as_deref() != Some(cvs.as_str()) {
-        // a stick for a tool the machine's carton lacks
-        let has = |t: &str| {
+        // a stick for a tool the machine's carton lacks, or has at another build: the row
+        // records what the user asked for (the machine's own build still runs first)
+        let has = |t: &str, v: &Version| {
             old_machine
                 .as_deref()
                 .and_then(|m| state.cartons.get(m))
-                .is_some_and(|r| r.tools.contains_key(t))
+                .is_some_and(|r| r.tools.get(t) == Some(&v.to_string()))
         };
         for (t, v) in p.want {
-            if !has(t) {
+            if !has(t, v) {
                 state.sticks.retain(|s| &s.tool != t);
                 state.sticks.push(Stick {
                     tool: t.clone(),
@@ -755,7 +787,7 @@ fn apply(cx: &mut Cx, txn: &mut Txn, p: &Plan<'_>) -> Result<Applied, InstallerE
     };
 
     // 6. state, flip
-    save_and_flip(txn, &home, &state)?;
+    save_and_flip(txn, &home, &state, super::yanked_in(p.m))?;
     Ok(Applied { path, profile })
 }
 

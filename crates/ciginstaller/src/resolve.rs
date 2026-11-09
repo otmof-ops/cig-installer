@@ -2,14 +2,15 @@
 // SPDX-License-Identifier: Apache-2.0
 //! Resolution, SPEC section 8: what runs here? The reference the shim's fast path must agree with.
 
+use std::collections::BTreeSet;
 use std::path::PathBuf;
 
 use cig_compat::{legacy_resolve, LegacyOutcome, Pin, Version};
 use cigi_ui::{InstallerError, EXIT_REFUSED};
 
-use crate::cx::{Cx, ManifestMode};
+use crate::cx::Cx;
 use crate::flows::install::{self, InstallArgs, What};
-use crate::flows::tool_exe;
+use crate::flows::{cached_yanked, tool_exe};
 use crate::project::file_label;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -94,6 +95,50 @@ fn found(
 }
 
 pub fn resolve(cx: &mut Cx, tool: &str, mode: Mode) -> Result<Resolution, InstallerError> {
+    resolve_inner(cx, tool, mode, false)
+}
+
+/// Which installed `(carton, build)` runs `tool` under the legacy pins when one tool (`st`) comes
+/// from a stick out of `carton` and every other tool from the base carton (SPEC 8 step 3).
+fn legacy_pick(
+    cx: &Cx,
+    tool: &str,
+    st: &str,
+    carton: &Version,
+    pins: &[(String, Pin)],
+) -> Option<(Version, Version)> {
+    let mine = |b: &Version| {
+        pins.iter()
+            .filter(|(t, _)| t == tool)
+            .all(|(_, p)| p.satisfied_by(b))
+    };
+    if tool == st {
+        let b = cx
+            .state
+            .cartons
+            .get(&carton.to_string())?
+            .tools
+            .get(tool)
+            .and_then(|v| parsed(v))?;
+        return mine(&b).then(|| (carton.clone(), b));
+    }
+    let machine = cx.state.machine_carton.as_deref().and_then(parsed);
+    let fits: Vec<(Version, Version)> = holders(cx, tool)
+        .into_iter()
+        .filter(|(_, b)| mine(b))
+        .collect();
+    fits.iter()
+        .find(|(c, _)| Some(c) == machine.as_ref())
+        .or_else(|| fits.first())
+        .cloned()
+}
+
+fn resolve_inner(
+    cx: &mut Cx,
+    tool: &str,
+    mode: Mode,
+    fetched: bool,
+) -> Result<Resolution, InstallerError> {
     let mut steps = Vec::new();
     // 1. CIGI_CARTON
     if let Some(c) = std::env::var("CIGI_CARTON").ok().filter(|s| !s.is_empty()) {
@@ -126,12 +171,27 @@ pub fn resolve(cx: &mut Cx, tool: &str, mode: Mode) -> Result<Resolution, Instal
     if let Some((pin, file)) = project.as_ref().and_then(|p| p.carton_pin.clone()) {
         let label = file_label(&file);
         steps.push(format!("2. {label} pins carton {pin}"));
-        let pick = |cx: &Cx| {
-            holders(cx, tool)
-                .into_iter()
-                .find(|(c, _)| pin.satisfied_by(c))
-        };
-        if let Some((c, b)) = pick(cx) {
+        // A range pin (`0.1`, `0`, `>=0.1.0`) passes over a yanked carton; an exact pin still
+        // runs it, with a warning. The shim's index leaves yanked cartons out of its series
+        // lines for the same reason, so both agree.
+        let exact = matches!(pin, Pin::Exact(_));
+        let yanked: BTreeSet<String> = cached_yanked(cx).into_iter().collect();
+        let allowed = |c: &Version| exact || !yanked.contains(&c.to_string());
+        let candidate = holders(cx, tool)
+            .into_iter()
+            .find(|(c, _)| pin.satisfied_by(c) && allowed(c));
+        if let Some((c, b)) = candidate {
+            if yanked.contains(&c.to_string()) {
+                let w = format!(
+                    "carton {c} (pinned in {label}) was yanked; it runs because the pin is exact"
+                );
+                if mode == Mode::Run {
+                    cx.ui
+                        .say(&cigi_ui::Report::new(cigi_ui::Icon::Note, w).code("E1855"));
+                } else {
+                    steps.push(format!("   warning E1855: {w}"));
+                }
+            }
             return found(cx, tool, Some(c), b, Why::Pinned(label), steps);
         }
         let any_installed = cx
@@ -139,7 +199,7 @@ pub fn resolve(cx: &mut Cx, tool: &str, mode: Mode) -> Result<Resolution, Instal
             .cartons
             .keys()
             .filter_map(|k| parsed(k))
-            .any(|c| pin.satisfied_by(&c));
+            .any(|c| pin.satisfied_by(&c) && allowed(&c));
         if any_installed {
             return Err(InstallerError::new(
                 "E1840",
@@ -160,25 +220,33 @@ pub fn resolve(cx: &mut Cx, tool: &str, mode: Mode) -> Result<Resolution, Instal
         if mode == Mode::Which {
             return Err(unavailable("`which` does not fetch"));
         }
-        let target = cx
-            .manifest(ManifestMode::Fresh)
-            .ok()
-            .and_then(|m| m.newest_matching(&pin, None).map(|c| c.version.clone()));
-        let Some(target) = target else {
-            return Err(unavailable("no manifest lists a carton that fits"));
-        };
-        if !cx.may_fetch_pinned(&format!("carton {target}"))? {
-            return Err(unavailable("fetching is off (pin_fetch)"));
+        if fetched {
+            return Err(InstallerError::new(
+                "E1856",
+                format!("carton {pin} was fetched for {label}, but it still does not hold {tool}"),
+            )
+            .with_fix("ciginstaller carton list"));
+        }
+        // The policy comes before any request: `never` and --offline make none, and `ask` asks
+        // before anything is fetched. The cache only words the question.
+        let named = cx
+            .peek_manifest()
+            .and_then(|m| m.newest_matching(&pin, None).map(|c| c.version.to_string()))
+            .unwrap_or_else(|| pin.to_string());
+        if !cx.may_fetch_pinned(&format!("carton {named}"))? {
+            return Err(unavailable(
+                "fetching is off (pin_fetch, --offline, or no terminal to ask on)",
+            ));
         }
         cx.ui.say(&cigi_ui::Report::new(
             cigi_ui::Icon::Running,
-            format!("fetching carton {target} for this project (pinned in {label})"),
+            format!("fetching carton {named} for this project (pinned in {label})"),
         ));
-        let mut a = InstallArgs::carton(Some(target.to_string()));
+        let mut a = InstallArgs::carton(Some(pin.to_string()));
         a.no_path = true;
         a.reason = Some(format!("pinned in {label}"));
         install::run(cx, &a)?;
-        return resolve(cx, tool, mode);
+        return resolve_inner(cx, tool, mode, true);
     }
     steps.push("2. no carton pin in this project".to_string());
 
@@ -217,16 +285,14 @@ pub fn resolve(cx: &mut Cx, tool: &str, mode: Mode) -> Result<Resolution, Instal
                 return found(cx, tool, Some(c), b, Why::Legacy(label), steps);
             }
         }
-        // nothing installed fits: a stick, if the manifest has one
+        // nothing installed fits: one tool from a stick, the rest from a base carton
         let pins: Vec<(String, Pin)> = legacy
             .iter()
             .map(|(t, p, _)| (t.clone(), p.clone()))
             .collect();
-        let installed: Vec<Version> = cartons.clone();
-        let outcome = match cx.manifest(ManifestMode::CacheOnly) {
-            Ok(m) => Some(legacy_resolve(m, &installed, &pins)),
-            Err(_) => None,
-        };
+        let outcome = cx
+            .peek_manifest()
+            .map(|m| legacy_resolve(&m, &cartons, &pins));
         let have: Vec<String> = pins
             .iter()
             .map(|(t, p)| {
@@ -240,41 +306,48 @@ pub fn resolve(cx: &mut Cx, tool: &str, mode: Mode) -> Result<Resolution, Instal
                 )
             })
             .collect();
+        let refusal = |hint: String, fix: String| {
+            InstallerError::new(
+                "E1801",
+                format!("{label} is not met by any installed carton"),
+            )
+            .with_hint(hint)
+            .with_fix(fix)
+            .with_exit(EXIT_REFUSED)
+        };
         return Err(match outcome {
             Some(LegacyOutcome::Stick { tool: st, carton }) => {
+                // already installed (a record of that carton holds the stick's tool)?
+                if let Some((c, b)) = legacy_pick(cx, tool, &st, &carton, &pins) {
+                    return found(cx, tool, Some(c), b, Why::Legacy(label), steps);
+                }
                 let fix = format!("ciginstaller install stick {st} --carton {carton}");
                 if mode == Mode::Run
+                    && !fetched
                     && cx.may_fetch_pinned(&format!("{st} from carton {carton}"))?
                 {
                     let mut a = InstallArgs::carton(Some(carton.to_string()));
-                    a.what = What::Stick(st);
+                    a.what = What::Stick(st.clone());
                     a.no_path = true;
                     a.reason = Some("legacy pin".into());
                     install::run(cx, &a)?;
-                    return resolve(cx, tool, mode);
+                    // one look at what was just installed, never another fetch
+                    if let Some((c, b)) = legacy_pick(cx, tool, &st, &carton, &pins) {
+                        return found(cx, tool, Some(c), b, Why::Legacy(label), steps);
+                    }
+                    return Err(InstallerError::new(
+                        "E1856",
+                        format!("{st} was fetched from carton {carton} for {label}, but {tool} is still not met"),
+                    )
+                    .with_fix("ciginstaller carton list"));
                 }
-                InstallerError::new(
-                    "E1801",
-                    format!("{label} is not met by any installed carton"),
-                )
-                .with_hint(have.join("; "))
-                .with_fix(fix)
-                .with_exit(EXIT_REFUSED)
+                refusal(have.join("; "), fix)
             }
-            Some(LegacyOutcome::None { why }) => InstallerError::new(
-                "E1801",
-                format!("{label} is not met by any installed carton"),
-            )
-            .with_hint([have, why].concat().join("; "))
-            .with_fix("ciginstaller carton list")
-            .with_exit(EXIT_REFUSED),
-            _ => InstallerError::new(
-                "E1801",
-                format!("{label} is not met by any installed carton"),
-            )
-            .with_hint(have.join("; "))
-            .with_fix("ciginstaller carton list")
-            .with_exit(EXIT_REFUSED),
+            Some(LegacyOutcome::None { why }) => refusal(
+                [have, why].concat().join("; "),
+                "ciginstaller carton list".into(),
+            ),
+            _ => refusal(have.join("; "), "ciginstaller carton list".into()),
         });
     }
     steps.push("3. no legacy pin files".to_string());
