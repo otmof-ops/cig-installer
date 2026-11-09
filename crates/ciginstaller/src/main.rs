@@ -25,7 +25,7 @@ use std::path::Path;
 use cigi_ui::{GlobalFlags, InstallerError, Report, Ui, EXIT_SHIM, EXIT_USAGE};
 use clap::Parser;
 
-use cli::{Cli, Command};
+use cli::{Cli, Command, SelfCmd, SelfSub};
 use cmd::Outcome;
 use cx::{Cx, Globals};
 
@@ -96,6 +96,10 @@ fn dispatch(cli: Cli, ui: Ui) -> i32 {
         Some(Command::List) => ("list", None),
         Some(Command::Which { cwd, .. }) => ("which", cwd.clone()),
         Some(Command::Resolve { cwd, .. }) => ("resolve", Some(cwd.clone())),
+        Some(Command::SelfCmd(_)) => ("self", None),
+        Some(Command::Gc { .. }) => ("gc", None),
+        Some(Command::Check { project, .. }) => ("check", project.clone()),
+        Some(Command::SelfCheck) => ("__selfcheck", None),
     };
     if let Some(Command::Explain { code }) = &cli.command {
         return explain(&ui, code.as_deref(), cli.plain);
@@ -107,7 +111,7 @@ fn dispatch(cli: Cli, ui: Ui) -> i32 {
             ));
         }
         let mut cx = Cx::new(ui_clone(&cli), globals, cwd)?;
-        match &cli.command {
+        let result = match &cli.command {
             Some(Command::Install(c)) => cmd::install::run(&mut cx, c),
             Some(Command::Carton(c)) => cmd::carton::run(&mut cx, c),
             Some(Command::Channel { name }) => cmd::channel::run(&mut cx, name.as_deref()),
@@ -132,8 +136,24 @@ fn dispatch(cli: Cli, ui: Ui) -> i32 {
                     Err(e) => Err(e),
                 }
             }
+            Some(Command::SelfCmd(SelfCmd {
+                sub: SelfSub::Update { check },
+            })) => cmd::self_cmd::update(&mut cx, *check),
+            Some(Command::Gc { dry_run, keep_days }) => cmd::gc::run(&mut cx, *dry_run, *keep_days),
+            Some(Command::Check { carton, .. }) => cmd::check::run(&mut cx, carton.as_deref()),
+            Some(Command::SelfCheck) => cmd::self_cmd::selfcheck(&mut cx),
             _ => Ok(Outcome::Report(Report::done("nothing to do"))),
+        };
+        // the first good command of a freshly installed build says it is healthy (SPEC 12.4)
+        if result.is_ok()
+            && !matches!(
+                cli.command,
+                Some(Command::Resolve { .. } | Command::SelfCheck)
+            )
+        {
+            flows::self_update::mark_healthy(&cx);
         }
+        result
     })();
     match (name, result) {
         // the tool ran; its exit code is ours and nothing more is printed

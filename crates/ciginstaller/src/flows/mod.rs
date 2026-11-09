@@ -2,7 +2,9 @@
 // SPDX-License-Identifier: Apache-2.0
 //! The flows (SPEC 2.6 and 12). Each is `fn run(cx, args) -> Result<Report, InstallerError>`.
 
+pub mod gc;
 pub mod install;
+pub mod self_update;
 pub mod use_carton;
 
 use std::path::PathBuf;

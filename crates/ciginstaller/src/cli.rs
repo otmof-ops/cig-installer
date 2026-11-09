@@ -94,6 +94,29 @@ pub enum Command {
         #[arg(long, value_name = "DIR")]
         cwd: Option<PathBuf>,
     },
+    /// Update ciginstaller itself.
+    #[command(name = "self")]
+    SelfCmd(SelfCmd),
+    /// Remove cartons unused for `keep_days`, and the store objects nothing references.
+    Gc {
+        /// Say what would go and what it would free; change nothing.
+        #[arg(long)]
+        dry_run: bool,
+        /// Remove what has been unused for longer than this many days (default: the `keep_days` setting).
+        #[arg(long, value_name = "N")]
+        keep_days: Option<u32>,
+    },
+    /// The marry-up matrix: this machine's combination, or one carton's.
+    Check {
+        /// Check this carton (an exact version or a pin) instead of the machine's.
+        #[arg(long, value_name = "V")]
+        carton: Option<String>,
+        /// Also check the pins of the project in this directory.
+        #[arg(long, value_name = "DIR")]
+        project: Option<PathBuf>,
+    },
+    #[command(name = "__selfcheck", hide = true)]
+    SelfCheck,
     #[command(name = "__resolve", hide = true)]
     Resolve {
         #[arg(long)]
@@ -167,4 +190,20 @@ pub enum CartonSub {
     },
     /// What is inside one carton.
     Show { version: String },
+}
+
+#[derive(Args)]
+pub struct SelfCmd {
+    #[command(subcommand)]
+    pub sub: SelfSub,
+}
+
+#[derive(Subcommand)]
+pub enum SelfSub {
+    /// Update ciginstaller itself to the newest build on the channel.
+    Update {
+        /// Say whether a newer ciginstaller exists; change nothing.
+        #[arg(long, alias = "dry-run")]
+        check: bool,
+    },
 }
