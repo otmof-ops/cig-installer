@@ -595,6 +595,7 @@ version = "0.1.0"
 dependencies = [
  "cig-compat",
  "cigi-home",
+ "cigi-source",
  "cigi-testkit",
  "cigi-ui",
  "clap",

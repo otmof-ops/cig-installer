@@ -12,13 +12,21 @@ publish.workspace = true
 name = "ciginstaller"
 path = "src/main.rs"
 
+[features]
+# CIGI_FAULT=<phase>:<n> aborts after the n-th journal line of a phase. Release builds never enable it.
+fault-injection = ["cigi-home/fault-injection"]
+
 [dependencies]
 cig-compat = { workspace = true }
+cigi-home = { workspace = true }
+cigi-source = { workspace = true }
 cigi-ui = { path = "../cigi-ui" }
 clap = { version = "4", features = ["derive"] }
+serde_json = { workspace = true }
 
 [dev-dependencies]
 cigi-testkit = { workspace = true }
-cigi-home = { workspace = true }
+# Turns the fault-injection hook on for test builds only (a2_interrupted_install).
+cigi-home = { workspace = true, features = ["fault-injection"] }
 tempfile = { workspace = true }
 serde_json = { workspace = true }

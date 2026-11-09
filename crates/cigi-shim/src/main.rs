@@ -320,7 +320,9 @@ fn main() {
              the installer will read it (slower)"
         );
     }
-    let (mut cmd, carton) = match pick(&index, &name, forced.as_deref(), &pin) {
+    // A tool runs under its own name; the installer, on the slow path, under its own, so its
+    // misnamed-binary guard (E1844) holds.
+    let (mut cmd, carton, run_as) = match pick(&index, &name, forced.as_deref(), &pin) {
         Pick::Run { carton, path } => {
             let target = Path::new(&path);
             if !target.is_absolute()
@@ -343,7 +345,7 @@ fn main() {
             }
             let mut c = Command::new(path);
             c.args(&rest);
-            (c, carton)
+            (c, carton, name.as_str())
         }
         Pick::Slow => {
             let installer = home.join("bin").join(if cfg!(windows) {
@@ -364,7 +366,7 @@ fn main() {
                 .arg(cwd)
                 .arg("--")
                 .args(&rest);
-            (c, None)
+            (c, None, "ciginstaller")
         }
     };
     cmd.env("CIGI_MANAGED", "1");
@@ -374,7 +376,7 @@ fn main() {
     if std::env::var_os("CIGI_SHIM_TIMING").is_some_and(|v| v == "1") {
         eprintln!("cigi-shim-timing-ns: {}", t0.elapsed().as_nanos());
     }
-    let err = launch(cmd, &name);
+    let err = launch(cmd, run_as);
     if err.kind() == std::io::ErrorKind::NotFound {
         die(
             "E1840",
