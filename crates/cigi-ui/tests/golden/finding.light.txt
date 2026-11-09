@@ -1,0 +1,9 @@
+--- stdout ---
+␛[38;2;220;38;38m✗␛[0m these are MY ciggies: cigo 1.4.1 needs cig 1.8.0 or newer; this project pins cig 1.7.2  ␛[38;2;107;114;128mE1801␛[0m
+  checked: carton 0.1.0 (cig 1.20.0, cigo 1.17.0) against .cig-version in ~/work/site
+  ␛[38;2;234;88;12m→␛[0m ciginstaller pin carton 0.1
+  ␛[38;2;234;88;12m→␛[0m ciginstaller pin cig 1.8
+␛[38;2;220;38;38m✗␛[0m these are MY ciggies: cigo 1.4.1 needs cig 1.8.0 or newer; this project pins cig 1.7.2  ␛[38;2;107;114;128mE1801␛[0m
+  checked: carton 0.1.0 (cig 1.20.0, cigo 1.17.0) against .cig-version in ~/work/site
+  ␛[38;2;234;88;12m→␛[0m ciginstaller pin carton 0.1
+--- stderr ---

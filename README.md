@@ -4,11 +4,14 @@
 the [CigScript](https://github.com/otmof-ops/cig-script) family: `cig`,
 `cigo`, `cigcompile` and `cigar`, at the versions a project asks for.
 
-**Status: being built.** Nothing here installs anything yet. The plan of
+**Status: being built.** Nothing here installs anything yet. The foundation
+is in: the carton manifest and the checks that say whether a combination fits,
+the store and the journal that make every change one atomic, undoable step,
+verified downloads, the shim that runs the version a project pins, and the
+error pages (`ciginstaller explain`). Installing comes next. The plan of
 record is the issues, starting with the architecture
-([#1](https://github.com/otmof-ops/cig-installer/issues/1)): one binary,
-versioned toolchains in `~/.cigscript/`, and shims that run the version each
-project pins.
+([#1](https://github.com/otmof-ops/cig-installer/issues/1)) and its decision,
+[docs/decisions/0001-architecture.md](docs/decisions/0001-architecture.md).
 
 ## Licensing
 

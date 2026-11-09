@@ -1,0 +1,3 @@
+--- stdout ---
+{"ok":true,"command":"update","headline":"carton 0.1.1 installed; trial: 14 scripts dry-ran the same on the new cig","detail":[],"next":"nothing to do. ciginstaller rollback puts 0.1.0 back.","code":null,"data":null}
+--- stderr ---

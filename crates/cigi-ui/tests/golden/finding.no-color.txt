@@ -1,0 +1,9 @@
+--- stdout ---
+✗ these are MY ciggies: cigo 1.4.1 needs cig 1.8.0 or newer; this project pins cig 1.7.2  E1801
+  checked: carton 0.1.0 (cig 1.20.0, cigo 1.17.0) against .cig-version in ~/work/site
+  → ciginstaller pin carton 0.1
+  → ciginstaller pin cig 1.8
+✗ these are MY ciggies: cigo 1.4.1 needs cig 1.8.0 or newer; this project pins cig 1.7.2  E1801
+  checked: carton 0.1.0 (cig 1.20.0, cigo 1.17.0) against .cig-version in ~/work/site
+  → ciginstaller pin carton 0.1
+--- stderr ---

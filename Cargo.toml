@@ -1,0 +1,48 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/cig-compat",
+    "crates/cigi-home",
+    "crates/cigi-source",
+    "crates/cigi-ui",
+    "crates/cigi-shim",
+    "crates/ciginstaller",
+    "crates/cigi-testkit",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.82"
+license = "Apache-2.0"
+repository = "https://github.com/otmof-ops/cig-installer"
+publish = false
+
+[workspace.dependencies]
+sha2 = "0.10"
+hex = "0.4"
+url = "2"
+toml = "0.8"
+serde = { version = "1", features = ["derive"] }
+serde_json = { version = "1", features = ["preserve_order"] }
+time = { version = "0.3", features = ["formatting", "parsing", "macros"] }
+ureq = { version = "2", default-features = false, features = ["tls"] }
+tar = "0.4"
+flate2 = "1"
+tempfile = "3"
+tiny_http = "0.12"
+cig-compat = { path = "crates/cig-compat" }
+cigi-home = { path = "crates/cigi-home" }
+cigi-source = { path = "crates/cigi-source" }
+cigi-testkit = { path = "crates/cigi-testkit" }
+
+[profile.release]
+lto = true
+codegen-units = 1
+strip = "debuginfo"
+panic = "abort"
+
+# The shim is built for size (SPEC section 9).
+[profile.release.package.cigi-shim]
+opt-level = "s"
+strip = "symbols"

@@ -1,0 +1,5 @@
+--- stdout ---
+--- stderr ---
+␛[38;2;220;38;38m✗␛[0m error[E1890 installer]: the shim index has two machine lines
+  ␛[38;2;107;114;128m= explain:␛[0m ciginstaller explain E1890
+  ␛[38;2;107;114;128m= fix:␛[0m `ciginstaller doctor`, then report it at https://github.com/otmof-ops/cig-installer/issues

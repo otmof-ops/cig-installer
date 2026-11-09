@@ -1,0 +1,7 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc 882b060e02e8dbdc4be7cfd816fdc34181e8cb10ce2be7bab059bf90e8dea833 # shrinks to cigs = {Version { major: 0, minor: 0, patch: 0, pre: None }}, cartons = {Version { major: 0, minor: 0, patch: 0, pre: None }}, notes = "", seq = 0, yank_idx = 0, fixed = Version { major: 0, minor: 0, patch: 0, pre: None }

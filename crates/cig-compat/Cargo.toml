@@ -1,0 +1,24 @@
+[package]
+name = "cig-compat"
+description = "Versions, pins, the carton manifest and the marry-up checks for ciginstaller"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[features]
+default = []
+# Runs the pin-dialect parity table against cigscript v1.20.0 (fetches it from GitHub).
+# A dev-dependency cannot be optional, so this is an optional dependency that only
+# the parity tests use; no shipping binary enables the feature.
+parity = ["dep:cigscript"]
+
+[dependencies]
+semver = "1"
+toml = "0.8"
+cigscript = { git = "https://github.com/otmof-ops/cig-script", tag = "v1.20.0", optional = true }
+
+[dev-dependencies]
+proptest = "1"

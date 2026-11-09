@@ -1,0 +1,3 @@
+--- stdout ---
+{"ok":false,"command":"check","headline":"cigo 1.4.1 needs cig 1.8.0 or newer; this project pins cig 1.7.2","detail":["checked: carton 0.1.0 (cig 1.20.0, cigo 1.17.0) against .cig-version in ~/work/site"],"next":"ciginstaller pin carton 0.1","code":"E1801","data":null}
+--- stderr ---

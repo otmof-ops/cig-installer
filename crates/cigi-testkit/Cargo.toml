@@ -1,0 +1,22 @@
+[package]
+name = "cigi-testkit"
+description = "Dev-only: fixture releases, fixture server, scratch homes, request recorder."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[dependencies]
+cigi-home = { workspace = true }
+sha2 = { workspace = true }
+hex = { workspace = true }
+tar = { workspace = true }
+flate2 = { workspace = true }
+tempfile = { workspace = true }
+tiny_http = { workspace = true }
+time = { workspace = true }
+
+[dev-dependencies]
+cig-compat = { workspace = true }
