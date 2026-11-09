@@ -116,7 +116,7 @@ pub fn resolve(cx: &mut Cx, tool: &str, mode: Mode) -> Result<Resolution, Instal
     steps.push("1. CIGI_CARTON is not set".to_string());
 
     // 2. the project's carton pin
-    let project = cx.project.clone();
+    let project = cx.project()?;
     if let Some(p) = &project {
         steps.push(format!(
             "   project pins are read from {}",

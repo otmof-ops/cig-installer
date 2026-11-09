@@ -48,7 +48,9 @@ pub struct Cx {
     pub trust: DigestTrust,
     pub host: Host,
     pub target: Target,
-    pub project: Option<ProjectCtx>,
+    /// What the walk up from `cwd` found. Held, not raised: a bad pin file only stops the
+    /// commands that need the project (`which`, `__resolve`), see [`Cx::project`].
+    project: Result<Option<ProjectCtx>, InstallerError>,
     pub manifest: OnceCell<Admitted<Manifest>>,
     pub globals: Globals,
     pub cwd: PathBuf,
@@ -89,7 +91,7 @@ impl Cx {
                 std::env::current_dir().map_err(|e| bug(format!("no working directory: {e}")))?
             }
         };
-        let project = project::discover(&cwd)?;
+        let project = project::discover(&cwd, &home.root(), cigi_shim::user_home().as_deref());
         Ok(Cx {
             ui,
             home,
@@ -105,6 +107,11 @@ impl Cx {
             cwd,
             lock: None,
         })
+    }
+
+    /// The project the working directory belongs to, or the reason its pin file cannot be used.
+    pub fn project(&self) -> Result<Option<ProjectCtx>, InstallerError> {
+        self.project.clone()
     }
 
     /// Raise the trust floor for this command (`--require`); never lowers it.
