@@ -1,6 +1,6 @@
 // SPDX-FileCopyrightText: 2026 Jay Taylor (https://github.com/otmof-ops/cig-installer)
 // SPDX-License-Identifier: Apache-2.0
-//! Review of PR #39 (SEC-004 finding 7): a journaled remove touches only paths inside the home,
+//! The security review of PR #39: a journaled remove touches only paths inside the home,
 //! and a toolchain path is made only from a name that passes the tool-name rule.
 
 mod common;

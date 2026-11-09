@@ -404,7 +404,7 @@ fn a3_check_cli_project_pins_are_checked_against_what_is_installed() {
     assert!(text(&o).contains("E1811"), "{}", text(&o));
 }
 
-/// SEC-004 finding 6: a different document at a sequence already seen is not read from the
+/// The security review of PR #39: a different document at a sequence already seen is not read from the
 /// cache by anyone (`check`, the resolver and the switch checks all go through it), and a fetch
 /// that meets one puts the cache back as it was, so a yank the first document carried stays known.
 #[test]
