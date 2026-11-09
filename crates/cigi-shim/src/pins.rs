@@ -55,25 +55,70 @@ pub fn pin_from_json(text: &str) -> Option<String> {
     None
 }
 
-/// `cigar.toml`: `carton = "0.1"` before the first table.
+/// `cigar.toml`: `carton = "0.1"` before the first table. A line inside a top-level multi-line
+/// array, inline table or multi-line string is never taken for a table header or a key.
 pub fn pin_from_toml(text: &str) -> Option<String> {
-    for line in text.lines().map(str::trim) {
-        if line.starts_with('[') {
-            return None;
+    let (mut depth, mut ml) = (0usize, None::<&'static str>);
+    for line in text.lines() {
+        let t = line.trim();
+        if depth == 0 && ml.is_none() {
+            if t.starts_with('[') {
+                return None;
+            }
+            if let Some(val) = t
+                .strip_prefix("carton")
+                .and_then(|r| r.trim_start().strip_prefix('='))
+            {
+                let val = val.trim();
+                let q = val.chars().next().filter(|c| *c == '"' || *c == '\'')?;
+                let inner = &val[1..];
+                return inner
+                    .find(q)
+                    .map(|e| inner[..e].to_string())
+                    .filter(|s| !s.is_empty());
+            }
         }
-        let Some(rest) = line.strip_prefix("carton") else {
-            continue;
-        };
-        let Some(val) = rest.trim_start().strip_prefix('=') else {
-            continue;
-        };
-        let val = val.trim();
-        let q = val.chars().next().filter(|c| *c == '"' || *c == '\'')?;
-        let inner = &val[1..];
-        return inner
-            .find(q)
-            .map(|e| inner[..e].to_string())
-            .filter(|s| !s.is_empty());
+        scan_toml_line(line.as_bytes(), &mut depth, &mut ml);
     }
     None
+}
+
+/// Advance the bracket depth and the multi-line-string state over one line, outside comments and
+/// single-line strings.
+fn scan_toml_line(b: &[u8], depth: &mut usize, ml: &mut Option<&'static str>) {
+    let mut i = 0;
+    while i < b.len() {
+        if let Some(d) = *ml {
+            if b[i..].starts_with(d.as_bytes()) {
+                *ml = None;
+                i += 3;
+            } else if d == "\"\"\"" && b[i] == b'\\' {
+                i += 2;
+            } else {
+                i += 1;
+            }
+            continue;
+        }
+        match b[i] {
+            b'#' => return,
+            q @ (b'"' | b'\'') => {
+                let triple: &'static str = if q == b'"' { "\"\"\"" } else { "'''" };
+                if b[i..].starts_with(triple.as_bytes()) {
+                    *ml = Some(triple);
+                    i += 3;
+                    continue;
+                }
+                i += 1;
+                while i < b.len() && b[i] != q {
+                    i += if q == b'"' && b[i] == b'\\' { 2 } else { 1 };
+                }
+                i += 1;
+                continue;
+            }
+            b'[' | b'{' => *depth += 1,
+            b']' | b'}' => *depth = depth.saturating_sub(1),
+            _ => {}
+        }
+        i += 1;
+    }
 }

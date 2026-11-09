@@ -670,7 +670,7 @@ fn results_go_to_stdout_and_chatter_to_stderr() {
 
 // ---- the registry -----------------------------------------------------------------------
 
-const SPEC_CODES: [(u32, &str); 52] = [
+const SPEC_CODES: [(u32, &str); 55] = [
     (1800, "combination refused"),
     (1801, "a product needs another"),
     (1802, "a stick does not fit its carton"),
@@ -709,6 +709,12 @@ const SPEC_CODES: [(u32, &str); 52] = [
     (1843, "no per-tool pin file for this tool"),
     (1844, "shim misnamed or shadowed"),
     (1845, "PATH block missing or hand-edited"),
+    (1846, "pin target is a link or not a regular file"),
+    (
+        1847,
+        "another pin file in this directory would outrank the one being written",
+    ),
+    (1848, "the edited pin file would not read back"),
     (1850, "downgrade refused"),
     (1851, "trial found differences and was declined"),
     (1852, "nothing to roll back to"),

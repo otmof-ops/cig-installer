@@ -951,6 +951,59 @@ probe = "profile-block"
 remedy = "leave it as it is, or delete the block and run `ciginstaller doctor`"
 
 [[code]]
+code = "E1846"
+title = "pin target is a link or not a regular file"
+meaning = "The pin file `pin` would write is a symbolic link, a directory or another kind of file that is not a plain file. The installer never writes through a link and never replaces one."
+fix = "`ls -l` the file, remove or move it yourself, then run `ciginstaller pin carton <pin>` again"
+no = "these-are-mine"
+arises = ["any"]
+tags = ["installer", "beginner-likely"]
+since = "0.1.0"
+related = ["E1841", "E1847"]
+[[code.cause]]
+why = "the pin file is a link to a file somewhere else"
+no = "these-are-mine"
+probe = "path-exists"
+remedy = "replace the link with a plain file, or edit the file it points to by hand"
+[[code.cause]]
+why = "the name is taken by a directory, a fifo or a device"
+no = "these-are-mine"
+probe = "path-permissions"
+remedy = "move it out of the way, then pin again"
+
+[[code]]
+code = "E1847"
+title = "another pin file in this directory would outrank the one being written"
+meaning = "Pin files are read in the order .cig-carton, cig-tasks.json, cigar.toml. A file earlier in that order already pins this directory, so a pin written to a later one would never be used."
+fix = "`ciginstaller pin carton <pin>` writes .cig-carton, which outranks the others"
+no = "these-are-mine"
+arises = ["any"]
+tags = ["installer", "beginner-likely"]
+since = "0.1.0"
+related = ["E1841", "E1846"]
+[[code.cause]]
+why = "a .cig-carton is there, or a cig-tasks.json that holds a carton pin"
+no = "these-are-mine"
+probe = "pin-file"
+remedy = "pin without --file to update .cig-carton, or remove the outranking pin yourself"
+
+[[code]]
+code = "E1848"
+title = "the edited pin file would not read back"
+meaning = "The installer edits a pin file in place and checks the result the way the shim reads it before it writes. The check failed, so nothing was written."
+fix = "`ciginstaller pin carton <pin>` writes a fresh .cig-carton instead"
+no = "these-are-mine"
+arises = ["any"]
+tags = ["installer"]
+since = "0.1.0"
+related = ["E1841", "E1846"]
+[[code.cause]]
+why = "the file uses a form the installer cannot edit safely, such as a quoted or escaped carton key"
+no = "none"
+probe = "pin-file"
+remedy = "edit the carton line by hand, or pin without --file"
+
+[[code]]
 code = "E1850"
 title = "downgrade refused"
 meaning = "The carton you asked for is older than the one installed. Downgrades need to be asked for."
