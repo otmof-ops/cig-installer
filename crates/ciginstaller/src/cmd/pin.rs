@@ -75,7 +75,7 @@ fn read_existing(path: &Path, present: bool) -> Result<Option<String>, Installer
     if !present {
         return Ok(None);
     }
-    let f = match fs::File::open(path) {
+    let f = match cigi_shim::open_nonblocking(path) {
         Ok(f) => f,
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(None),
         Err(e) => return Err(unreadable(path, e)),

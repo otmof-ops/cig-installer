@@ -231,12 +231,7 @@ impl Cx {
         &self,
         channel: &str,
     ) -> Result<Admitted<Manifest>, cigi_source::FetchError> {
-        let seen = self
-            .state
-            .manifest
-            .as_ref()
-            .filter(|m| m.channel == channel)
-            .map(|m| m.sequence);
+        let seen = self.seen_sequence(channel);
         let opts = ManifestOpts {
             offline: self.globals.offline,
             seen_sequence: seen,
@@ -257,12 +252,7 @@ impl Cx {
             return Ok(m);
         }
         let channel = self.channel();
-        let seen = self
-            .state
-            .manifest
-            .as_ref()
-            .filter(|m| m.channel == channel)
-            .map(|m| m.sequence);
+        let seen = self.seen_sequence(&channel);
         let opts = |offline: bool| ManifestOpts {
             offline,
             seen_sequence: seen,
@@ -320,12 +310,7 @@ impl Cx {
             return Some(m.get().clone());
         }
         let channel = self.channel();
-        let seen = self
-            .state
-            .manifest
-            .as_ref()
-            .filter(|m| m.channel == channel)
-            .map(|m| m.sequence);
+        let seen = self.seen_sequence(&channel);
         let opts = ManifestOpts {
             offline: true,
             seen_sequence: seen,
@@ -343,8 +328,39 @@ impl Cx {
         .map(|a| a.get().clone())
     }
 
+    /// The lowest sequence a fetched manifest of `channel` may have (SPEC 7.2): the higher of what
+    /// `state.json` recorded (one channel's, the last installed from) and the sequence of the
+    /// channel's own cache, so switching channels never resets the floor to "first use".
+    fn seen_sequence(&self, channel: &str) -> Option<u64> {
+        let state = self
+            .state
+            .manifest
+            .as_ref()
+            .filter(|m| m.channel == channel)
+            .map(|m| m.sequence);
+        let cached = cigi_source::fetch::read_fetched(&self.home, channel).map(|m| m.sequence);
+        state.max(cached)
+    }
+
+    /// Record the digest of the manifest just admitted for `channel`, so a different document at
+    /// the same sequence is refused later (E1824). The caller saves `state` in its transaction.
+    pub fn record_manifest_digest(&self, state: &mut State, channel: &str, sequence: u64) {
+        if let Some(meta) = cigi_source::fetch::read_fetched(&self.home, channel) {
+            let entry = state
+                .extra
+                .entry(DIGESTS_KEY.to_string())
+                .or_insert_with(|| serde_json::json!({}));
+            if let Some(o) = entry.as_object_mut() {
+                o.insert(
+                    digest_key(channel, sequence),
+                    serde_json::json!(meta.sha256),
+                );
+            }
+        }
+    }
+
     /// A different document at a sequence already recorded for the channel is refused (E1824).
-    fn check_digest_record(&self, channel: &str, m: &Manifest) -> Result<(), InstallerError> {
+    pub fn check_digest_record(&self, channel: &str, m: &Manifest) -> Result<(), InstallerError> {
         let Some(meta) = cigi_source::fetch::read_fetched(&self.home, channel) else {
             return Ok(());
         };

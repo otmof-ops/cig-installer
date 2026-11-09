@@ -5,6 +5,7 @@
 
 mod common;
 
+use cigi_testkit::PublishOpts;
 use common::{cigi, fixture, ok, out, text};
 
 #[test]
@@ -81,4 +82,31 @@ fn a2_install_channel_is_for_one_run() {
     let o = cigi(&fx, &["install", "carton", "--channel", "weekly"]);
     assert_eq!(o.status.code(), Some(2), "{}", text(&o));
     assert!(text(&o).contains("E1812"), "{}", text(&o));
+}
+
+/// A channel's own cache keeps its sequence floor across switches: an older document served for
+/// a channel this machine has seen at a higher sequence is refused, even after it followed
+/// another channel in between (SEC-004 re-review, N2).
+#[test]
+fn a2_channel_keeps_each_channels_floor() {
+    let mut fx = fixture();
+    fx.carton("0.1.0", &[("cig", "1.20.0")]);
+    fx.publish("stable");
+    fx.carton("0.2.0", &[("cig", "1.21.0")]);
+    fx.publish("beta");
+    fx.publish("beta"); // beta is at sequence 2
+    ok(&cigi(&fx, &["channel", "beta"]));
+    ok(&cigi(&fx, &["channel", "stable"]));
+    fx.publish_with(
+        "beta",
+        &PublishOpts {
+            sequence: Some(1),
+            ..PublishOpts::default()
+        },
+    );
+    let o = cigi(&fx, &["--plain", "channel", "beta"]);
+    assert_ne!(o.status.code(), Some(0), "{}", text(&o));
+    assert!(text(&o).contains("E1824"), "{}", text(&o));
+    let o = cigi(&fx, &["--plain", "channel"]);
+    assert!(out(&o).contains("stable"), "{}", text(&o));
 }

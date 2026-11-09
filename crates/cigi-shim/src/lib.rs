@@ -87,6 +87,55 @@ pub fn trusted_entry(path: &Path, t: Trusted, dir_ok: bool) -> bool {
     })
 }
 
+/// `O_NONBLOCK` where its value is known: the BSDs and macOS, and Linux on the architectures
+/// whose `fcntl.h` is the generic one. Elsewhere `None`, and opening is plain.
+#[cfg(unix)]
+fn nonblock_flag() -> Option<i32> {
+    if cfg!(any(
+        target_os = "macos",
+        target_os = "ios",
+        target_os = "freebsd",
+        target_os = "netbsd",
+        target_os = "openbsd",
+        target_os = "dragonfly"
+    )) {
+        Some(0x4)
+    } else if cfg!(all(
+        any(target_os = "linux", target_os = "android"),
+        any(
+            target_arch = "x86_64",
+            target_arch = "x86",
+            target_arch = "aarch64",
+            target_arch = "arm",
+            target_arch = "riscv64",
+            target_arch = "powerpc64",
+            target_arch = "s390x",
+            target_arch = "loongarch64"
+        )
+    )) {
+        Some(0o4000)
+    } else {
+        None
+    }
+}
+
+/// Open a file for reading without blocking. The callers check that the path is a regular file
+/// before opening and again on the opened file; this closes the gap between the two, where a
+/// fifo swapped in by someone who can write the directory would otherwise hang the open.
+/// (`O_NONBLOCK` changes nothing for reading a regular file.)
+pub fn open_nonblocking(path: &Path) -> std::io::Result<File> {
+    let mut o = fs::OpenOptions::new();
+    o.read(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        if let Some(flag) = nonblock_flag() {
+            o.custom_flags(flag);
+        }
+    }
+    o.open(path)
+}
+
 /// Read a pin file: only a regular file (never a link, fifo or device, checked before opening and
 /// again on the opened file), owned by a trusted user, at most `cap` bytes of UTF-8.
 pub fn read_capped(path: &Path, t: Trusted, cap: u64) -> Reading {
@@ -96,7 +145,7 @@ pub fn read_capped(path: &Path, t: Trusted, cap: u64) -> Reading {
     if !before.file_type().is_file() || !owner_ok(&before, t) {
         return Reading::Absent;
     }
-    let f = match File::open(path) {
+    let f = match open_nonblocking(path) {
         Ok(f) => f,
         Err(e) => return Reading::Unusable(format!("it cannot be opened: {e}")),
     };

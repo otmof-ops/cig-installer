@@ -45,10 +45,22 @@ pub fn run(cx: &mut Cx, name: Option<&str>) -> Result<Outcome, InstallerError> {
         .with_exit(EXIT_REFUSED),
         other => ie(other),
     })?;
+    // the checks `manifest()` makes of every admitted document: a replay of another document at
+    // a sequence already seen is refused, and the trust notes are said
+    cx.check_digest_record(name, &admitted)?;
+    for n in admitted.notes() {
+        cx.note(n);
+    }
     let newest = admitted.latest(false).map(|c| c.version.to_string());
+    let mut state = cx.state.clone();
+    cx.record_manifest_digest(&mut state, name, admitted.sequence);
     let mut txn = cx.begin(&format!("channel {name}"))?;
-    let set = cx.cfg.set_in(&mut txn, "channel", name).map_err(ie);
+    let set = (|| {
+        cx.cfg.set_in(&mut txn, "channel", name).map_err(ie)?;
+        state.save_in(&mut txn).map_err(ie)
+    })();
     settle(txn, set)?;
+    cx.state = state;
     let mut r = Report::done(format!("this machine now follows the {name} channel"));
     if let Some(v) = &newest {
         r = r

@@ -134,8 +134,8 @@ fn switch_checks(cx: &Cx, target: &str, old: Option<&str>) -> Result<Vec<String>
             let cv = Version::parse(target).ok();
             match (&manifest, cv) {
                 (Some(m), Some(cv)) => m.carton(&cv).is_some_and(|c| c.products.contains_key(t)),
-                // no cache to tell: treat it as the record's gap, which the fix repairs
-                _ => true,
+                // no cache to tell a gap from the design: nothing proves a gap, so warn
+                _ => false,
             }
         };
         let (fill, by_design): (Vec<&String>, Vec<&String>) =

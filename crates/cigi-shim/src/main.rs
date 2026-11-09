@@ -8,7 +8,7 @@
 #![forbid(unsafe_code)]
 
 use std::ffi::OsString;
-use std::fs::{self, File};
+use std::fs;
 use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::process::{exit, Command};
@@ -54,7 +54,7 @@ fn read_index(path: &Path) -> Option<String> {
         return None;
     }
     let mut text = String::new();
-    File::open(path)
+    cigi_shim::open_nonblocking(path)
         .ok()?
         .take(MAX_FILE)
         .read_to_string(&mut text)

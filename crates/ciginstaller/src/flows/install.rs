@@ -729,18 +729,7 @@ fn apply(cx: &mut Cx, txn: &mut Txn, p: &Plan<'_>) -> Result<Applied, InstallerE
         expires: p.m.expires.clone(),
         trust_level: lowest,
     });
-    if let Some(meta) = cigi_source::fetch::read_fetched(&home, &p.m.channel) {
-        let entry = state
-            .extra
-            .entry(crate::cx::DIGESTS_KEY.to_string())
-            .or_insert_with(|| json!({}));
-        if let Some(o) = entry.as_object_mut() {
-            o.insert(
-                crate::cx::digest_key(&p.m.channel, p.m.sequence),
-                json!(meta.sha256),
-            );
-        }
-    }
+    cx.record_manifest_digest(&mut state, &p.m.channel, p.m.sequence);
     state.push_history(HistoryEntry {
         id: txn.id().to_string(),
         at: now,

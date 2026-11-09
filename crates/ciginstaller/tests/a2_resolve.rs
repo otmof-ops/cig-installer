@@ -76,9 +76,15 @@ fn two_cartons(fx: &mut Fixture) {
     fx.publish("stable");
 }
 
-/// The tool's own line: `which`-style notes the installer prints first are not the tool's.
+/// The tool's own line. On the slow path the installer writes nothing to stdout (it is the
+/// tool's), so the tool's line is the only one there.
 fn last_line(o: &Output) -> String {
-    out(o).lines().last().unwrap_or_default().to_string()
+    let text = out(o);
+    assert!(
+        text.lines().count() <= 1,
+        "stdout holds more than the tool's line:\n{text}"
+    );
+    text
 }
 
 fn state_bytes(fx: &Fixture) -> Vec<u8> {
@@ -497,4 +503,21 @@ fn a2r_which_leaves_state_alone_while_a_journal_is_open() {
         .filter(|e| e.file_name().to_string_lossy().contains(".tmp-"))
         .collect();
     assert!(leftovers.is_empty(), "{leftovers:?}");
+}
+
+/// On the slow path stdout is the tool's: the fetch line, the progress and every note go to
+/// stderr, so `cig ... | jq` reads only what cig printed.
+#[test]
+fn a2r_slow_path_keeps_stdout_for_the_tool() {
+    let mut fx = fixture();
+    two_cartons(&mut fx);
+    ok(&install(&fx, &["carton", "--carton", "0.1.0"]));
+    let p = pinned(&fx, "fetches", "0.2");
+    let o = shim(&fx, "cig", &p, &[("CIGI_PIN_FETCH", "auto")]);
+    ok(&o);
+    let stdout = String::from_utf8_lossy(&o.stdout).to_string();
+    assert_eq!(stdout.lines().count(), 1, "stdout: {stdout}");
+    assert!(stdout.starts_with("cig 1.21.0"), "stdout: {stdout}");
+    let stderr = String::from_utf8_lossy(&o.stderr);
+    assert!(stderr.contains("fetching carton"), "stderr: {stderr}");
 }
