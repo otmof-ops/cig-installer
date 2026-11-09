@@ -63,7 +63,7 @@ impl InstallArgs {
 }
 
 /// Adapts the UI's bar to the source crate's progress trait.
-struct Bar(Box<dyn cigi_ui::Progress>);
+pub(super) struct Bar(pub Box<dyn cigi_ui::Progress>);
 
 impl SourceProgress for Bar {
     fn set_total(&mut self, total: u64) {
@@ -79,18 +79,18 @@ impl SourceProgress for Bar {
 }
 
 /// A scratch directory removed on drop.
-struct Scratch(PathBuf);
+pub(super) struct Scratch(pub PathBuf);
 impl Drop for Scratch {
     fn drop(&mut self) {
         let _ = std::fs::remove_dir_all(&self.0);
     }
 }
 
-struct Fetched {
-    tool: String,
-    version: Version,
-    staged: StagedArtifact,
-    files: Vec<StagedFile>,
+pub(super) struct Fetched {
+    pub tool: String,
+    pub version: Version,
+    pub staged: StagedArtifact,
+    pub files: Vec<StagedFile>,
     _scratch: Scratch,
 }
 
@@ -226,6 +226,93 @@ fn list_of(items: &[(String, Version)]) -> String {
         .map(|(t, v)| format!("{t} {v}"))
         .collect::<Vec<_>>()
         .join(", ")
+}
+
+/// Fetch and admit each build in `todo`, and unpack it into a scratch staging directory that is
+/// removed when the `Fetched` drops. Nothing in the home changes (SPEC 12.1 step 3, 12.2 step 5).
+pub(super) fn fetch_builds(
+    cx: &Cx,
+    m: &Manifest,
+    todo: &[(String, Version)],
+) -> Result<Vec<Fetched>, InstallerError> {
+    let _ = sweep_downloads(&cx.home);
+    let mut fetched: Vec<Fetched> = Vec::new();
+    for (t, v) in todo {
+        let art_size = m.artifact(t, v, &cx.target).map(|x| x.size);
+        let mut bar = Bar(cx.ui.progress(&format!("fetching {t} {v}"), art_size));
+        let staged =
+            get_artifact(cx.source.as_ref(), &cx.trust, m, t, v, &cx.home, &mut bar).map_err(ie)?;
+        let dir = downloads_dir(&cx.home).join(format!(".stage-{}-{t}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).map_err(|e| {
+            InstallerError::new("E1835", format!("cannot create {}: {e}", dir.display()))
+        })?;
+        let scratch = Scratch(dir.clone());
+        let files = stage_artifact(m, &staged, &dir).map_err(ie)?;
+        fetched.push(Fetched {
+            tool: t.clone(),
+            version: v.clone(),
+            staged,
+            files,
+            _scratch: scratch,
+        });
+    }
+    Ok(fetched)
+}
+
+/// Make a toolchain of each fetched build inside `txn`, and the humidor mirror for cig.
+pub(super) fn materialize_fetched(
+    txn: &mut Txn,
+    home: &cigi_home::Home,
+    m: &Manifest,
+    cv: &Version,
+    fetched: &[Fetched],
+) -> Result<(), InstallerError> {
+    for f in fetched {
+        let art = &f.staged.art;
+        let tooldef = m
+            .tool(&f.tool)
+            .ok_or_else(|| bug(format!("the manifest lost the definition of {}", f.tool)))?;
+        let shims: Vec<ShimRef> = tooldef
+            .shims
+            .iter()
+            .map(|s| ShimRef {
+                name: s.name.clone(),
+                path: if cfg!(windows) {
+                    s.windows_path.clone().unwrap_or_else(|| s.path.clone())
+                } else {
+                    s.path.clone()
+                },
+            })
+            .collect();
+        let prov = Provenance {
+            from_carton: Some(cv.to_string()),
+            source: ReceiptSource {
+                repo: art.repo.clone(),
+                tag: art.tag.clone(),
+                asset: art.asset.clone(),
+                origin: f.staged.origin.clone(),
+            },
+            artifact: ReceiptArtifact {
+                sha256: f.staged.verified.sha256.clone(),
+                size: art.size,
+            },
+            trust: ReceiptTrust {
+                level: f.staged.verified.level.as_str().to_string(),
+                independent: f.staged.verified.independent,
+                attested_by: f.staged.verified.attested_by.clone(),
+                manifest_sequence: m.sequence,
+            },
+            shims,
+        };
+        materialize(txn, home, &f.tool, &f.version, &f.files, prov).map_err(ie)?;
+        if f.tool == "cig" {
+            if let Some(bin) = super::tool_exe(home, "cig", &f.version) {
+                mirror_humidor(txn, home, &f.version, &bin).map_err(ie)?;
+            }
+        }
+    }
+    Ok(())
 }
 
 pub fn run(cx: &mut Cx, a: &InstallArgs) -> Result<Report, InstallerError> {
@@ -364,28 +451,7 @@ pub fn run_locked(cx: &mut Cx, a: &InstallArgs) -> Result<Report, InstallerError
     }
 
     // fetch and admit, outside the transaction: a failure here leaves the home untouched
-    let _ = sweep_downloads(&cx.home);
-    let mut fetched: Vec<Fetched> = Vec::new();
-    for (t, v) in &todo {
-        let art_size = m.artifact(t, v, &cx.target).map(|x| x.size);
-        let mut bar = Bar(cx.ui.progress(&format!("fetching {t} {v}"), art_size));
-        let staged = get_artifact(cx.source.as_ref(), &cx.trust, &m, t, v, &cx.home, &mut bar)
-            .map_err(ie)?;
-        let dir = downloads_dir(&cx.home).join(format!(".stage-{}-{t}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&dir);
-        std::fs::create_dir_all(&dir).map_err(|e| {
-            InstallerError::new("E1835", format!("cannot create {}: {e}", dir.display()))
-        })?;
-        let scratch = Scratch(dir.clone());
-        let files = stage_artifact(&m, &staged, &dir).map_err(ie)?;
-        fetched.push(Fetched {
-            tool: t.clone(),
-            version: v.clone(),
-            staged,
-            files,
-            _scratch: scratch,
-        });
-    }
+    let fetched = fetch_builds(cx, &m, &todo)?;
 
     // the PATH question comes before the transaction
     let shell = shell_of(&a.shell)?;
@@ -610,50 +676,7 @@ fn apply(cx: &mut Cx, txn: &mut Txn, p: &Plan<'_>) -> Result<Applied, InstallerE
     txn.mkdir_all(&home.toolchains()).map_err(ie)?;
 
     // 1. toolchains, the humidor mirror for cig
-    for f in p.fetched {
-        let art = &f.staged.art;
-        let tooldef =
-            p.m.tool(&f.tool)
-                .ok_or_else(|| bug(format!("the manifest lost the definition of {}", f.tool)))?;
-        let shims: Vec<ShimRef> = tooldef
-            .shims
-            .iter()
-            .map(|s| ShimRef {
-                name: s.name.clone(),
-                path: if cfg!(windows) {
-                    s.windows_path.clone().unwrap_or_else(|| s.path.clone())
-                } else {
-                    s.path.clone()
-                },
-            })
-            .collect();
-        let prov = Provenance {
-            from_carton: Some(cv.to_string()),
-            source: ReceiptSource {
-                repo: art.repo.clone(),
-                tag: art.tag.clone(),
-                asset: art.asset.clone(),
-                origin: f.staged.origin.clone(),
-            },
-            artifact: ReceiptArtifact {
-                sha256: f.staged.verified.sha256.clone(),
-                size: art.size,
-            },
-            trust: ReceiptTrust {
-                level: f.staged.verified.level.as_str().to_string(),
-                independent: f.staged.verified.independent,
-                attested_by: f.staged.verified.attested_by.clone(),
-                manifest_sequence: p.m.sequence,
-            },
-            shims,
-        };
-        materialize(txn, &home, &f.tool, &f.version, &f.files, prov).map_err(ie)?;
-        if f.tool == "cig" {
-            if let Some(bin) = super::tool_exe(&home, "cig", &f.version) {
-                mirror_humidor(txn, &home, &f.version, &bin).map_err(ie)?;
-            }
-        }
-    }
+    materialize_fetched(txn, &home, p.m, &cv, p.fetched)?;
 
     // 2. the installer's own toolchain and links
     let (exe_obj, shim_obj) = bootstrap(cx, txn)?;

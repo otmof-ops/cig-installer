@@ -3,6 +3,13 @@
 //! The flows (SPEC 2.6 and 12). Each is `fn run(cx, args) -> Result<Report, InstallerError>`.
 
 pub mod install;
+// ---- phase 3, the update lifecycle (drafter DEV-002) ----
+pub mod notice;
+pub mod rollback;
+pub mod switch;
+pub mod trial;
+pub mod update;
+// ---- end of the update lifecycle block ----
 pub mod use_carton;
 
 use std::path::PathBuf;

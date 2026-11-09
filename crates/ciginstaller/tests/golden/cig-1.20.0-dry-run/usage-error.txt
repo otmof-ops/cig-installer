@@ -1,0 +1,11 @@
+exit: 1
+--- stdout
+--- stderr
+error[E600 cough]: usage: report.cig -- <expenses.csv> <report.json>
+  --> report.cig:9:3
+  |
+9 |   cough "usage: report.cig -- <expenses.csv> <report.json>"
+  |   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  = explain: cig explain E600
+dry-run plan: 0 ops
+nothing was changed

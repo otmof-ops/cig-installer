@@ -96,7 +96,15 @@ fn dispatch(cli: Cli, ui: Ui) -> i32 {
         Some(Command::List) => ("list", None),
         Some(Command::Which { cwd, .. }) => ("which", cwd.clone()),
         Some(Command::Resolve { cwd, .. }) => ("resolve", Some(cwd.clone())),
+        // ---- phase 3, the update lifecycle (drafter DEV-002) ----
+        Some(Command::Update(_)) => ("update", None),
+        Some(Command::Rollback { .. }) => ("rollback", None),
+        // ---- end of the update lifecycle block ----
     };
+    // the exit code a successful command ends with when it is not 0 (`update --check --exit-code`)
+    let mut exit_override: Option<i32> = None;
+    // kept after the command so `auto_update = notify` can look at the machine once it is done
+    let mut notice_cx: Option<Cx> = None;
     if let Some(Command::Explain { code }) = &cli.command {
         return explain(&ui, code.as_deref(), cli.plain);
     }
@@ -107,7 +115,7 @@ fn dispatch(cli: Cli, ui: Ui) -> i32 {
             ));
         }
         let mut cx = Cx::new(ui_clone(&cli), globals, cwd)?;
-        match &cli.command {
+        let result = match &cli.command {
             Some(Command::Install(c)) => cmd::install::run(&mut cx, c),
             Some(Command::Carton(c)) => cmd::carton::run(&mut cx, c),
             Some(Command::Channel { name }) => cmd::channel::run(&mut cx, name.as_deref()),
@@ -132,10 +140,29 @@ fn dispatch(cli: Cli, ui: Ui) -> i32 {
                     Err(e) => Err(e),
                 }
             }
+            // ---- phase 3, the update lifecycle (drafter DEV-002) ----
+            Some(Command::Update(c)) => flows::update::run(&mut cx, &update_args(c)).map(|u| {
+                if u.exit != 0 {
+                    exit_override = Some(u.exit);
+                }
+                Outcome::Report(u.report)
+            }),
+            Some(Command::Rollback { tool, dry_run }) => flows::rollback::run(
+                &mut cx,
+                &flows::rollback::RollbackArgs {
+                    tool: tool.clone(),
+                    dry_run: *dry_run,
+                },
+            )
+            .map(Outcome::Report),
+            // ---- end of the update lifecycle block ----
             _ => Ok(Outcome::Report(Report::done("nothing to do"))),
-        }
+        };
+        notice_cx = Some(cx);
+        result
     })();
-    match (name, result) {
+    let ok = result.is_ok();
+    let code = match (name, result) {
         // the tool ran; its exit code is ours and nothing more is printed
         ("resolve", Err(e)) if e.code == "E1832" && e.message.is_empty() => e.exit,
         (_, Ok(Outcome::Page(text))) => {
@@ -144,8 +171,36 @@ fn dispatch(cli: Cli, ui: Ui) -> i32 {
         }
         (_, Ok(Outcome::Report(r))) => ui.finish(name, &Ok(r)),
         (_, Err(e)) => ui.finish(name, &Err(e)),
+    };
+    // `auto_update = notify`: at most one line a day, after an interactive command went well
+    if ok && code == 0 && !matches!(name, "update" | "rollback" | "resolve" | "explain") {
+        if let Some(cx) = &notice_cx {
+            flows::notice::maybe_notify(cx);
+        }
+    }
+    match (code, exit_override) {
+        (0, Some(o)) => o,
+        (c, _) => c,
     }
 }
+
+// ---- phase 3, the update lifecycle (drafter DEV-002) ----
+fn update_args(c: &cli::UpdateCmd) -> flows::update::UpdateArgs {
+    flows::update::UpdateArgs {
+        check: c.check,
+        exit_code: c.exit_code,
+        refresh: c.refresh,
+        to: c.to.clone(),
+        allow_downgrade: c.allow_downgrade,
+        no_trial: c.no_trial,
+        trial_only: c.trial_only,
+        yes_differences: c.yes_differences,
+        channel: c.channel.clone(),
+        project: c.project.clone(),
+        dry_run: c.dry_run,
+    }
+}
+// ---- end of the update lifecycle block ----
 
 fn ui_clone(cli: &Cli) -> Ui {
     let ui = Ui::from_env_and_flags(&GlobalFlags {

@@ -97,6 +97,15 @@ impl ShimIndex {
         }
         for s in &state.sticks {
             if let Some(p) = target(&s.tool, &s.version) {
+                // a rolled-back tool runs in place of the machine carton's own build
+                if s.is_rollback() {
+                    if let Some(m) = idx.machine.clone() {
+                        idx.cartons
+                            .entry(m)
+                            .or_default()
+                            .insert(s.tool.clone(), p.clone());
+                    }
+                }
                 idx.sticks.insert(s.tool.clone(), p);
             }
         }
