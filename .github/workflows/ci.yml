@@ -5,7 +5,7 @@ on:
     branches: [main]
   pull_request:
 
-# Lean: one Linux job. macOS and Windows join with phase 5 (#21).
+# Lean: Linux only, no schedules. macOS and Windows join with phase 5 (#21).
 jobs:
   check:
     name: fmt, clippy, test
@@ -34,3 +34,64 @@ jobs:
         run: cargo clippy --workspace --all-targets -- -D warnings
       - name: cargo test
         run: cargo test --workspace
+      - name: THIRD-PARTY-NOTICES.md is current
+        run: python3 ci/gen-third-party.py --check
+
+  # The declared rust-version (Cargo.toml) must really build.
+  msrv:
+    name: cargo +1.82 check
+    runs-on: ubuntu-latest
+    env:
+      CARGO_TERM_COLOR: always
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Rust 1.82
+        run: rustup toolchain install 1.82 --profile minimal --no-self-update
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-msrv-${{ hashFiles('**/Cargo.lock', '**/Cargo.toml') }}
+          restore-keys: |
+            ${{ runner.os }}-msrv-
+      - name: cargo +1.82 check
+        run: cargo +1.82 check --workspace --locked
+
+  # The static release build, on pull requests too: the release workflow builds the same way.
+  musl:
+    name: musl release build and size budget
+    runs-on: ubuntu-latest
+    env:
+      CARGO_TERM_COLOR: always
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Rust (stable) and the musl toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends musl-tools
+          rustup update stable --no-self-update
+          rustup default stable
+          rustup target add x86_64-unknown-linux-musl
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-musl-${{ hashFiles('**/Cargo.lock', '**/Cargo.toml') }}
+          restore-keys: |
+            ${{ runner.os }}-musl-
+      - name: cargo build --release (musl)
+        run: cargo build --release --locked -p ciginstaller -p cigi-shim --target x86_64-unknown-linux-musl
+      - name: size budget (installer under 10 MB, shim under 400 KB)
+        run: ci/size-check.sh target/x86_64-unknown-linux-musl/release
+      - name: the binaries are static and the installer runs
+        run: |
+          file target/x86_64-unknown-linux-musl/release/ciginstaller target/x86_64-unknown-linux-musl/release/cigi-shim
+          if ldd target/x86_64-unknown-linux-musl/release/ciginstaller 2>&1 | grep -q 'libc\.so'; then
+            echo "::error::ciginstaller is dynamically linked"
+            exit 1
+          fi
+          target/x86_64-unknown-linux-musl/release/ciginstaller --version
