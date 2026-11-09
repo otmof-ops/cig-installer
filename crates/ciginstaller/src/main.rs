@@ -6,6 +6,12 @@
 
 #![forbid(unsafe_code)]
 
+// Fault injection (CIGI_FAULT aborts a transaction on purpose; CIGI_NOW sets the clock, which
+// would defeat manifest expiry) is for debug test builds only. A release build that turned it on,
+// through `--all-targets`, `cargo test --release` or a changed resolver, stops here.
+#[cfg(all(feature = "fault-injection", not(debug_assertions)))]
+compile_error!("the fault-injection feature is for debug test builds only, never a release build");
+
 mod cli;
 mod cmd;
 mod cx;
@@ -79,6 +85,7 @@ fn dispatch(cli: Cli, ui: Ui) -> i32 {
         Some(Command::Explain { .. }) => ("explain", None),
         Some(Command::Install(_)) => ("install", None),
         Some(Command::Carton(_)) => ("carton", None),
+        Some(Command::Channel { .. }) => ("channel", None),
         Some(Command::Use { .. }) => ("use", None),
         Some(Command::Pin { .. }) => ("pin", None),
         Some(Command::List) => ("list", None),
@@ -98,6 +105,7 @@ fn dispatch(cli: Cli, ui: Ui) -> i32 {
         match &cli.command {
             Some(Command::Install(c)) => cmd::install::run(&mut cx, c),
             Some(Command::Carton(c)) => cmd::carton::run(&mut cx, c),
+            Some(Command::Channel { name }) => cmd::channel::run(&mut cx, name.as_deref()),
             Some(Command::Use { carton, dry_run }) => flows::use_carton::run(
                 &mut cx,
                 &flows::use_carton::UseArgs {

@@ -217,6 +217,7 @@ impl Ui {
             out.push_str(&format!("  {}\n", self.glyphs(d)));
         }
         for n in nexts {
+            let n = self.glyphs(n);
             if self.mode == Mode::Plain {
                 out.push_str(&format!("  next: {n}\n"));
             } else {

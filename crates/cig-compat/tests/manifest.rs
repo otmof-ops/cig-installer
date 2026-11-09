@@ -424,3 +424,39 @@ fn rule_shim_paths_are_plain_relative_paths() {
     }
     assert!(Manifest::from_str(SPEC_EXAMPLE).is_ok());
 }
+
+#[test]
+fn rule_shim_names_are_plain_command_names() {
+    // a shim's name becomes a file in bin/, first on PATH (SEC-004, PR #37)
+    for bad in [
+        "../../victim",
+        "a/b",
+        "..",
+        "Cig",
+        "",
+        "-x",
+        "ciginstaller",
+        "cigi",
+    ] {
+        let text = edit(
+            r#"{ name = "cig", path = "bin/cig","#,
+            &format!(r#"{{ name = {bad:?}, path = "bin/cig","#),
+        );
+        let e = Manifest::from_str(&text).expect_err(bad);
+        assert_eq!(e.code, "E1825", "{bad:?}: {e}");
+    }
+    let ok = edit(
+        r#"{ name = "cig", path = "bin/cig","#,
+        r#"{ name = "cig-2", path = "bin/cig","#,
+    );
+    assert!(Manifest::from_str(&ok).is_ok());
+}
+
+#[test]
+fn rule_two_tools_never_share_a_shim() {
+    let text = edit(
+        r#"{ name = "cigo", path = "bin/cigo","#,
+        r#"{ name = "cig", path = "bin/cigo","#,
+    );
+    assert!(refused(&text).contains("already"), "{text}");
+}

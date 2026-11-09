@@ -334,9 +334,12 @@ impl Ui {
     }
 
     /// Text with the glyphs the terminal cannot show swapped for ASCII.
+    /// Every piece of text on its way to the terminal passes here: control characters are made
+    /// visible first (see [`clean`]), then the glyphs become ASCII when the terminal needs it.
     pub(crate) fn glyphs(&self, text: &str) -> String {
+        let text = clean(text);
         if !self.ascii {
-            return text.to_string();
+            return text.into_owned();
         }
         text.replace('→', "->")
             .replace('—', "-")
@@ -353,4 +356,28 @@ impl Ui {
             "→"
         }
     }
+}
+
+/// Text from outside the installer (a project's pin file, a manifest's notes, a path) can hold
+/// escape sequences: a clear-screen, a new title, a clipboard write, a fake `[ok]` line. Every
+/// control character but tab, and the bidirectional overrides that reorder what is shown, is
+/// written out as its escape (`\u{1b}`), so the terminal shows it instead of obeying it. JSON
+/// output needs none of this: serde escapes control characters itself.
+pub fn clean(text: &str) -> std::borrow::Cow<'_, str> {
+    fn unsafe_char(c: char) -> bool {
+        (c.is_control() && c != '\t')
+            || matches!(c, '\u{200e}' | '\u{200f}' | '\u{202a}'..='\u{202e}' | '\u{2066}'..='\u{2069}')
+    }
+    if !text.chars().any(unsafe_char) {
+        return std::borrow::Cow::Borrowed(text);
+    }
+    let mut out = String::with_capacity(text.len() + 8);
+    for c in text.chars() {
+        if unsafe_char(c) {
+            out.extend(c.escape_unicode());
+        } else {
+            out.push(c);
+        }
+    }
+    std::borrow::Cow::Owned(out)
 }

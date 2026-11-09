@@ -204,6 +204,33 @@ impl Cx {
     }
 
     /// The admitted manifest of the channel, fetched at most once per command.
+    /// The manifest of `channel`, fetched and admitted now, with the fetch error as it came
+    /// (`channel <name>` tells a channel with no manifest from a failed download).
+    pub fn fetch_manifest(
+        &self,
+        channel: &str,
+    ) -> Result<Admitted<Manifest>, cigi_source::FetchError> {
+        let seen = self
+            .state
+            .manifest
+            .as_ref()
+            .filter(|m| m.channel == channel)
+            .map(|m| m.sequence);
+        let opts = ManifestOpts {
+            offline: self.globals.offline,
+            seen_sequence: seen,
+            now: now_override(),
+            fetch_attestation: GhAttest.available_cached(),
+        };
+        get_manifest_with(
+            self.source.as_ref(),
+            &self.trust,
+            &self.home,
+            channel,
+            &opts,
+        )
+    }
+
     pub fn manifest(&self, mode: ManifestMode) -> Result<&Manifest, InstallerError> {
         if let Some(m) = self.manifest.get() {
             return Ok(m);

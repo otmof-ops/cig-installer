@@ -944,3 +944,43 @@ fn errors_get_kind_exit_and_catchphrase_from_the_registry() {
             && err.contains("  = fix: `ciginstaller carton list`\n")
     );
 }
+
+#[test]
+fn text_from_outside_never_reaches_the_terminal_as_control_codes() {
+    // a hostile pin file or manifest field (SEC-004, PR #37): clear screen, title, BEL, a
+    // fake line, a bidi override
+    let evil = "carton \x1b[2J\x1b]0;pwned\x07 x\n[ok] fake \u{202e}txt\u{9b}";
+    for env in [tty(), Env::default()] {
+        let (ui, cap) = Ui::from_env(&flags(), &env).captured();
+        ui.say(&Report::new(Icon::Note, evil).detail(evil).next(evil));
+        ui.error(
+            &InstallerError::new("E1841", evil)
+                .with_hint(evil)
+                .with_fix(evil),
+        );
+        let all = cap.out() + &cap.err();
+        for bad in ['\x07', '\u{202e}', '\u{9b}'] {
+            assert!(!all.contains(bad), "{bad:?} leaked: {all:?}");
+        }
+        // our own colour codes are the only escapes, and none of them is the hostile one
+        assert!(
+            !all.contains("\x1b[2J") && !all.contains("\x1b]0"),
+            "{all:?}"
+        );
+        // the text is still there, written out
+        assert!(all.contains("\\u{1b}[2J"), "{all:?}");
+        assert!(!all.contains("\n[ok] fake"), "{all:?}");
+    }
+    // JSON escapes control characters on its own
+    let (ui, cap) = Ui::from_env(
+        &GlobalFlags {
+            json: true,
+            ..flags()
+        },
+        &tty(),
+    )
+    .captured();
+    ui.error(&InstallerError::new("E1841", evil));
+    assert!(!cap.out().contains('\x1b') && !cap.out().contains('\x07'));
+    assert_eq!(clean("plain\ttext"), "plain\ttext");
+}

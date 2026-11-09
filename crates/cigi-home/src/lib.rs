@@ -12,6 +12,12 @@
 #![forbid(unsafe_code)]
 #![cfg_attr(not(test), deny(clippy::unwrap_used, clippy::expect_used))]
 
+// Fault injection (CIGI_FAULT aborts a transaction on purpose; CIGI_NOW sets the clock, which
+// would defeat manifest expiry) is for debug test builds only. A release build that turned it on,
+// through `--all-targets`, `cargo test --release` or a changed resolver, stops here.
+#[cfg(all(feature = "fault-injection", not(debug_assertions)))]
+compile_error!("the fault-injection feature is for debug test builds only, never a release build");
+
 pub mod config;
 pub mod error;
 pub mod home;

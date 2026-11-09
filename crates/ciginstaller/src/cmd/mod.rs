@@ -3,6 +3,7 @@
 //! One module per command group. Each returns an `Outcome` for `main` to print.
 
 pub mod carton;
+pub mod channel;
 pub mod install;
 pub mod list;
 pub mod pin;

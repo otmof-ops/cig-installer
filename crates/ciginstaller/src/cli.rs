@@ -56,6 +56,12 @@ pub enum Command {
     Install(InstallCmd),
     /// Which carton this machine is on, or move it; `carton list` and `carton show <v>`.
     Carton(CartonCmd),
+    /// The channel this machine follows, or switch it: the new channel's manifest is fetched
+    /// and checked first; nothing is installed.
+    Channel {
+        /// stable, beta or nightly.
+        name: Option<String>,
+    },
     /// Make an installed carton the machine's (no download).
     #[command(name = "use")]
     Use {
@@ -106,6 +112,9 @@ pub struct InstallCmd {
     /// An exact carton or a pin such as 0.1 (default: the newest, or the machine's for a pack or stick).
     #[arg(long, global = true, value_name = "V")]
     pub carton: Option<String>,
+    /// Install from this channel for this run (stable, beta or nightly); the setting is unchanged.
+    #[arg(long, global = true, value_name = "CHANNEL")]
+    pub channel: Option<String>,
     /// Do not touch shell profiles.
     #[arg(long, global = true)]
     pub no_path: bool,

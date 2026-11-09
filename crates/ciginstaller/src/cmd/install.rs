@@ -3,7 +3,7 @@
 //! `install [carton | pack <name> | pack --pick a,b | stick <tool>]`.
 
 use cigi_source::{MirrorSource, TrustLevel};
-use cigi_ui::{InstallerError, EXIT_USAGE};
+use cigi_ui::{InstallerError, EXIT_REFUSED, EXIT_USAGE};
 
 use super::Outcome;
 use crate::cli::{InstallCmd, InstallWhat};
@@ -36,6 +36,11 @@ pub fn run(cx: &mut Cx, c: &InstallCmd) -> Result<Outcome, InstallerError> {
             }
         },
     };
+    if let Some(ch) = &c.channel {
+        cx.cfg
+            .set_for_run("channel", ch)
+            .map_err(|_| no_such_channel(ch))?;
+    }
     if let Some(dir) = &c.from {
         let abs = std::fs::canonicalize(dir).unwrap_or_else(|_| dir.clone());
         cx.source = Box::new(MirrorSource::parse(&abs.to_string_lossy()).map_err(ie)?);
@@ -58,4 +63,12 @@ pub fn run(cx: &mut Cx, c: &InstallCmd) -> Result<Outcome, InstallerError> {
         reason: None,
     };
     install::run(cx, &args).map(Outcome::Report)
+}
+
+/// E1812: a channel name that is not one of the three.
+pub fn no_such_channel(name: &str) -> InstallerError {
+    InstallerError::new("E1812", format!("there is no channel `{name}`"))
+        .with_hint("the channels are stable, beta and nightly")
+        .with_fix("ciginstaller channel stable")
+        .with_exit(EXIT_REFUSED)
 }
