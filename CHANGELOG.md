@@ -50,6 +50,37 @@ Linux, with every build checked first and every change one undoable step.
   - It works when `state.json` is the broken thing: the block says so.
   - E1858 when the bundle cannot be built or written.
 
+### Bug reports (#29, step 1)
+
+- **`ciginstaller bug`** writes up what went wrong, in the person's words, with
+  the evidence for it, and shows exactly what would travel before anything is
+  saved. `bug --run <id>`, `bug --product <part>`, `bug --last`, and
+  `bug list` / `bug show <n>` for the reports saved here (the receipt).
+  - **The conversation**: which part, what you were doing, what you expected,
+    what happened, which run; in the voice with plain beside it, every
+    question skippable. "Not sure" takes the part from the run or its error
+    code (E1000-E1099 CigCompile and programs, E870-E899 cigo's guard,
+    E1800-E1899 the installer, any other cig). Without a terminal nothing is
+    asked: `--part`, `--did`, `--expected`, `--happened`, `--every-time`.
+  - **The words stay yours.** A span shaped like a path, an address, a token,
+    an e-mail address or your own name is marked and asked about, and is never
+    rewritten without being listed. A token-shaped span is always replaced.
+  - **The evidence**: the run's bundle through `report`'s cig call, the version
+    matrix, the carton and channel, the OS and `doctor`'s findings for that
+    product. A verified repro in the run's bundle goes in as `verified on this
+    machine`; without one the report says so and asks whether it happens every
+    time. A report is never held back for want of a repro.
+  - **The preview is the saved object**: `route::travel` of the one report that
+    is saved, section by section. Every section can be taken out
+    (`--without`) except the version matrix.
+  - **Nothing without a yes**: the last question, or `--save` (kept here) or
+    `--send` (through `crash send`'s route and consent; `reports = never`
+    refuses). `--yes` answers none of it, and no request is made before a yes.
+  - E1858 when the report cannot be put together.
+- Not yet: the similarity search and "add mine", `bug status` and
+  `bug withdraw`, the evidence for cigo, the guard, CigCompile and updates, and
+  each product's own short way in.
+
 ### Tripwires (#28, the installer's row)
 
 - **After an update or a rollback the installer reads its work back from

@@ -1358,7 +1358,7 @@ remedy = "check the connection and send again; the report waits in the ashtray a
 [[code]]
 code = "E1858"
 title = "a report could not be put together"
-meaning = "`ciginstaller report` could not build or write the bundle: cig, which alone can read its own run records, did not give a bundle for the run (it could not be run, or it failed), or the file asked for with `--out` could not be written. Nothing was sent and nothing on the machine changed; `ciginstaller report --block` still prints the version block."
+meaning = "`ciginstaller report` or `ciginstaller bug` could not build or write the report: cig, which alone can read its own run records, did not give a bundle for the run (it could not be run, or it failed), the file asked for with `--out` could not be written, or the bug report could not be saved in the ashtray. Nothing was sent and nothing on the machine changed; `ciginstaller report --block` still prints the version block."
 fix = "`ciginstaller report --block`, then `ciginstaller report <run> --out <file>` once the cause is gone"
 no = "depends"
 arises = ["crash"]
@@ -1380,6 +1380,11 @@ why = "the file given to `--out` is in a folder that cannot be written"
 no = "these-are-mine"
 probe = "none"
 remedy = "give `--out` a path you can write"
+[[code.cause]]
+why = "`ciginstaller bug` could not put the report together: cig did not give the bundle of the run it was asked about (the cause above), or the report could not be saved because the ashtray's folder cannot be written"
+no = "depends"
+probe = "none"
+remedy = "`ciginstaller bug --run <id>` again once cig answers (`ciginstaller repair` if its files differ from the receipt), or `ciginstaller bug --product <part>` for a report that is not about a run; make `ashtray/` in the home writable"
 
 [[code]]
 code = "E1860"

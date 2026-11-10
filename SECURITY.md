@@ -46,6 +46,17 @@ the rest of the family:
   names. cig builds its own bundle for a cig run, and the installer runs it
   only from a build whose files match their receipt.
 
+- **A bug report is yours to read, keep and send.** `ciginstaller bug` shows
+  exactly what would travel, section by section (the version matrix always, the
+  rest removable), and saves it only on your yes (the last question or
+  `--save`); it sends only on `--send` or "send it", through the crash route
+  and its `reports` setting. The words you type stay yours, but a span shaped
+  like a path, an address, an e-mail address or your name is marked and asked
+  about first, and a token-shaped span is always replaced; the spans you keep
+  are listed in what you saw and are the only part of the free text that is not
+  anonymised again on its way out. `--yes` answers none of the questions, and
+  no request is made before a yes.
+
 ## What is verified today
 
 Verification today proves **integrity**: the bytes you got are the bytes the

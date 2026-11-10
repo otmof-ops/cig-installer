@@ -54,20 +54,25 @@ pub fn run(
 }
 
 /// What a run gathered: the installer's record, cig's bundle, the run's id.
-type Gathered = (Option<Value>, Option<Value>, Option<String>);
+pub type Gathered = (Option<Value>, Option<Value>, Option<String>);
 
 /// The run's two possible sources: an installer operation, else (or with `--cig`) a cig run.
 fn gather(cx: &Cx, c: &ReportCmd) -> Result<Gathered, InstallerError> {
-    let txn = if c.cig {
+    gather_run(cx, c.run.as_deref(), c.cig)
+}
+
+/// The same, for a caller that is not `report` (`bug` gathers a run the same way).
+pub fn gather_run(cx: &Cx, run: Option<&str>, cig: bool) -> Result<Gathered, InstallerError> {
+    let txn = if cig {
         None
     } else {
-        flow::find_operation(cx, c.run.as_deref())?
+        flow::find_operation(cx, run)?
     };
     if let Some(t) = txn {
         let op = flow::operation(&cx.home, &cx.state.history, &t);
         return Ok((Some(op), None, Some(t)));
     }
-    match c.run.as_deref() {
+    match run {
         Some(run) => {
             let b = flow::cig_bundle(cx, run)?;
             Ok((None, Some(b), Some(run.to_string())))

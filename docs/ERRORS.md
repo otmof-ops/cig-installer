@@ -1110,7 +1110,7 @@ Related: [`E1890`](#e1890-a-bug-in-the-installer), [`E1870`](#e1870-usage).
 
 **Kind of no:** one of the four; the message says which (read the operating-system reason in the message; ENOENT, EACCES, ENOSPC and friends, each mapped in the causes below).
 
-`ciginstaller report` could not build or write the bundle: cig, which alone can read its own run records, did not give a bundle for the run (it could not be run, or it failed), or the file asked for with `--out` could not be written. Nothing was sent and nothing on the machine changed; `ciginstaller report --block` still prints the version block.
+`ciginstaller report` or `ciginstaller bug` could not build or write the report: cig, which alone can read its own run records, did not give a bundle for the run (it could not be run, or it failed), the file asked for with `--out` could not be written, or the bug report could not be saved in the ashtray. Nothing was sent and nothing on the machine changed; `ciginstaller report --block` still prints the version block.
 
 **What to type next:** `ciginstaller report --block`, then `ciginstaller report <run> --out <file>` once the cause is gone
 
@@ -1119,6 +1119,7 @@ Related: [`E1890`](#e1890-a-bug-in-the-installer), [`E1870`](#e1870-usage).
 1. cig is installed but its files differ from its receipt, or it has no readable receipt, so it is not run to build a bundle (no probe; a suggestion, not a finding). **Remedy:** `ciginstaller repair`, then ask for the report again
 2. cig started and did not answer with a bundle (a run record it cannot read, a cig that is too old to build one, or a timeout) (no probe; a suggestion, not a finding). **Remedy:** `ciginstaller report <run> --out <file>` again, or `cig report <run>` by hand until cig has `report-bundle`; `ciginstaller report --block` needs no cig
 3. the file given to `--out` is in a folder that cannot be written (no probe; a suggestion, not a finding). **Remedy:** give `--out` a path you can write
+4. `ciginstaller bug` could not put the report together: cig did not give the bundle of the run it was asked about (the cause above), or the report could not be saved because the ashtray's folder cannot be written (no probe; a suggestion, not a finding). **Remedy:** `ciginstaller bug --run <id>` again once cig answers (`ciginstaller repair` if its files differ from the receipt), or `ciginstaller bug --product <part>` for a report that is not about a run; make `ashtray/` in the home writable
 
 Related: [`E1857`](#e1857-a-crash-report-did-not-leave-this-machine), [`E1870`](#e1870-usage), [`E1831`](#e1831-installed-file-differs-from-its-receipt).
 

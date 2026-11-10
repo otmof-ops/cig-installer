@@ -205,6 +205,12 @@ pub enum Command {
     /// written or sent until `--out` or `--send` says so.
     Report(ReportCmd),
     // ---- end of the crash block ----
+    // ---- bug (#29) ----
+    /// Write up what went wrong, with the evidence for it, and see exactly what would be sent
+    /// before anything is saved. Asked in the voice on a terminal; without one, nothing is asked
+    /// and the answers come from flags. `bug list` and `bug show <n>` are the reports saved here.
+    Bug(BugCmd),
+    // ---- end of the bug block ----
     // ---- health: doctor, repair, uninstall, remove ----
     /// One report on the whole family: shims, PATH, toolchains, state, matrix, manifest, disk,
     /// humidor, transactions. Reads only; each finding ends with the command that fixes it.
@@ -478,6 +484,64 @@ pub struct ReportCmd {
     /// (`reports = never` refuses); no identifier travels.
     #[arg(long)]
     pub send: bool,
+}
+
+#[derive(Args)]
+pub struct BugCmd {
+    #[command(subcommand)]
+    pub sub: Option<BugSub>,
+    /// It is about this run: an operation of this machine (an id from `history`) or a cig run.
+    #[arg(long, value_name = "ID", conflicts_with_all = ["product", "last"])]
+    pub run: Option<String>,
+    /// It is about this product, and not a run: cig, cigo, cigcompile, program, cigar or installer.
+    #[arg(long, value_name = "PRODUCT", conflicts_with = "last")]
+    pub product: Option<String>,
+    /// It is about the last thing that failed on this machine.
+    #[arg(long)]
+    pub last: bool,
+    /// Which part, when it is not given by the run or product (cig, cigo, cigcompile, program,
+    /// cigar, installer, unsure).
+    #[arg(long, value_name = "PART")]
+    pub part: Option<String>,
+    /// What you were doing. Without a terminal this is how the question is answered.
+    #[arg(long, value_name = "TEXT")]
+    pub did: Option<String>,
+    /// What you expected.
+    #[arg(long, value_name = "TEXT")]
+    pub expected: Option<String>,
+    /// What happened instead.
+    #[arg(long, value_name = "TEXT")]
+    pub happened: Option<String>,
+    /// Does it happen every time: yes, no or unsure.
+    #[arg(long, value_name = "WORD")]
+    pub every_time: Option<String>,
+    /// Take a section out of the report (answers, environment, doctor, run, repro). The version
+    /// matrix stays. Repeat it for more than one.
+    #[arg(long, value_name = "SECTION")]
+    pub without: Vec<String>,
+    /// Keep the marked spans of your answers (a path, an address, an e-mail) as you typed them.
+    /// A token-shaped span is always replaced. Without this, marked spans are replaced and listed.
+    #[arg(long)]
+    pub keep_marked: bool,
+    /// Save the report here for sending later (`crash send`); nothing leaves. Without a terminal,
+    /// neither this nor `--send` is implied by `--yes`: the preview is all that is printed.
+    #[arg(long)]
+    pub save: bool,
+    /// Save the report and send it through the issues route under the crash command's consent
+    /// (`reports = never` refuses).
+    #[arg(long)]
+    pub send: bool,
+}
+
+#[derive(Subcommand)]
+pub enum BugSub {
+    /// The bug reports saved on this machine, newest first: the receipt.
+    List,
+    /// One saved report, exactly as it travels: its number in `list`, or its id.
+    Show {
+        /// The number in `bug list`, or an id or a unique prefix of one.
+        n: String,
+    },
 }
 
 #[derive(Args)]

@@ -345,6 +345,25 @@ impl Ui {
         self.give_up(q)
     }
 
+    /// One line of free text, asked on a terminal and never anywhere else: `None` when nothing
+    /// could be asked (`--json`, no terminal, a pipe), `Some("")` when the person skipped it (an
+    /// empty line, or the input ended). `--yes` never answers it, and nothing is read as a key:
+    /// the answer is a typed line, whatever the mode.
+    pub fn ask_text(&self, prompt: &str) -> Option<String> {
+        if self.mode == Mode::Json || !self.tty_in || !self.tty_err {
+            return None;
+        }
+        self.write(Stream::Err, &format!("{} ", self.glyphs(prompt)));
+        if self.is_std() {
+            detect::drain_input();
+        }
+        Some(
+            self.read_line()
+                .map(|l| l.trim().to_string())
+                .unwrap_or_default(),
+        )
+    }
+
     /// The choice a typed answer names. A key press is one key; a typed line is a key or a whole
     /// label; an irreversible question takes only `yes` for yes, and its refusals by key or label.
     fn matching(&self, q: &Question, typed: &str, key_press: bool) -> Option<usize> {
