@@ -505,9 +505,11 @@ name = "cig-compat"
 version = "0.1.0"
 dependencies = [
  "cigscript",
+ "hex",
  "proptest",
  "semver",
  "serde_json",
+ "sha2",
  "toml",
 ]
 

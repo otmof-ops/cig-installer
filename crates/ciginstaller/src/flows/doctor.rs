@@ -153,6 +153,7 @@ pub fn findings(cx: &mut Cx, a: &DoctorArgs) -> Vec<Item> {
     path_order(cx, &mut v);
     path_block_item(cx, &mut v);
     matrix(cx, a, &mut v);
+    programs_item(cx, &mut v);
     freshness(cx, &mut v);
     disk(cx, &mut v);
     humidor_item(cx, &mut v);
@@ -740,6 +741,24 @@ fn matrix(cx: &Cx, a: &DoctorArgs, v: &mut Vec<Item>) {
             it = it.fix(cig_compat::fix_command(fix).to_string());
         }
         v.push(it);
+    }
+}
+
+/// Programs built on a cig that an advisory of the cached manifest covers (#30): a finding each,
+/// read from the cache and the PATH, nothing fetched.
+fn programs_item(cx: &Cx, v: &mut Vec<Item>) {
+    for (f, advs) in super::programs::advisory_hits(cx) {
+        let name = f.program.name.clone();
+        v.push(
+            // a note, as the matrix's own advisory findings are
+            Item::new(
+                "programs",
+                Sev::Note,
+                super::programs::hit_line(cx, &f, &advs),
+                "the trailer of each program on PATH and in this project, against the manifest's advisories",
+            )
+            .fix(format!("ciginstaller programs rebuild {name}")),
+        );
     }
 }
 

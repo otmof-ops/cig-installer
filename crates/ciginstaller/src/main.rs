@@ -128,6 +128,7 @@ fn dispatch(cli: Cli, ui: Ui) -> i32 {
         Some(Command::Report(_)) => ("report", None),
         // ---- end of the crash block ----
         Some(Command::Bug(_)) => ("bug", None),
+        Some(Command::Programs(_)) => ("programs", None),
     };
     // the exit code a successful command ends with when it is not 0 (`update --check --exit-code`)
     let mut exit_override: Option<i32> = None;
@@ -249,6 +250,7 @@ fn dispatch(cli: Cli, ui: Ui) -> i32 {
             Some(Command::Shims(c)) => cmd::shims::run(&mut cx, &c.sub),
             // ---- end of the a4 block ----
             Some(Command::Bench(c)) => cmd::bench::run(&mut cx, c),
+            Some(Command::Programs(c)) => cmd::programs::run(&mut cx, c),
             _ => Ok(Outcome::Report(Report::done("nothing to do"))),
         };
         // the first good command of a freshly installed build says it is healthy (SPEC 12.4)
@@ -291,6 +293,7 @@ fn dispatch(cli: Cli, ui: Ui) -> i32 {
                 | "licences"
                 | "bench"
                 | "crash"
+                | "programs"
         )
     {
         if let Some(cx) = &notice_cx {
@@ -345,6 +348,8 @@ fn read_only(cmd: &Option<Command>) -> bool {
         Some(Command::Bundle { .. } | Command::Mirror { .. }) => true,
         Some(Command::Bench(_)) => true,
         Some(Command::Crash(_) | Command::Report(_) | Command::Bug(_)) => true,
+        // the list reads; a rebuild changes a program, not the machine's carton or its shims
+        Some(Command::Programs(_)) => true,
         Some(Command::Licences { .. }) => true,
         Some(Command::Repair { dry_run, .. })
         | Some(Command::Remove { dry_run, .. })
@@ -367,6 +372,7 @@ fn command_name(cmd: &Option<Command>) -> &'static str {
         Some(Command::Crash(_)) => "crash",
         Some(Command::Report(_)) => "report",
         Some(Command::Bug(_)) => "bug",
+        Some(Command::Programs(_)) => "programs",
         Some(Command::Doctor { .. }) => "doctor",
         Some(Command::Repair { .. }) => "repair",
         Some(Command::Uninstall { .. }) => "uninstall",

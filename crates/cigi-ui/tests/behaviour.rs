@@ -702,7 +702,7 @@ fn results_go_to_stdout_and_chatter_to_stderr() {
 
 // ---- the registry -----------------------------------------------------------------------
 
-const SPEC_CODES: [(u32, &str); 81] = [
+const SPEC_CODES: [(u32, &str); 82] = [
     (1800, "combination refused"),
     (1801, "a product needs another"),
     (1802, "a stick does not fit its carton"),
@@ -771,6 +771,7 @@ const SPEC_CODES: [(u32, &str); 81] = [
     (1856, "fetching did not satisfy the pin"),
     (1857, "a crash report did not leave this machine"),
     (1858, "a report could not be put together"),
+    (1859, "a program could not be rebuilt"),
     (1860, "repair could not restore a file"),
     (1861, "--purge needs OS authentication"),
     (1862, "a profile block was edited and is left alone"),

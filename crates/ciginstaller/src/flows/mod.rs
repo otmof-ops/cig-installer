@@ -8,6 +8,7 @@ pub mod bundle;
 pub mod gc;
 pub mod install;
 pub mod mirror;
+pub mod programs;
 // ---- the update lifecycle ----
 pub mod notice;
 pub mod rollback;

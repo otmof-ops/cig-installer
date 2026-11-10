@@ -3,22 +3,24 @@
 //! `install [carton [V] | pack <name> | pack --pick a,b | stick <tool>]`, and the questions of #5
 //! and #32 when there is a terminal: what are you after, the security preset, crash-report consent.
 
+use std::collections::BTreeMap;
+
 use cig_compat::Manifest;
 use cigi_source::{MirrorSource, TrustLevel};
-use cigi_ui::{Choice, InstallerError, Mode, Question, EXIT_REFUSED, EXIT_USAGE};
+use cigi_ui::{Choice, InstallerError, Mode, Question, Report, EXIT_REFUSED, EXIT_USAGE};
+use serde_json::{json, Value};
 
 use super::Outcome;
 use crate::cli::{InstallCmd, InstallWhat};
 use crate::cx::{Cx, ManifestMode};
 use crate::errors::ie;
 use crate::flows::bundle;
-use crate::flows::install::{self, InstallArgs, What};
+use crate::flows::install::{
+    self, first_run_of, first_run_started, first_run_view, FirstRun, InstallArgs, What, ONCE,
+};
 
 /// Said wherever a preset is asked for or shown: choosing one protects nothing yet.
 pub const PRESET_NOTE: &str = "recorded only: nothing enforces the preset until cig-orchestrator#66 lands, so choosing paranoid does not turn protection on yet";
-
-/// The four presets of cig-orchestrator#66, mildest first.
-pub const PRESETS: [&str; 4] = ["chill", "balanced", "strict", "paranoid"];
 
 /// Can a question reach a person? The same test the prompt API applies before it asks.
 fn can_ask(cx: &Cx) -> bool {
@@ -128,55 +130,336 @@ fn ask_what(cx: &mut Cx) -> Result<What, InstallerError> {
     }
 }
 
-/// The security preset question (cig-orchestrator#66's four). `None` leaves the setting alone.
-fn ask_preset(cx: &Cx) -> Option<String> {
-    let mut q = Question::yes_no("how careful should the guard be?", true)
-        .summary("the security preset; change it any time with `ciginstaller config set preset`")
-        .detail(PRESET_NOTE);
-    q.choices = PRESETS
-        .iter()
-        .map(|p| Choice::new(p.chars().next().unwrap_or('b'), p))
-        .collect();
-    q.default = 1;
-    let a = cx.ui.ask(&q);
-    Some(PRESETS[a.index.min(PRESETS.len() - 1)].to_string())
+/// One choice of a question: the value it sets, the key that picks it and its words.
+pub struct Opt {
+    pub value: &'static str,
+    pub key: char,
+    pub label: &'static str,
 }
 
-/// #32's consent question: may a crash report be sent. Answers the `reports` setting.
-fn ask_reports(cx: &Cx) -> String {
-    let mut q = Question::yes_no("send a crash report when a tool crashes?", true)
-        .summary("nothing leaves this machine without you seeing it first")
-        .detail("nothing leaves this machine without your yes; `ciginstaller crash show` prints exactly what would travel");
-    q.choices = vec![
-        Choice::new('a', "always send"),
-        Choice::new('n', "never send"),
-        Choice::new('e', "ask each time"),
-    ];
-    q.default = 2;
-    match cx.ui.ask(&q).index {
-        0 => "always",
-        1 => "never",
-        _ => "ask",
+/// One install question as data (#22): what a welcome screen needs to ask it itself, and what
+/// `install --dry-run --json` lists. The terminal asks from the same table, so the two agree.
+pub struct Spec {
+    pub id: &'static str,
+    /// The question in the family's voice, and in plain words.
+    pub voice: &'static str,
+    pub plain: &'static str,
+    pub summary: &'static str,
+    pub note: Option<&'static str>,
+    pub choices: &'static [Opt],
+    pub default: &'static str,
+    /// The setting the answer is written to; `None` for the question that picks the target.
+    pub writes: Option<&'static str>,
+    /// Asked once on a machine, then recorded.
+    pub once: bool,
+}
+
+const fn opt(value: &'static str, key: char, label: &'static str) -> Opt {
+    Opt { value, key, label }
+}
+
+/// The questions an install can ask, in the order it asks them.
+pub const SPECS: [Spec; 3] = [
+    Spec {
+        id: "what",
+        voice: "what are you after?",
+        plain: "What to install",
+        summary: "a stick is one product, a pack a few that go together, a carton the whole family",
+        note: None,
+        choices: &[
+            opt("stick", '1', "a stick"),
+            opt("pack", '2', "a pack"),
+            opt("carton", '3', "a carton (recommended)"),
+        ],
+        default: "carton",
+        writes: None,
+        once: false,
+    },
+    Spec {
+        id: "preset",
+        voice: "how careful should the guard be?",
+        plain: "Security preset",
+        summary: "the security preset; change it any time with `ciginstaller config set preset`",
+        note: Some(PRESET_NOTE),
+        choices: &[
+            opt("chill", 'c', "chill"),
+            opt("balanced", 'b', "balanced"),
+            opt("strict", 's', "strict"),
+            opt("paranoid", 'p', "paranoid"),
+        ],
+        default: "balanced",
+        writes: Some("preset"),
+        once: true,
+    },
+    Spec {
+        id: "reports",
+        voice: "send a crash report when a tool crashes?",
+        plain: "Send crash reports",
+        summary: "nothing leaves this machine without you seeing it first",
+        note: Some("nothing leaves this machine without your yes; `ciginstaller crash show` prints exactly what would travel"),
+        choices: &[
+            opt("always", 'a', "always send"),
+            opt("never", 'n', "never send"),
+            opt("ask", 'e', "ask each time"),
+        ],
+        default: "ask",
+        writes: Some("reports"),
+        once: true,
+    },
+];
+
+fn spec(id: &str) -> Option<&'static Spec> {
+    SPECS.iter().find(|s| s.id == id)
+}
+
+/// Ask one of the once-only questions at the terminal; the value of the choice taken.
+fn ask_spec(cx: &Cx, sp: &Spec) -> String {
+    let mut q = Question::yes_no(sp.voice, true).summary(sp.summary);
+    if let Some(n) = sp.note {
+        q = q.detail(n);
     }
-    .to_string()
+    q.choices = sp
+        .choices
+        .iter()
+        .map(|o| Choice::new(o.key, o.label))
+        .collect();
+    q.default = sp
+        .choices
+        .iter()
+        .position(|o| o.value == sp.default)
+        .unwrap_or(0);
+    let i = cx.ui.ask(&q).index.min(sp.choices.len() - 1);
+    sp.choices[i].value.to_string()
+}
+
+/// The largest answers file read: a handful of short strings is all one holds.
+const ANSWERS_MAX: u64 = 64 * 1024;
+
+/// Is `value` one of the choices of question `id`? A usage error says which are.
+fn check_answer(id: &str, value: &str) -> Result<(), InstallerError> {
+    let sp = spec(id).filter(|s| s.once).ok_or_else(|| {
+        let ids: Vec<&str> = ONCE.to_vec();
+        usage(
+            if id == "what" {
+                "`what` is not an answer: the subcommand (carton, pack or stick) says it"
+                    .to_string()
+            } else {
+                format!(
+                    "there is no question `{id}`; the answers are {}",
+                    ids.join(", ")
+                )
+            },
+            "ciginstaller install --dry-run --json",
+        )
+    })?;
+    if sp.choices.iter().any(|o| o.value == value) {
+        return Ok(());
+    }
+    let ok: Vec<&str> = sp.choices.iter().map(|o| o.value).collect();
+    Err(usage(
+        format!(
+            "`{value}` is not an answer to {id}; the choices are {}",
+            ok.join(", ")
+        ),
+        "ciginstaller install --dry-run --json",
+    ))
+}
+
+/// Every answer handed in, from the flags and `--answers`, checked before anything changes.
+/// A flag and the file that disagree are refused rather than one quietly winning.
+fn gather(c: &InstallCmd) -> Result<BTreeMap<String, String>, InstallerError> {
+    let mut given: BTreeMap<String, String> = BTreeMap::new();
+    if let Some(path) = &c.answers {
+        let bad = |why: String| usage(why, "ciginstaller install --dry-run --json");
+        let meta = std::fs::metadata(path).map_err(|e| {
+            bad(format!(
+                "cannot read the answers file {}: {e}",
+                path.display()
+            ))
+        })?;
+        if !meta.is_file() || meta.len() > ANSWERS_MAX {
+            return Err(bad(format!(
+                "{} is not an answers file: a JSON file under {} KiB",
+                path.display(),
+                ANSWERS_MAX / 1024
+            )));
+        }
+        let text = std::fs::read_to_string(path).map_err(|e| {
+            bad(format!(
+                "cannot read the answers file {}: {e}",
+                path.display()
+            ))
+        })?;
+        let v: Value = serde_json::from_str(&text)
+            .map_err(|e| bad(format!("{} is not JSON: {e}", path.display())))?;
+        let obj = v.as_object().ok_or_else(|| {
+            bad(format!(
+                "{} must be one JSON object, like {{\"preset\": \"strict\"}}",
+                path.display()
+            ))
+        })?;
+        for (id, val) in obj {
+            let val = val
+                .as_str()
+                .ok_or_else(|| bad(format!("the answer to {id} must be a string")))?;
+            check_answer(id, val)?;
+            given.insert(id.clone(), val.to_string());
+        }
+    }
+    for (id, flag) in [("preset", &c.preset), ("reports", &c.reports)] {
+        let Some(v) = flag else { continue };
+        check_answer(id, v)?;
+        match given.get(id) {
+            Some(f) if f != v => {
+                return Err(usage(
+                    format!("{id} is given twice and differently: `{f}` in the answers file, `{v}` on the command line"),
+                    "ciginstaller install carton --answers answers.json",
+                ))
+            }
+            _ => {
+                given.insert(id.to_string(), v.clone());
+            }
+        }
+    }
+    Ok(given)
+}
+
+/// Where a question stands on this machine, for this run.
+enum Stand {
+    /// Handed in by a flag or the answers file.
+    Given(String),
+    /// Answered on an earlier run; not asked again.
+    Recorded(String),
+    /// Set before the question came up (`config set`, the environment): left as it is.
+    AlreadySet(String),
+    /// A person at a terminal would be asked.
+    Ask,
+    /// The installer does not ask on its own: the first install has passed without a record.
+    Closed,
+}
+
+impl Stand {
+    fn word(&self) -> &'static str {
+        match self {
+            Stand::Given(_) => "given",
+            Stand::Recorded(_) => "answered",
+            Stand::AlreadySet(_) => "already-set",
+            Stand::Ask => "ask",
+            Stand::Closed => "closed",
+        }
+    }
+    fn value(&self) -> Option<&str> {
+        match self {
+            Stand::Given(v) | Stand::Recorded(v) | Stand::AlreadySet(v) => Some(v),
+            _ => None,
+        }
+    }
+}
+
+fn stand(cx: &Cx, id: &str, given: &BTreeMap<String, String>) -> Stand {
+    if let Some(v) = given.get(id) {
+        return Stand::Given(v.clone());
+    }
+    let (recorded, done) = first_run_of(&cx.state);
+    if let Some(v) = recorded.get(id) {
+        return Stand::Recorded(v.clone());
+    }
+    let open = cx.state.machine_carton.is_none() || (first_run_started(&cx.state) && !done);
+    if !open {
+        return Stand::Closed;
+    }
+    let set = match id {
+        "preset" => !cx.cfg.get("preset").is_empty(),
+        _ => cx.cfg.get_file(id).is_some() || cx.cfg.env_has(id),
+    };
+    if set {
+        Stand::AlreadySet(cx.cfg.get(id))
+    } else {
+        Stand::Ask
+    }
+}
+
+/// The questions as data: what the install would ask, and where each stands.
+fn questions_json(cx: &Cx, c: &InstallCmd, given: &BTreeMap<String, String>) -> Vec<Value> {
+    SPECS
+        .iter()
+        .map(|sp| {
+            let st = if sp.id == "what" {
+                if c.what.is_some() {
+                    Stand::Given(String::new())
+                } else {
+                    Stand::Ask
+                }
+            } else {
+                stand(cx, sp.id, given)
+            };
+            json!({
+                "id": sp.id,
+                "text": sp.voice,
+                "plain": sp.plain,
+                "summary": sp.summary,
+                "note": sp.note,
+                "choices": sp.choices.iter().map(|o| json!({
+                    "value": o.value, "key": o.key.to_string(), "label": o.label,
+                })).collect::<Vec<_>>(),
+                "default": sp.default,
+                "writes": sp.writes,
+                "once": sp.once,
+                "status": st.word(),
+                "will_ask": matches!(st, Stand::Ask),
+                "answer": st.value().filter(|v| !v.is_empty()),
+            })
+        })
+        .collect()
+}
+
+/// `install --dry-run` with nothing named: the questions, and nothing asked, written or fetched.
+fn list_questions(cx: &Cx, c: &InstallCmd, given: &BTreeMap<String, String>) -> Report {
+    let qs = questions_json(cx, c, given);
+    let n = qs.iter().filter(|q| q["will_ask"] == json!(true)).count();
+    let mut r = Report::done(format!(
+        "dry run: an install asks {} question{}",
+        qs.len(),
+        if qs.len() == 1 { "" } else { "s" }
+    ));
+    for (sp, q) in SPECS.iter().zip(&qs) {
+        let ch: Vec<&str> = sp.choices.iter().map(|o| o.value).collect();
+        r = r.detail(format!(
+            "{}: {} [{}] default {}, {}",
+            sp.id,
+            sp.voice,
+            ch.join("|"),
+            sp.default,
+            q["status"].as_str().unwrap_or("")
+        ));
+    }
+    r.detail(format!("{n} would be asked of a person at a terminal"))
+        .next("ciginstaller install carton --answers answers.json")
+        .data(json!({
+            "dry_run": true,
+            "questions": qs,
+            "first_run": first_run_view(&cx.state),
+        }))
 }
 
 pub fn run(cx: &mut Cx, c: &InstallCmd) -> Result<Outcome, InstallerError> {
-    if let Some(p) = &c.preset {
-        if !PRESETS.contains(&p.as_str()) {
-            return Err(usage(
-                format!(
-                    "`{p}` is not a preset; the presets are chill, balanced, strict and paranoid"
-                ),
-                "ciginstaller install carton --preset balanced",
-            ));
-        }
-    }
+    // every answer handed in is checked here, before the lock, the manifest or any write
+    let given = gather(c)?;
     if let (Some(InstallWhat::Carton { version: Some(v) }), Some(f)) = (&c.what, &c.carton) {
         return Err(usage(
             format!("the carton is given twice: `{v}` and `--carton {f}`"),
             "ciginstaller install carton <version>",
         ));
+    }
+    // `--dry-run --json` naming nothing is the questions as data: no lock, no manifest, no write
+    // (without `--json` it stays the usage error that says to name a target)
+    if c.dry_run
+        && c.what.is_none()
+        && cx.ui.mode == Mode::Json
+        && !cx.ui.yes
+        && !cx.ui.yes_irreversible
+    {
+        return Ok(Outcome::Report(list_questions(cx, c, &given)));
     }
     let asking = can_ask(cx) && !cx.ui.yes && !cx.ui.yes_irreversible && !c.dry_run;
     if let Some(ch) = &c.channel {
@@ -259,19 +542,30 @@ pub fn run(cx: &mut Cx, c: &InstallCmd) -> Result<Outcome, InstallerError> {
             }
         },
     };
-    // the settings questions come once: on the first install, at a terminal, when not preset
-    let first = cx.state.machine_carton.is_none();
-    let mut preset = c.preset.clone();
+    // the settings questions come once: answers handed in are taken as given, and a person at a
+    // terminal is asked what is still open on a first install; either way the record is kept
+    let mut preset = None;
     let mut reports = None;
-    if asking && first {
-        if preset.is_none() && cx.cfg.get("preset").is_empty() {
-            preset = ask_preset(cx);
+    let mut fr = FirstRun::default();
+    for id in ONCE {
+        let Some(sp) = spec(id) else { continue };
+        let (value, how) = match stand(cx, id, &given) {
+            Stand::Given(v) => (v, "answers"),
+            Stand::AlreadySet(v) => (v, "already-set"),
+            Stand::Ask if asking => (ask_spec(cx, sp), "asked"),
+            _ => continue,
+        };
+        fr.answers.insert(id.to_string(), value.clone());
+        fr.how.insert(id.to_string(), how.to_string());
+        if how == "already-set" {
+            continue;
         }
-        if cx.cfg.get("reports") == "ask" {
-            let answer = ask_reports(cx);
-            if answer != "ask" {
-                reports = Some(answer);
-            }
+        // a value the setting already has is not written again
+        let writes = (how == "answers" && id == "preset") || cx.cfg.get(id) != value;
+        match id {
+            "preset" if writes => preset = Some(value),
+            "reports" if writes => reports = Some(value),
+            _ => {}
         }
     }
     let args = InstallArgs {
@@ -284,7 +578,17 @@ pub fn run(cx: &mut Cx, c: &InstallCmd) -> Result<Outcome, InstallerError> {
         preset,
         reports,
         reason: None,
+        first_run: Some(fr).filter(|f| !f.is_empty()),
     };
+    if c.dry_run {
+        // the plan as before, with the questions beside it
+        let mut out = install::run(cx, &args)?;
+        if let Some(d) = out.data.as_object_mut() {
+            d.insert("questions".into(), json!(questions_json(cx, c, &given)));
+            d.insert("first_run".into(), first_run_view(&cx.state));
+        }
+        return Ok(Outcome::Report(out));
+    }
     install::run(cx, &args).map(Outcome::Report)
 }
 

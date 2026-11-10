@@ -377,9 +377,32 @@ fn the_tracked_inputs_parse_with_the_clients_parser() {
     r.tools_toml = tools.into();
     r.products_toml = products.into();
     let m = definitions(&r, "2026-11-10T00:00:00Z", "2026-12-10T00:00:00Z").unwrap();
-    for t in ["cig", "cigo", "cigcompile", "ciginstaller"] {
+    for t in ["cig", "cigo", "cigcompile", "cigar", "ciginstaller"] {
         assert!(m.tools.contains_key(t), "{t}");
     }
+    // cigar's release workflow names its assets `cigar-${GITHUB_REF_NAME}-<os>-<arch>[.exe]`, and
+    // it has no [product.cigar] until it has a release a carton can name
+    let cigar = &m.tools["cigar"];
+    let n = cigar.names(&v("0.1.0"), "windows-x86_64").unwrap();
+    assert_eq!(n.asset, "cigar-v0.1.0-windows-x86_64.exe");
+    assert_eq!(n.sidecar, "cigar-v0.1.0-windows-x86_64.exe.sha256");
+    assert_eq!(
+        cigar.names(&v("0.1.0"), "linux-x86_64").unwrap().asset,
+        "cigar-v0.1.0-linux-x86_64"
+    );
+    assert_eq!(
+        cigar.targets.len(),
+        5,
+        "the five targets its workflow builds"
+    );
+    assert!(!cigar
+        .targets
+        .iter()
+        .any(|t| t == "linux-arm" || t == "freebsd-x86_64"));
+    assert_eq!(cigar.shims.len(), 1);
+    assert_eq!(cigar.shims[0].name, "cigar");
+    assert!(cigar.attests);
+    assert!(m.products.keys().all(|(t, _)| t != "cigar"));
     // the real asset names, as the releases have them
     let cig = &m.tools["cig"];
     assert_eq!(

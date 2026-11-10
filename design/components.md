@@ -164,7 +164,7 @@ Variants: `dark` (truecolor, `COLORFGBG=15;0`), `light` (truecolor, `COLORFGBG=0
 
 | screen | golden | what it shows |
 |---|---|---|
-| `ciginstaller install` | `install`, `install-questions` | the three questions (carton or stick, the security preset, crash reports), then the running step and the final `✓` with the one next step |
+| `ciginstaller install` | `install`, `install-questions` | the three questions (carton or stick, the security preset, crash reports), then the running step and the final `✓` with the one next step; `install --dry-run --json` lists the same questions as data for a welcome screen, and the terminal asks from the same table |
 | `ciginstaller` (status) | `status` | the carton, the channel and trust, what is waiting, the next step, in at most 8 lines |
 | `ciginstaller update` | `update`, `table`, `table-wide`, `prompt`, `progress`, `trial-differences` | the check, the table of changes, the trial with differences, the switch, the result, one notice |
 | `ciginstaller which --why` | `which`, `which-why` | the resolver's table, then the answer |
@@ -178,7 +178,7 @@ Variants: `dark` (truecolor, `COLORFGBG=15;0`), `light` (truecolor, `COLORFGBG=0
 | errors | `error-no-such-carton`, `error-bug` | a refusal painted by its kind; a bug in `danger` |
 | irreversible prompt | `prompt-irreversible` | the `!` lead, default no, "can't be undone" |
 
-Screens whose commands are still to be built (`bug`, #29; `programs`, #30) are drawn with the shared components from fixtures, so their look is fixed before their commands land. The `doctor` screen is drawn the same way; the command's own output is tested in `crates/ciginstaller/tests/a4_doctor.rs`.
+Screens whose commands are still to be built (`bug`, #29) are drawn with the shared components from fixtures, so their look is fixed before their commands land. The `doctor` screen is drawn the same way; the command's own output is tested in `crates/ciginstaller/tests/a4_doctor.rs`, and `programs` (#30) in `crates/ciginstaller/tests/a6_programs.rs`; its advisory cell reads `<id> (<severity>, fixed in <version>): rebuild with cigcompile`.
 
 ### Golden changes in this standard version
 

@@ -11,6 +11,25 @@ below is under Unreleased, and the first version will take it as its section.
 Installing, pinning, switching, updating and rolling back the family, on
 Linux, with every build checked first and every change one undoable step.
 
+### Compiled programs (#30, the unblocked part)
+
+- **`ciginstaller programs [--project DIR] [--json]`** lists the compiled programs
+  on the machine: name, where, the cig it was built for, the cigcompile that made
+  it, and any advisory of the cached manifest that covers that cig, with its
+  severity and fixed-in version. They are found by their trailer (the layout cig
+  documents, read by `cig-compat` with no dependency on cig) on `PATH` and in the
+  project's folders and their `bin/`; the disk is never scanned. A damaged
+  trailer is skipped with a note.
+- **`ciginstaller programs rebuild <name>`** rebuilds a program from its script
+  with the carton's cigcompile (run only from a build that matches its receipt,
+  with a time limit) on the installed cig, checks it with `cigcompile verify` and
+  `cigcompile test`, and swaps it in as one transaction; the old program stays
+  until the new one has passed. With no script on the machine it says so and
+  names the advisory. `--dry-run` builds nothing. E1859.
+- **`status` and `doctor`** say once per program when it is built on a cig an
+  advisory covers; `status --json` carries `waiting.programs` only then.
+- Still blocked: the signed compatibility index ([#9](https://github.com/otmof-ops/cig-installer/issues/9)).
+
 ### Crash reports (#10, #28 part 1)
 
 - **`ciginstaller crash list|show|send|delete|submit`** over cig's own ashtray
@@ -143,6 +162,32 @@ Linux, with every build checked first and every change one undoable step.
   waits below 100.
 - **`status --json`** gains `cartons` and `rollout` (`percent`, `in_share`,
   `reason`) for an organization's own inventory tools. It makes no request.
+
+### CigarScript in the carton's tools (#1, #3)
+
+- **`[tool.cigar]`** in `manifest/tools.toml`, as CigarScript's release
+  workflow names its builds (`cigar-v{version}-{os}-{arch}{exe}` with a
+  `.sha256`, five targets, attested), with the `cigar` shim, and
+  `cargo xtask manifest assemble --cigar <version>`. No carton names it until
+  CigarScript has a release. CigarScript ships one binary, so there is no
+  `cigar-lsp` shim yet.
+
+### What ciginstaller gives CIG.OS (#22, first slice)
+
+- **The questions as data:** `install --dry-run --json` lists every question
+  an install would ask (the text in the voice and in plain, the choices and
+  the setting each writes, the default), and asks, writes and fetches
+  nothing.
+- **Answers handed in:** `--answers FILE.json`, `--preset` and `--reports`,
+  so a welcome screen asks the questions itself and the install runs with no
+  terminal. An answer that is not a choice is E1870 before anything changes.
+- **Asked once:** answered questions are recorded in `state.json` and not
+  asked again; `status --json` carries `first_run`.
+- **Preseeding:** `install --yes carton <c> --from <bundle.tar>` with the
+  answers installs with no network and no question, as an image build does.
+- Waiting on their own issues: the preset's enforcement
+  (cig-orchestrator#66), the guard daemon at level 5 (cig-orchestrator#57),
+  the offsite-backup question (cig-orchestrator#65) and Secure Boot (#23).
 
 ### Licenses (#27)
 

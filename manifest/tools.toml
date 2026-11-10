@@ -40,6 +40,24 @@ shims   = [ { name = "cigcompile", path = "bin/cigcompile", windows_path = "bin/
 targets = [ "freebsd-x86_64", "linux-aarch64", "linux-arm", "linux-x86_64", "macos-aarch64", "macos-x86_64", "windows-aarch64", "windows-x86_64" ]
 attests = true
 
+# CigarScript's package tool. Read from otmof-ops/cigar-script, .github/workflows/release.yml: a tag
+# `vX.Y.Z` builds one binary, `cigar` (Cargo.toml has a single [[bin]]; there is no `cigar-lsp`, so
+# no shim for one), and names it `cigar-${GITHUB_REF_NAME}-<os>-<arch>[.exe]` with a `.sha256`
+# beside it, for the five targets below (the Linux builds are musl), then attests the linux, macos
+# and windows assets. cigar has no release yet: no [product.cigar] table in products.toml and no
+# carton names it until it does, and that first release is the maintainer's call. When it comes,
+# add `[product.cigar."<version>"]` (requires, license read from LICENSE at that tag) and name it
+# with `cargo xtask manifest assemble --cigar <version>`.
+[tool.cigar]
+repo    = "otmof-ops/cigar-script"
+tag     = "v{version}"
+layout  = "binary"
+asset   = "cigar-v{version}-{os}-{arch}{exe}"
+sidecar = "{asset}.sha256"
+shims   = [ { name = "cigar", path = "bin/cigar", windows_path = "bin/cigar.exe" } ]
+targets = [ "linux-aarch64", "linux-x86_64", "macos-aarch64", "macos-x86_64", "windows-x86_64" ]
+attests = true
+
 # The installer is a carton member (#3) that updates itself first (SPEC 12.4). Its release
 # workflow is phase 3; until a release exists no carton names it.
 [tool.ciginstaller]
