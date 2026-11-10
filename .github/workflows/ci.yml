@@ -240,6 +240,7 @@ jobs:
           restore-keys: |
             ${{ matrix.os }}-cargo-
       - name: cargo test
-        run: cargo test --workspace --locked
+        # every failure in one run: a first port finds several
+        run: cargo test --workspace --locked --no-fail-fast
       - name: bootstrap script tests
         run: bash ci/test-bootstrap.sh
