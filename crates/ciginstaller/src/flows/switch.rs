@@ -75,7 +75,10 @@ impl UpdateUndo {
     }
 }
 
-/// The shim names the builds in `state` serve (only the names the shim binary answers to).
+/// The shim names the builds in `state` serve. They come from what `state.json` says is
+/// installed: a tool the shim binary serves (`cig`, `cigo`, `cigcompile`, `cigar`) has its own
+/// name, whether or not its receipt can be read. Receipts that can be read only add names (a tool
+/// that serves another name as well); an unreadable one never takes a shim away.
 pub fn shim_names(home: &Home, state: &State) -> BTreeSet<String> {
     let mut builds: Vec<(String, String)> = Vec::new();
     for r in state.cartons.values() {
@@ -89,6 +92,9 @@ pub fn shim_names(home: &Home, state: &State) -> BTreeSet<String> {
     );
     let mut names = BTreeSet::new();
     for (t, v) in &builds {
+        if cigi_shim::TOOLS.contains(&t.as_str()) {
+            names.insert(t.clone());
+        }
         if let Ok(v) = Version::parse(v) {
             if let Ok(r) = read_receipt(home, t, &v) {
                 names.extend(

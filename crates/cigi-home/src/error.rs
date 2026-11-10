@@ -168,6 +168,12 @@ pub enum JournalError {
     /// A caller broke a rule of the API (E1890): a second flip, an op after
     /// commit, an index over 64 KB.
     Misuse(String),
+    /// The installer will not follow or remove this path (a symbolic link it cannot journal,
+    /// a profile outside the user's home, a path outside the home): `E1869`, with the path.
+    Refused {
+        path: PathBuf,
+        why: String,
+    },
     Store(StoreError),
 }
 
@@ -178,6 +184,7 @@ impl JournalError {
             JournalError::Corrupt { .. } => "E1891",
             JournalError::TooNew { .. } => "E1830",
             JournalError::Misuse(_) => "E1890",
+            JournalError::Refused { .. } => "E1869",
             JournalError::Store(e) => e.code(),
         }
     }
@@ -195,6 +202,13 @@ impl fmt::Display for JournalError {
                 )
             }
             JournalError::Misuse(m) => write!(f, "internal error: {m}"),
+            JournalError::Refused { path, why } => {
+                write!(
+                    f,
+                    "{} {why}; remove it by hand if you mean it",
+                    path.display()
+                )
+            }
             JournalError::Store(e) => e.fmt(f),
         }
     }

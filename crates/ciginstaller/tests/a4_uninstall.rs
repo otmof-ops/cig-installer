@@ -69,7 +69,7 @@ fn a4_uninstall_all_leaves_only_the_users_data() {
         let t = std::fs::read_to_string(fx.user_home.join(".profile")).unwrap();
         assert_eq!(t.matches("# >>> cigscript >>>").count(), 1);
 
-        let o = cigi(&fx, &["--json", "uninstall", "--all"]);
+        let o = cigi(&fx, &["--json", "uninstall", "--all", "--yes-irreversible"]);
         ok(&o);
         let d = json(&o)["data"].clone();
         assert_eq!(d["changed"], true);
@@ -90,7 +90,10 @@ fn a4_uninstall_all_leaves_only_the_users_data() {
         assert!(has("the PATH block"), "{removed:#?}");
         assert!(has("/installer"), "{removed:#?}");
         // the guard's pieces do not exist in this build, and it says so
-        let plain = cigi(&fx, &["--plain", "uninstall", "--all"]);
+        let plain = cigi(
+            &fx,
+            &["--plain", "uninstall", "--all", "--yes-irreversible"],
+        );
         assert!(
             text(&plain).contains("nothing to uninstall"),
             "{}",
@@ -136,6 +139,12 @@ fn a4_uninstall_purge_is_refused_and_a_question_needs_a_yes() {
     assert_eq!(o.status.code(), Some(3), "{}", text(&o));
     assert!(text(&o).contains("E1871"), "{}", text(&o));
     listing(&fx).assert_same(&before);
+    // `--yes` alone does not answer an irreversible question
+    let o = cigi(&fx, &["uninstall", "--all"]);
+    assert_eq!(o.status.code(), Some(3), "{}", text(&o));
+    assert!(text(&o).contains("E1871"), "{}", text(&o));
+    assert!(text(&o).contains("--yes-irreversible"), "{}", text(&o));
+    listing(&fx).assert_same(&before);
     // naming nothing is a usage error
     let o = cigi(&fx, &["uninstall"]);
     assert_eq!(o.status.code(), Some(3));
@@ -147,7 +156,7 @@ fn a4_uninstall_purge_is_refused_and_a_question_needs_a_yes() {
 #[test]
 fn a4_uninstall_all_dry_run_and_nothing_installed() {
     let fx = carton_fixture();
-    let o = cigi(&fx, &["uninstall", "--all"]);
+    let o = cigi(&fx, &["uninstall", "--all", "--yes-irreversible"]);
     ok(&o);
     assert!(text(&o).contains("nothing to uninstall"));
     assert!(!fx.cigscript().exists(), "it made a home to remove it");
@@ -164,7 +173,16 @@ fn a4_uninstall_all_keep_journal_and_snapshot() {
     let fx = carton_fixture();
     user_data(&fx, false);
     ok(&cigi(&fx, &["install", "carton", "--carton", "0.1.0"]));
-    let o = cigi(&fx, &["--json", "uninstall", "--all", "--keep-journal"]);
+    let o = cigi(
+        &fx,
+        &[
+            "--json",
+            "uninstall",
+            "--all",
+            "--keep-journal",
+            "--yes-irreversible",
+        ],
+    );
     ok(&o);
     let kept = asides(&fx);
     assert_eq!(kept.len(), 1, "{kept:?}");
@@ -221,7 +239,7 @@ fn a4_uninstall_all_kill_sweep() {
             .cigi()
             .env("CIGI_ALLOW_SINGLE_SOURCE", "true")
             .env("CIGI_FAULT", &fault)
-            .args(["--yes", "uninstall", "--all"])
+            .args(["--yes-irreversible", "uninstall", "--all"])
             .output()
             .unwrap();
         if o.status.code().is_some() {
@@ -233,7 +251,7 @@ fn a4_uninstall_all_kill_sweep() {
         let ignore: Vec<&str> = ignore.iter().map(String::as_str).collect();
         if fx.cigscript().join("installer").exists() {
             // before the commit point: the next command that takes the lock undoes it
-            let o = cigi(&fx, &["repair", "--dry-run"]);
+            let o = cigi(&fx, &["gc", "--dry-run"]);
             ok(&o);
             let now = listing(&fx).without(&[".cigscript/installer/txn"]);
             let want = whole.without(&[".cigscript/installer/txn"]);
@@ -263,9 +281,26 @@ fn a4_uninstall_all_kill_sweep() {
                     .iter()
                     .any(|f| f["code"] == "E1865" && f["severity"] == "action");
                 assert!(flagged, "{fault}: {d:#}");
-                ok(&cigi(&fx, &["uninstall", "--all"]));
+                let fix = d["findings"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .find(|f| f["code"] == "E1865")
+                    .map(|f| f["fix"].clone());
+                assert_eq!(fix, Some(Value::from("ciginstaller gc")), "{fault}");
+                // `gc` clears it (and lays the home out again, as any command does): the user's
+                // files are all still there, unchanged
+                ok(&cigi(&fx, &["gc"]));
                 assert!(asides(&fx).is_empty(), "{fault}");
-                Snapshot::take(&fx.user_home).assert_same(&user_only);
+                let after = Snapshot::take(&fx.user_home);
+                assert!(
+                    user_only
+                        .diff(&after)
+                        .iter()
+                        .all(|d| d.starts_with("added:")),
+                    "{fault}: {:?}",
+                    user_only.diff(&after)
+                );
             }
             post_seen += 1;
         }

@@ -26,25 +26,7 @@ pub fn builds(state: &State) -> Vec<(String, String)> {
     out
 }
 
-/// The shim names the state calls for: the names the shim binary serves, from the receipts of the
-/// builds the state lists (the same rule `install` follows).
-pub fn shim_names(home: &Home, state: &State) -> BTreeSet<String> {
-    let mut names = BTreeSet::new();
-    for (t, v) in builds(state) {
-        if let Some(r) = Version::parse(&v)
-            .ok()
-            .and_then(|v| read_receipt(home, &t, &v).ok())
-        {
-            names.extend(
-                r.shims
-                    .iter()
-                    .map(|s| s.name.clone())
-                    .filter(|n| cigi_shim::TOOLS.contains(&n.as_str())),
-            );
-        }
-    }
-    names
-}
+pub use super::switch::shim_names;
 
 /// The store objects of the installer's own toolchain: `(ciginstaller, cigi-shim)`. The version
 /// the state names first, then this build's, then any installed.
@@ -209,4 +191,15 @@ pub fn humidor_bad(home: &Home) -> Vec<(Version, bool, bool)> {
         }
     }
     out
+}
+
+/// Transactions that ended neither in a commit nor a rollback: what a dry run reports instead of
+/// settling them. `"<label> (<id>)"` each.
+pub fn pending_txns(home: &Home) -> Vec<String> {
+    use cigi_home::{list_txns, TxnStatus};
+    list_txns(home)
+        .into_iter()
+        .filter(|t| matches!(t.status, TxnStatus::Open | TxnStatus::Unreadable))
+        .map(|t| format!("`{}` ({})", t.label, t.id))
+        .collect()
 }

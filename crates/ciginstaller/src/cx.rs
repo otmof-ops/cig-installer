@@ -236,6 +236,7 @@ impl Cx {
             seen_sequence: seen,
             now: now_override(),
             fetch_attestation: GhAttest.available_cached(),
+            no_cache: false,
         };
         let kept = CacheCopy::take(&self.home, channel);
         let admitted = get_manifest_with(
@@ -267,6 +268,7 @@ impl Cx {
             seen_sequence: seen,
             now: now_override(),
             fetch_attestation: GhAttest.available_cached(),
+            no_cache: false,
         };
         let get = |offline: bool| {
             get_manifest_with(
@@ -315,6 +317,28 @@ impl Cx {
             .ok_or_else(|| bug("the manifest cell is empty after it was set"))
     }
 
+    /// The channel's manifest fetched and admitted now and written nowhere: not the cache, not
+    /// `state.json`, and no directory is made for it (`doctor --network`).
+    pub fn fetch_manifest_uncached(&self) -> Result<Manifest, InstallerError> {
+        let channel = self.channel();
+        let opts = ManifestOpts {
+            offline: false,
+            seen_sequence: self.seen_sequence(&channel),
+            now: now_override(),
+            fetch_attestation: false,
+            no_cache: true,
+        };
+        get_manifest_with(
+            self.source.as_ref(),
+            &self.trust,
+            &self.home,
+            &channel,
+            &opts,
+        )
+        .map(|a| a.get().clone())
+        .map_err(ie)
+    }
+
     /// The cached manifest, read without the network and without being remembered: a later
     /// `manifest(Fresh)` in the same command still fetches. `None` when there is no usable cache.
     pub fn peek_manifest(&self) -> Option<Manifest> {
@@ -328,6 +352,7 @@ impl Cx {
             seen_sequence: seen,
             now: now_override(),
             fetch_attestation: false,
+            no_cache: false,
         };
         let admitted = get_manifest_with(
             self.source.as_ref(),

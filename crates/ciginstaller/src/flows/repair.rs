@@ -9,7 +9,6 @@
 //! The spare of cig-orchestrator#64 is not a source in this build.
 
 use std::collections::{BTreeMap, BTreeSet};
-use std::path::PathBuf;
 
 use cig_compat::Version;
 use cigi_home::path::block_state;
@@ -23,10 +22,10 @@ use cigi_ui::{Icon, InstallerError, Report, EXIT_REFUSED};
 use serde_json::json;
 
 use super::health::{
-    humidor_bad, index_state, installer_objects, missing_shims, recorded_shell,
-    remove_committed_txn, shim_names, IndexState,
+    builds, humidor_bad, index_state, installer_objects, missing_shims, pending_txns,
+    recorded_shell, remove_committed_txn, shim_names, IndexState,
 };
-use super::install::fetch_builds;
+use super::install::{fetch_builds, materialize_fetched};
 use super::{cached_yanked, save_and_flip, settle};
 use crate::cx::{Cx, ManifestMode};
 use crate::errors::ie;
@@ -81,20 +80,47 @@ fn bad_download(tool: &str, ver: &Version, path: Option<&str>, id: &ObjectId) ->
     .with_exit(EXIT_REFUSED)
 }
 
-fn e1860(what: impl Into<String>, why: &InstallerError) -> InstallerError {
+/// E1860 for a download that could not be had. The fix names the tool: it is run again, online,
+/// when the manifest and the artifact can be reached.
+fn e1860(what: impl Into<String>, why: &InstallerError, tool: &str) -> InstallerError {
     InstallerError::new("E1860", what)
-        .with_hint(format!("{} ({})", why.message, why.code))
-        .with_fix("ciginstaller repair")
+        .with_hint(format!(
+            "{} ({}); connect, then run it again",
+            why.message, why.code
+        ))
+        .with_fix(format!("ciginstaller repair --tool {tool}"))
         .with_exit(EXIT_REFUSED)
 }
 
+/// The bytes of a staged download: read once, from a plain file (never a link), and hashed as
+/// read. What is returned is what was hashed, and is what gets written.
+fn read_staged(path: &std::path::Path, want_sha256: &str) -> Result<Vec<u8>, String> {
+    let md = std::fs::symlink_metadata(path).map_err(|e| format!("{}: {e}", path.display()))?;
+    if !md.file_type().is_file() {
+        return Err(format!(
+            "{} is not a plain file (a link or a directory stands there)",
+            path.display()
+        ));
+    }
+    let bytes = std::fs::read(path).map_err(|e| format!("{}: {e}", path.display()))?;
+    if cigi_source::digest::sha256_hex(&bytes) != want_sha256 {
+        return Err(format!("{} does not hash to {want_sha256}", path.display()));
+    }
+    Ok(bytes)
+}
+
 pub fn run(cx: &mut Cx, a: &RepairArgs) -> Result<Report, InstallerError> {
-    cx.lock_and_recover()?;
+    // a dry run reads and takes no lock: no layout is made, nothing is recovered
+    if !a.dry_run {
+        cx.lock_and_recover()?;
+    }
     let home = cx.home.clone();
     let state = cx.state.clone();
+    let interrupted = pending_txns(&home);
 
     if let Some(t) = &a.tool {
-        if !installed(&home).iter().any(|(x, _)| x == t) {
+        let named = builds(&state).iter().any(|(x, _)| x == t);
+        if !installed(&home).iter().any(|(x, _)| x == t) && !named {
             return Err(InstallerError::new(
                 "E1863",
                 format!("there is no installed toolchain of `{t}` to repair"),
@@ -122,6 +148,41 @@ pub fn run(cx: &mut Cx, a: &RepairArgs) -> Result<Report, InstallerError> {
                 damage,
             });
         }
+    }
+    // toolchains the state lists that have no readable receipt (or no directory at all): rebuilt
+    // from the manifest's artifact, with a fresh receipt
+    let have: BTreeSet<(String, String)> = installed(&home)
+        .into_iter()
+        .map(|(t, v)| (t, v.to_string()))
+        .collect();
+    let mut rebuild: Vec<(String, Version, Version)> = Vec::new();
+    for (t, vs) in builds(&state) {
+        if a.tool.as_ref().is_some_and(|x| *x != t) {
+            continue;
+        }
+        let Ok(ver) = Version::parse(&vs) else {
+            continue;
+        };
+        if have.contains(&(t.clone(), ver.to_string())) {
+            continue;
+        }
+        let carton = state
+            .cartons
+            .iter()
+            .find(|(_, r)| r.tools.get(&t) == Some(&vs))
+            .map(|(c, _)| c.clone())
+            .or_else(|| {
+                state
+                    .sticks
+                    .iter()
+                    .find(|s| s.tool == t && s.version == vs)
+                    .map(|s| s.from_carton.clone())
+            })
+            .or_else(|| state.machine_carton.clone());
+        let Some(cv) = carton.and_then(|c| Version::parse(&c).ok()) else {
+            continue;
+        };
+        rebuild.push((t, ver, cv));
     }
     let scoped = a.tool.is_some();
     let shims_missing = if scoped {
@@ -154,15 +215,25 @@ pub fn run(cx: &mut Cx, a: &RepairArgs) -> Result<Report, InstallerError> {
         !scoped && shell.is_some_and(|s| matches!(block_state(s, &home), Ok(PathChange::Edited)));
 
     if bad.is_empty()
+        && rebuild.is_empty()
         && shims_missing.is_empty()
         && !index_wrong
         && humidor.is_empty()
         && !path_missing
     {
         let mut r = Report::done("nothing to repair: every toolchain matches its receipt, and the shims, index and humidor mirror are as they should be")
-            .data(json!({ "restored": [], "removed": [], "changed": false }));
+            .data(json!({
+                "restored": [],
+                "removed": [],
+                "changed": false,
+                "dry_run": a.dry_run,
+                "interrupted": interrupted,
+            }));
         if path_edited {
             r = r.detail("the PATH block was edited by hand and is left alone (E1862)");
+        }
+        for t in &interrupted {
+            r = r.detail(format!("an interrupted transaction is waiting: {t}"));
         }
         return Ok(r);
     }
@@ -195,6 +266,16 @@ pub fn run(cx: &mut Cx, a: &RepairArgs) -> Result<Report, InstallerError> {
                 r = r.detail(format!("{}: {d:?}", b.label()));
             }
         }
+        for (t, v, _) in &rebuild {
+            r = r.detail(format!(
+                "would build {t} {v} again from the manifest's artifact (no readable receipt)"
+            ));
+        }
+        for t in &interrupted {
+            r = r.detail(format!(
+                "an interrupted transaction is waiting: {t}; a real run settles it first"
+            ));
+        }
         for s in &shims_missing {
             r = r.detail(format!("would relink the shim {s}"));
         }
@@ -209,38 +290,41 @@ pub fn run(cx: &mut Cx, a: &RepairArgs) -> Result<Report, InstallerError> {
         }
         return Ok(r
             .next("ciginstaller repair")
-            .data(json!({ "dry_run": true, "from_store": from_store, "downloads": need.len() })));
+            .data(json!({
+                "dry_run": true,
+                "from_store": from_store,
+                "downloads": need.len(),
+                "rebuild": rebuild.iter().map(|(t, v, _)| json!({ "tool": t, "version": v.to_string() })).collect::<Vec<_>>(),
+                "interrupted": interrupted,
+            })));
     }
 
     // 3. downloads, before anything is written: a failure here leaves the home as it was
     let mut fetched = Vec::new();
-    if !need.is_empty() {
-        let list: Vec<String> = need.keys().map(|(t, v)| format!("{t} {v}")).collect();
+    let mut manifest = None;
+    let mut todo: Vec<(String, Version)> = need.keys().cloned().collect();
+    for (t, v, _) in &rebuild {
+        if !todo.contains(&(t.clone(), v.clone())) {
+            todo.push((t.clone(), v.clone()));
+        }
+    }
+    if !todo.is_empty() {
+        let list: Vec<String> = todo.iter().map(|(t, v)| format!("{t} {v}")).collect();
+        let first = todo[0].0.clone();
+        let what = format!(
+            "{} is damaged or has no receipt, is not in the store, and cannot be downloaded again",
+            list.join(", ")
+        );
         let m = cx
             .manifest(ManifestMode::Fresh)
-            .map_err(|e| {
-                e1860(
-                    format!(
-                        "{} is damaged, is not in the store, and cannot be downloaded again",
-                        list.join(", ")
-                    ),
-                    &e,
-                )
-            })?
+            .map_err(|e| e1860(what.clone(), &e, &first))?
             .clone();
-        let todo: Vec<(String, Version)> = need.keys().cloned().collect();
-        fetched = fetch_builds(cx, &m, &todo).map_err(|e| {
-            e1860(
-                format!(
-                    "{} is damaged, is not in the store, and cannot be downloaded again",
-                    list.join(", ")
-                ),
-                &e,
-            )
-        })?;
+        fetched = fetch_builds(cx, &m, &todo).map_err(|e| e1860(what.clone(), &e, &first))?;
+        manifest = Some(m);
     }
-    // each missing object must be in the download, byte for byte what the receipt says
-    let mut sources: BTreeMap<ObjectId, PathBuf> = BTreeMap::new();
+    // each missing object must be in the download, byte for byte what the receipt says; the
+    // bytes are read once, hashed, and are what is written
+    let mut sources: BTreeMap<ObjectId, Vec<u8>> = BTreeMap::new();
     for ((tool, ver), ids) in &need {
         let f = fetched
             .iter()
@@ -264,14 +348,9 @@ pub fn run(cx: &mut Cx, a: &RepairArgs) -> Result<Report, InstallerError> {
             let staged = path
                 .as_ref()
                 .and_then(|p| f.files.iter().find(|s| s.path == std::path::Path::new(p)));
-            let ok = staged.is_some_and(|s| {
-                cigi_source::digest::sha256_file(&s.source)
-                    .map(|(h, _)| h == id.sha256)
-                    .unwrap_or(false)
-            });
-            match (ok, staged) {
-                (true, Some(s)) => {
-                    sources.insert(id.clone(), s.source.clone());
+            match staged.map(|s| read_staged(&s.source, &id.sha256)) {
+                Some(Ok(bytes)) => {
+                    sources.insert(id.clone(), bytes);
                 }
                 _ => return Err(bad_download(tool, ver, path.as_deref(), id)),
             }
@@ -289,16 +368,24 @@ pub fn run(cx: &mut Cx, a: &RepairArgs) -> Result<Report, InstallerError> {
         // a store object that is damaged or gone is replaced by the downloaded one
         // (written in place of the old object, so a rollback gives the damaged bytes back as
         // they were; other toolchains' links to the old inode are made new below)
-        for (id, src) in &sources {
+        for (id, bytes) in &sources {
             let p = store.object_path(id);
-            let bytes = std::fs::read(src).map_err(|e| {
-                InstallerError::new("E1860", format!("cannot read the download: {e}"))
-                    .with_exit(EXIT_REFUSED)
-            })?;
             if let Some(parent) = p.parent() {
                 txn.mkdir_all(parent).map_err(ie)?;
             }
-            txn.write(&p, &bytes, Some(id.mode())).map_err(ie)?;
+            txn.write(&p, bytes, Some(id.mode())).map_err(ie)?;
+        }
+        // toolchains without a readable receipt: built again, admitted as an install admits them
+        if let Some(m) = &manifest {
+            for (t, v, cv) in &rebuild {
+                if let Some(f) = fetched.iter().find(|f| &f.tool == t && &f.version == v) {
+                    materialize_fetched(&mut txn, &home, m, cv, std::slice::from_ref(f))?;
+                    restored.push(json!({ "tool": t, "version": v.to_string(), "path": "(the whole toolchain)", "from": "a fresh download" }));
+                    report_lines.push(format!(
+                        "built {t} {v} again from the manifest's artifact, with a new receipt"
+                    ));
+                }
+            }
         }
         for b in &bad {
             for rel in b.extras() {
@@ -327,7 +414,8 @@ pub fn run(cx: &mut Cx, a: &RepairArgs) -> Result<Report, InstallerError> {
         }
         // shims and the installer's own links: every run of a whole repair, and a run for the
         // installer's own toolchain
-        let ci_bad = bad.iter().any(|b| b.tool == "ciginstaller");
+        let ci_bad = bad.iter().any(|b| b.tool == "ciginstaller")
+            || rebuild.iter().any(|(t, _, _)| t == "ciginstaller");
         if !scoped || ci_bad {
             if let Some((exe_obj, shim_obj)) = installer_objects(&home, &new_state) {
                 let names = shim_names(&home, &new_state);
@@ -399,4 +487,31 @@ pub fn run(cx: &mut Cx, a: &RepairArgs) -> Result<Report, InstallerError> {
         "restored": restored,
         "removed": removed,
     })))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::read_staged;
+    use std::os::unix::fs::symlink;
+
+    #[test]
+    fn a_staged_download_is_read_once_hashed_and_never_a_link() {
+        let t = tempfile::tempdir().unwrap();
+        let good = t.path().join("good");
+        std::fs::write(&good, b"the bytes").unwrap();
+        let sha = cigi_source::digest::sha256_hex(b"the bytes");
+        // what was hashed is what comes back
+        assert_eq!(read_staged(&good, &sha).unwrap(), b"the bytes");
+        // other bytes do not match
+        let e = read_staged(&good, &cigi_source::digest::sha256_hex(b"other")).unwrap_err();
+        assert!(e.contains("does not hash"), "{e}");
+        // a link is refused even when what it points at has the right bytes
+        let link = t.path().join("link");
+        symlink(&good, &link).unwrap();
+        let e = read_staged(&link, &sha).unwrap_err();
+        assert!(e.contains("not a plain file"), "{e}");
+        // so is a directory, and a path that is not there
+        assert!(read_staged(t.path(), &sha).is_err());
+        assert!(read_staged(&t.path().join("none"), &sha).is_err());
+    }
 }

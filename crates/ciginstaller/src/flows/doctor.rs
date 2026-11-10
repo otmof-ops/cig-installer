@@ -28,7 +28,7 @@ use super::health::{
     builds, humidor_bad, index_state, missing_shims, recorded_shell, shim_names, size_text,
     IndexState,
 };
-use crate::cx::{now_override, Cx, ManifestMode};
+use crate::cx::{now_override, Cx};
 
 #[derive(Debug, Clone, Default)]
 pub struct DoctorArgs {
@@ -176,13 +176,27 @@ fn leftovers(cx: &Cx, v: &mut Vec<Item>) {
                 ),
                 "the sibling of the home that `uninstall --all` moves the journal to",
             )
-            .fix("ciginstaller uninstall --all")
+            .fix("ciginstaller gc")
             .code("E1865"),
         );
     }
 }
 
 fn layout(cx: &Cx, v: &mut Vec<Item>) {
+    for (dir, mode) in cx.home.loose_dirs() {
+        v.push(
+            act(
+                "home",
+                format!(
+                    "{} is readable by others (mode {mode:03o}); the home and installer/ are yours alone, mode 700",
+                    dir.display()
+                ),
+                "the mode of the home and of installer/, which hold your settings and journals",
+            )
+            .fix("ciginstaller repair")
+            .code("E1835"),
+        );
+    }
     match cx.home.check_permissions() {
         Ok(()) => v.push(ok(
             "home",
@@ -319,17 +333,18 @@ fn toolchains(cx: &Cx, v: &mut Vec<Item>) {
                     .find(|s| s.tool == t && s.version == ver)
                     .map(|s| s.from_carton.clone())
             });
-        let fix = match carton {
-            Some(c) => format!("ciginstaller install carton --carton {c}"),
-            None => "ciginstaller install carton".to_string(),
-        };
+        let _ = carton;
+        // repair builds it again from the manifest's artifact, with a fresh receipt
         v.push(
             act(
                 "toolchains",
-                format!("state.json lists {t} {ver} but it is not installed"),
-                format!("toolchains/{t}/{ver} and its receipt"),
+                format!(
+                    "state.json lists {t} {ver} but there is no toolchain with a readable receipt for it"
+                ),
+                format!("toolchains/{t}/{ver} and its .cigi-receipt.json"),
             )
-            .fix(fix),
+            .fix(format!("ciginstaller repair --tool {t}"))
+            .code("E1831"),
         );
     }
     if cx
@@ -555,8 +570,8 @@ fn host_with_kernel(cx: &Cx) -> Host {
 
 fn matrix(cx: &Cx, a: &DoctorArgs, v: &mut Vec<Item>) {
     let m: Option<Manifest> = if a.network {
-        match cx.manifest(ManifestMode::Fresh) {
-            Ok(m) => Some(m.clone()),
+        match cx.fetch_manifest_uncached() {
+            Ok(m) => Some(m),
             Err(e) => {
                 v.push(note(
                     "matrix",
@@ -794,20 +809,61 @@ fn humidor_item(cx: &Cx, v: &mut Vec<Item>) {
     }
 }
 
-/// Run a tool's own doctor and return its words, as they came. The tool is the installed one at
-/// `exe`; nothing is run unless `--tools` was given.
+/// The most a tool's own doctor may say on one stream before the rest is dropped.
+const TOOL_OUTPUT_CAP: usize = 256 * 1024;
+
+/// Variables that make a program load someone else's code: not passed to the tool.
+fn scrubbed(name: &str) -> bool {
+    name == "LD_PRELOAD" || name == "LD_LIBRARY_PATH" || name.starts_with("DYLD_")
+}
+
+/// Read a stream up to the cap and send what was read when it ends; the rest is read and dropped
+/// so the tool never blocks on a full pipe.
+fn capture(mut s: impl Read + Send + 'static) -> std::sync::mpsc::Receiver<Vec<u8>> {
+    let (tx, rx) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        let mut b = Vec::new();
+        let _ = (&mut s).take(TOOL_OUTPUT_CAP as u64).read_to_end(&mut b);
+        let _ = std::io::copy(&mut s, &mut std::io::sink());
+        let _ = tx.send(b);
+    });
+    rx
+}
+
+#[cfg(unix)]
+fn kill_group(pid: u32) {
+    // the tool is its own process group leader: one signal reaches what it started too
+    let _ = std::process::Command::new("kill")
+        .args(["-KILL", "--", &format!("-{pid}")])
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .status();
+}
+#[cfg(not(unix))]
+fn kill_group(_pid: u32) {}
+
+/// Run a tool's own doctor and return its words, as they came (each stream cut at 256 KiB). The
+/// tool is the installed one at `exe`, run in `cwd` (the home, not the project the user stands
+/// in) with the library-loading variables removed. On a timeout the whole process group is
+/// killed and a reader still blocked on a pipe somebody else holds open is not waited for.
 fn run_tool(exe: &Path, cwd: &Path, secs: u64) -> Result<String, String> {
     use std::process::{Command, Stdio};
     let mut tries = 0;
     let mut child = loop {
-        match Command::new(exe)
-            .arg("doctor")
+        let mut c = Command::new(exe);
+        c.arg("doctor")
             .current_dir(cwd)
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .spawn()
-        {
+            .stderr(Stdio::piped());
+        for (k, _) in std::env::vars_os() {
+            if k.to_str().is_some_and(scrubbed) {
+                c.env_remove(&k);
+            }
+        }
+        #[cfg(unix)]
+        std::os::unix::process::CommandExt::process_group(&mut c, 0);
+        match c.spawn() {
             Ok(c) => break c,
             // a file written a moment ago can still be open in a child another thread forked
             Err(e) if e.raw_os_error() == Some(26) && tries < 100 => {
@@ -817,30 +873,31 @@ fn run_tool(exe: &Path, cwd: &Path, secs: u64) -> Result<String, String> {
             Err(e) => return Err(e.to_string()),
         }
     };
-    let read = |mut s: Box<dyn Read + Send>| {
-        std::thread::spawn(move || {
-            let mut b = Vec::new();
-            let _ = s.read_to_end(&mut b);
-            b
-        })
-    };
-    let out = child.stdout.take().map(|s| read(Box::new(s)));
-    let err = child.stderr.take().map(|s| read(Box::new(s)));
+    let out = child.stdout.take().map(capture);
+    let err = child.stderr.take().map(capture);
     let deadline = Instant::now() + Duration::from_secs(secs);
     let finished = loop {
         match child.try_wait() {
             Ok(Some(_)) => break true,
             Ok(None) if Instant::now() < deadline => std::thread::sleep(Duration::from_millis(20)),
             _ => {
+                kill_group(child.id());
                 let _ = child.kill();
                 let _ = child.wait();
                 break false;
             }
         }
     };
+    // after the kill the pipes close, unless something outside the group holds them: wait a
+    // moment for what was said, never for the end of a stream
+    let wait = if finished {
+        Duration::from_secs(5)
+    } else {
+        Duration::from_millis(300)
+    };
     let mut text = String::new();
-    for h in [out, err].into_iter().flatten() {
-        if let Ok(b) = h.join() {
+    for rx in [out, err].into_iter().flatten() {
+        if let Ok(b) = rx.recv_timeout(wait) {
             text.push_str(&String::from_utf8_lossy(&b));
         }
     }
@@ -870,10 +927,20 @@ fn tool_doctors(cx: &Cx) -> Vec<(String, Result<String, String>)> {
         let Some(ver) = ver.and_then(|v| Version::parse(&v).ok()) else {
             continue;
         };
+        let name = format!("{tool} {ver}");
+        // the doctor does not run a binary it has just found changed
+        if !verify_toolchain(&cx.home, tool, &ver).is_empty() {
+            out.push((
+                name,
+                Err("not run: its toolchain differs from its receipt".to_string()),
+            ));
+            continue;
+        }
         let Some(exe) = super::tool_exe(&cx.home, tool, &ver) else {
+            out.push((name, Err("not run: no readable receipt".to_string())));
             continue;
         };
-        out.push((format!("{tool} {ver}"), run_tool(&exe, &cx.cwd, 60)));
+        out.push((name, run_tool(&exe, &cx.home.root(), 60)));
     }
     out
 }
@@ -949,4 +1016,73 @@ pub fn run(cx: &mut Cx, a: &DoctorArgs) -> Result<Report, InstallerError> {
         }
     };
     Ok(report.data(data))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::os::unix::fs::PermissionsExt;
+
+    fn script(dir: &Path, body: &str) -> PathBuf {
+        let p = dir.join("tool");
+        let tmp = dir.join("tool.new");
+        std::fs::write(&tmp, format!("#!/bin/sh\n{body}\n")).unwrap();
+        std::fs::set_permissions(&tmp, std::fs::Permissions::from_mode(0o755)).unwrap();
+        std::fs::rename(&tmp, &p).unwrap();
+        p
+    }
+
+    #[test]
+    fn the_tool_runs_in_the_directory_it_is_given() {
+        let t = tempfile::tempdir().unwrap();
+        let home = tempfile::tempdir().unwrap();
+        let exe = script(t.path(), "pwd");
+        let out = run_tool(&exe, home.path(), 20).unwrap();
+        assert_eq!(
+            Path::new(out.trim()).canonicalize().unwrap(),
+            home.path().canonicalize().unwrap()
+        );
+    }
+
+    #[test]
+    fn each_stream_is_cut_at_the_cap() {
+        let t = tempfile::tempdir().unwrap();
+        let exe = script(
+            t.path(),
+            "head -c 2000000 /dev/zero | tr '\\0' x; head -c 2000000 /dev/zero | tr '\\0' y >&2",
+        );
+        let out = run_tool(&exe, t.path(), 30).unwrap();
+        assert_eq!(out.matches('x').count(), TOOL_OUTPUT_CAP);
+        assert_eq!(out.matches('y').count(), TOOL_OUTPUT_CAP);
+    }
+
+    #[test]
+    fn a_helper_holding_the_pipe_does_not_hang_the_doctor() {
+        let t = tempfile::tempdir().unwrap();
+        // the tool starts a helper that keeps the pipes open, then never finishes itself
+        let exe = script(t.path(), "echo started; sleep 60 & sleep 60");
+        let began = Instant::now();
+        let err = run_tool(&exe, t.path(), 1).unwrap_err();
+        assert!(err.contains("did not finish"), "{err}");
+        assert!(
+            began.elapsed() < Duration::from_secs(10),
+            "waited {:?} for a stream",
+            began.elapsed()
+        );
+    }
+
+    #[test]
+    fn library_loading_variables_are_scrubbed() {
+        for n in [
+            "LD_PRELOAD",
+            "LD_LIBRARY_PATH",
+            "DYLD_INSERT_LIBRARIES",
+            "DYLD_FALLBACK_LIBRARY_PATH",
+        ] {
+            assert!(scrubbed(n), "{n}");
+        }
+        for n in ["PATH", "HOME", "LD_DEBUG_NOT", "LANG"] {
+            assert!(!scrubbed(n), "{n}");
+        }
+    }
 }

@@ -213,16 +213,14 @@ fn a4_repair_regenerates_shims_and_index() {
 fn a4_repair_dry_run_writes_nothing() {
     let fx = setup();
     damage_three(&fx);
-    let snap = |fx: &Fixture| Snapshot::take(&fx.user_home).without(&[".cigscript/installer/lock"]);
-    let before = snap(&fx);
+    // the lock file holds a pid: a dry run that took the lock would change it
+    let before = Snapshot::take(&fx.user_home);
     let o = cigi(&fx, &["--json", "repair", "--dry-run"]);
     ok(&o);
     assert_eq!(files(&o)["dry_run"], true);
-    snap(&fx).assert_same(&before);
+    Snapshot::take(&fx.user_home).assert_same(&before);
 }
 
-/// Killed at every journal point, repair leaves the home as damaged as it was or whole, never
-/// between; the next command says so once and the repair can be run again.
 #[test]
 fn a4_repair_kill_sweep() {
     let mut crashes = 0;
@@ -249,8 +247,8 @@ fn a4_repair_kill_sweep() {
                 break; // this phase has fewer than n lines
             }
             crashes += 1;
-            // the next command that takes the lock settles the journal
-            let o = cigi(&fx, &["repair", "--dry-run"]);
+            // the next command that takes the lock settles the journal (a dry run of `repair` does not)
+            let o = cigi(&fx, &["gc", "--dry-run"]);
             ok(&o);
             let now = view(&fx);
             if now.diff(&whole).is_empty() {

@@ -14,6 +14,11 @@ use crate::error::HomeError;
 use crate::platform;
 use crate::store::Store;
 
+/// The file in `installer/` that says this installer made the home.
+pub const OWNER_FILE: &str = ".owner";
+/// What it says; `uninstall --all` accepts a marker that starts with the first word.
+pub const OWNER_TEXT: &str = "ciginstaller home, format 1\n";
+
 /// The `~/.cigscript` directory (or `CIGSCRIPT_HOME`) and the user's own home,
 /// which profiles live under.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -119,6 +124,15 @@ impl Home {
     /// directories are never re-moded.
     pub fn ensure_layout(&self) -> Result<(), HomeError> {
         self.mkdir_mode(&self.root, 0o700)?;
+        // the home and installer/ are the user's alone: a looser one is tightened
+        for p in [self.root.clone(), self.installer()] {
+            if platform::mode_of(&p).is_some_and(|m| m & 0o077 != 0) {
+                if self.root == p && !p.is_dir() {
+                    continue;
+                }
+                let _ = platform::set_mode(&p, 0o700);
+            }
+        }
         for (p, mode) in [
             (self.bin(), 0o755),
             (self.toolchains(), 0o755),
@@ -133,7 +147,34 @@ impl Home {
         ] {
             self.mkdir_mode(&p, mode)?;
         }
+        self.write_owner_marker();
         Ok(())
+    }
+
+    /// `installer/.owner`: written where the layout is made, so a later `uninstall --all` can tell
+    /// a home this installer made from a directory that merely has an `installer/` in it.
+    fn write_owner_marker(&self) {
+        let p = self.owner_marker();
+        if fs::symlink_metadata(&p).is_err() {
+            let _ = fs::write(&p, OWNER_TEXT);
+            let _ = platform::set_mode(&p, 0o600);
+        }
+    }
+
+    pub fn owner_marker(&self) -> PathBuf {
+        self.installer().join(OWNER_FILE)
+    }
+
+    /// The home's own directories that others can read or write (`doctor` reports them; the next
+    /// command that lays out the home tightens them).
+    pub fn loose_dirs(&self) -> Vec<(PathBuf, u32)> {
+        [self.root.clone(), self.installer()]
+            .into_iter()
+            .filter_map(|p| {
+                let m = platform::mode_of(&p)?;
+                (p.is_dir() && m & 0o077 != 0).then_some((p, m & 0o777))
+            })
+            .collect()
     }
 
     fn mkdir_mode(&self, p: &Path, mode: u32) -> Result<(), HomeError> {

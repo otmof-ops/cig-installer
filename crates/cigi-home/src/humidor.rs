@@ -250,10 +250,15 @@ pub fn remove_all_humidor_mirrors(txn: &mut Txn, home: &Home) -> Result<Vec<Stri
             .get("version")
             .and_then(|v| v.as_str())
             .map(str::to_string);
-        match (ours, ver) {
-            (true, Some(v)) if !v.contains(['/', '\\']) && !v.contains("..") && !v.is_empty() => {
-                txn.delete(&home.humidor().join(&v))?;
-                gone.push(v);
+        // the name of a directory under humidor/ is a version that parses and prints as it was
+        // written: `.`, `..`, `a/b` and the like are never a path to delete
+        let plain = ver
+            .as_deref()
+            .filter(|v| Version::parse(v).is_ok_and(|p| p.to_string() == *v));
+        match (ours, plain) {
+            (true, Some(v)) => {
+                txn.delete(&home.humidor().join(v))?;
+                gone.push(v.to_string());
             }
             _ => keep.push(e),
         }

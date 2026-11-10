@@ -19,7 +19,7 @@ use cig_compat::Version;
 use cigi_home::path::block_state;
 use cigi_home::state::HistoryEntry;
 use cigi_home::toolchain::referenced_objects;
-use cigi_home::uninstall::{discard_aside, leftover_asides, move_installer_aside};
+use cigi_home::uninstall::{discard_aside, move_installer_aside};
 use cigi_home::{
     installed, now_rfc3339, path_block, read_receipt, remove_all_humidor_mirrors,
     remove_humidor_mirror, remove_path_block, remove_shims, shim_path, Home, Journal, ObjectId,
@@ -29,7 +29,7 @@ use cigi_ui::{Icon, InstallerError, Question, Report, EXIT_REFUSED, EXIT_USAGE};
 use serde_json::json;
 
 use super::gc::{finish_pending, record_pending};
-use super::health::{remove_committed_txn, shim_names, size_text};
+use super::health::{pending_txns, remove_committed_txn, shim_names, size_text};
 use super::{cached_yanked, save_and_flip, settle};
 use crate::cx::Cx;
 use crate::errors::ie;
@@ -154,7 +154,10 @@ fn tool(cx: &mut Cx, t: &str, dry_run: bool) -> Result<Report, InstallerError> {
             "ciginstaller uninstall --all",
         ));
     }
-    cx.lock_and_recover()?;
+    // a dry run reads and takes no lock: no layout is made, nothing is recovered
+    if !dry_run {
+        cx.lock_and_recover()?;
+    }
     let home = cx.home.clone();
     let gone: Vec<(String, Version)> = installed(&home)
         .into_iter()
@@ -180,9 +183,15 @@ fn tool(cx: &mut Cx, t: &str, dry_run: bool) -> Result<Report, InstallerError> {
         for (x, v) in &gone {
             r = r.detail(format!("would remove {}", home.toolchain(x, v).display()));
         }
-        return Ok(r
-            .next(format!("ciginstaller uninstall {t}"))
-            .data(json!({ "dry_run": true, "tool": t, "versions": versions })));
+        let interrupted = pending_txns(&home);
+        for i in &interrupted {
+            r = r.detail(format!(
+                "an interrupted transaction is waiting: {i}; a real run settles it first"
+            ));
+        }
+        return Ok(r.next(format!("ciginstaller uninstall {t}")).data(json!({
+            "dry_run": true, "tool": t, "versions": versions, "interrupted": interrupted,
+        })));
     }
     let tool_name = t.to_string();
     let removed = remove_builds(
@@ -211,7 +220,9 @@ fn tool(cx: &mut Cx, t: &str, dry_run: bool) -> Result<Report, InstallerError> {
 }
 
 fn carton(cx: &mut Cx, c: &str, dry_run: bool) -> Result<Report, InstallerError> {
-    cx.lock_and_recover()?;
+    if !dry_run {
+        cx.lock_and_recover()?;
+    }
     let home = cx.home.clone();
     let name = Version::parse(c).map_or_else(|_| c.to_string(), |v| v.to_string());
     let Some(rec) = cx.state.cartons.get(&name).cloned() else {
@@ -266,9 +277,15 @@ fn carton(cx: &mut Cx, c: &str, dry_run: bool) -> Result<Report, InstallerError>
         for (t, v) in &gone {
             r = r.detail(format!("would remove {}", home.toolchain(t, v).display()));
         }
-        return Ok(r
-            .next(format!("ciginstaller remove {name}"))
-            .data(json!({ "dry_run": true, "carton": name })));
+        let interrupted = pending_txns(&home);
+        for i in &interrupted {
+            r = r.detail(format!(
+                "an interrupted transaction is waiting: {i}; a real run settles it first"
+            ));
+        }
+        return Ok(r.next(format!("ciginstaller remove {name}")).data(json!({
+            "dry_run": true, "carton": name, "interrupted": interrupted,
+        })));
     }
     let n = name.clone();
     let removed = remove_builds(
@@ -360,26 +377,15 @@ fn snapshot_entries(home: &Home) -> Vec<serde_json::Value> {
 
 fn all(cx: &mut Cx, a: &UninstallArgs) -> Result<Report, InstallerError> {
     let home = cx.home.clone();
-    let mut lines: Vec<String> = Vec::new();
 
-    // a run cut short after its commit point left only a journal beside the home
-    let stale: Vec<_> = leftover_asides(&home)
-        .into_iter()
-        .filter(|x| !x.kept)
-        .collect();
     if !home.installer().exists() {
-        if !a.dry_run {
-            for s in &stale {
-                discard_aside(&home, &s.path).map_err(ie)?;
-                lines.push(format!("removed {}", s.path.display()));
-            }
-        }
-        let mut r = Report::done("nothing to uninstall: this home has no installer/ directory");
-        for l in lines {
-            r = r.detail(l);
-        }
-        return Ok(r.data(json!({ "removed": [], "changed": !stale.is_empty() })));
+        // (a journal a cut-short run left beside the home is for `gc` to discard)
+        return Ok(
+            Report::done("nothing to uninstall: this home has no installer/ directory")
+                .data(json!({ "removed": [], "changed": false })),
+        );
     }
+    ours(&home)?;
 
     // what there is to remove, before anything is asked or touched
     let bins = bin_entries(&home);
@@ -409,7 +415,11 @@ fn all(cx: &mut Cx, a: &UninstallArgs) -> Result<Report, InstallerError> {
             plan.push(format!("the PATH block in {}", p.display()));
         }
     }
-    plan.push(home.installer().display().to_string());
+    plan.push(format!(
+        "{} (the installer's state, your ciginstaller settings in installer/config, the manifest cache and the journals)",
+        home.installer().display()
+    ));
+    let stays = stays(&home);
 
     if a.dry_run {
         let mut r = Report::done(format!(
@@ -419,18 +429,22 @@ fn all(cx: &mut Cx, a: &UninstallArgs) -> Result<Report, InstallerError> {
         for p in &plan {
             r = r.detail(format!("would remove {p}"));
         }
+        r = r.detail(stays_line(&home, &stays));
         r = r.detail(not_in_build());
         return Ok(r
-            .next("ciginstaller uninstall --all")
-            .data(json!({ "dry_run": true, "would_remove": plan })));
+            .next("ciginstaller uninstall --all --yes-irreversible")
+            .data(json!({
+                "dry_run": true, "would_remove": plan, "stays": stays,
+            })));
     }
 
-    let q = Question::yes_no("Remove everything ciginstaller put on this machine?", false)
-        .summary(&format!(
-            "{} stays, apart from what the family added",
-            home.root().display()
-        ))
-        .detail("your run records, the tin, config and backups are kept");
+    let q = Question::irreversible(&format!(
+        "Remove everything ciginstaller put on {}?",
+        home.root().display()
+    ))
+    .summary("it cannot be undone")
+    .detail(&stays_line(&home, &stays))
+    .detail("installer/ goes with it: the installer's state, installer/config (your ciginstaller settings), the manifest cache and the journals");
     let ans = cx.ui.ask(&q);
     if !ans.is_yes(&q) {
         if ans.exit_code().is_some() {
@@ -438,7 +452,7 @@ fn all(cx: &mut Cx, a: &UninstallArgs) -> Result<Report, InstallerError> {
                 "E1871",
                 "uninstall --all needs a yes and there is no terminal to ask on",
             )
-            .with_fix("ciginstaller uninstall --all --yes")
+            .with_fix("ciginstaller uninstall --all --yes-irreversible")
             .with_exit(EXIT_USAGE));
         }
         return Ok(Report::new(Icon::Note, "nothing was removed")
@@ -486,8 +500,9 @@ fn all(cx: &mut Cx, a: &UninstallArgs) -> Result<Report, InstallerError> {
     let _ = std::fs::remove_dir(home.root());
 
     let mut r = Report::done(format!(
-        "everything ciginstaller added is removed ({} thing(s)); your data stays",
-        plan.len()
+        "everything ciginstaller added is removed ({} thing(s)); {}",
+        plan.len(),
+        stays_line(&home, &stays)
     ));
     for p in &plan {
         r = r.detail(format!("removed {p}"));
@@ -502,9 +517,89 @@ fn all(cx: &mut Cx, a: &UninstallArgs) -> Result<Report, InstallerError> {
     Ok(r.data(json!({
         "changed": true,
         "removed": plan,
+        "stays": stays,
         "notes": notes,
         "journal": if kept { json!(aside.display().to_string()) } else { json!(null) },
     })))
+}
+
+/// What is in the home that `--all` does not touch: the names of the entries of the home that
+/// are not the installer's (`runs/`, `tin/`, `config`, ...), and the parts of `bin/` and
+/// `humidor/` that are not the installer's.
+fn stays(home: &Home) -> Vec<String> {
+    let ours = ["bin", "toolchains", "store", "installer", "humidor"];
+    let mut out: Vec<String> = Vec::new();
+    if let Ok(rd) = std::fs::read_dir(home.root()) {
+        for e in rd.flatten() {
+            let name = e.file_name().to_string_lossy().into_owned();
+            if ours.contains(&name.as_str()) {
+                continue;
+            }
+            let dir = e.file_type().is_ok_and(|t| t.is_dir());
+            out.push(if dir { format!("{name}/") } else { name });
+        }
+    }
+    let mine = bin_entries(home);
+    if std::fs::read_dir(home.bin()).is_ok_and(|rd| rd.flatten().any(|e| !mine.contains(&e.path())))
+    {
+        out.push("bin/ (files in it that are not shims)".to_string());
+    }
+    if let Ok(es) = cigi_home::humidor::entries(home) {
+        if es.iter().any(|e| e.source != cigi_home::humidor::SOURCE) {
+            out.push("humidor/ (entries that are not the installer's)".to_string());
+        }
+    }
+    out.sort();
+    out
+}
+
+fn stays_line(home: &Home, stays: &[String]) -> String {
+    if stays.is_empty() {
+        format!("nothing else of yours is in {}", home.root().display())
+    } else {
+        format!(
+            "stays in {}: {}; the installer's own settings and cache do not stay",
+            home.root().display(),
+            stays.join(", ")
+        )
+    }
+}
+
+/// Is this home one the installer made? Its `installer/state.json` must parse as the installer's
+/// own state, and an owner marker, where there is one, must say so. A home made before the marker
+/// existed has none and is accepted on its state alone. Nothing is changed or created here.
+fn ours(home: &Home) -> Result<(), InstallerError> {
+    let refuse = |why: String| {
+        InstallerError::new(
+            "E1868",
+            format!(
+                "{} is not a home this installer made: {why}",
+                home.root().display()
+            ),
+        )
+        .with_hint("uninstall --all removes only a home with the installer's own state in it")
+        .with_fix("ciginstaller explain E1868")
+        .with_exit(EXIT_REFUSED)
+    };
+    if std::fs::symlink_metadata(home.installer()).is_ok_and(|m| !m.is_dir()) {
+        return Err(refuse("installer/ is not a directory".into()));
+    }
+    if let Ok(text) = std::fs::read_to_string(home.owner_marker()) {
+        if !text.starts_with("ciginstaller") {
+            return Err(refuse("installer/.owner says something else".into()));
+        }
+    }
+    let text = std::fs::read_to_string(home.state_path())
+        .map_err(|_| refuse("there is no installer/state.json".into()))?;
+    let state: State = serde_json::from_str(&text).map_err(|e| {
+        refuse(format!(
+            "installer/state.json is not the installer's state ({e})"
+        ))
+    })?;
+    if state.format == 0 {
+        return Err(refuse("installer/state.json has no format".into()));
+    }
+    Ok(())
 }
 
 fn not_in_build() -> &'static str {
@@ -530,6 +625,10 @@ fn remove_family(
         match remove_path_block(txn, shell, home).map_err(ie)? {
             PathChange::Edited => notes.push(format!(
                 "the block in {} was edited by hand, so it is left alone (E1862): delete the lines between the cigscript markers yourself",
+                profile.display()
+            )),
+            PathChange::Emptied => notes.push(format!(
+                "{} is a link, or lies outside your home, so it was not deleted: the block is gone and the file is left empty",
                 profile.display()
             )),
             PathChange::Skipped => notes.push(format!(

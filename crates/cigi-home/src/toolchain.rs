@@ -189,6 +189,16 @@ fn clean_rel(p: &Path) -> Result<String, ToolchainError> {
     Ok(parts.join("/"))
 }
 
+/// A path a receipt may name inside its toolchain: relative, `/`-separated, every part a plain
+/// name (no `..`, no `.`, no empty part, no backslash, no drive or NUL), and not the receipt itself.
+pub fn safe_rel(p: &str) -> bool {
+    !p.is_empty()
+        && p != RECEIPT_NAME
+        && !p.contains(['\\', '\0'])
+        && p.as_bytes().get(1) != Some(&b':')
+        && p.split('/').all(|c| !c.is_empty() && c != "." && c != "..")
+}
+
 /// Read and check `.cigi-receipt.json` of an installed toolchain.
 pub fn read_receipt(home: &Home, tool: &str, v: &Version) -> Result<Receipt, ToolchainError> {
     read_receipt_at(&home.toolchain(tool, v), tool, &v.to_string())
@@ -217,7 +227,21 @@ fn read_receipt_at(dir: &Path, tool: &str, version: &str) -> Result<Receipt, Too
             "format {found}, this build knows {RECEIPT_FORMAT}"
         )));
     }
-    serde_json::from_value(val).map_err(|e| bad(e.to_string()))
+    let r: Receipt = serde_json::from_value(val).map_err(|e| bad(e.to_string()))?;
+    // a path in a receipt reaches `restore_file` and the shim's exec: it must stay in its toolchain
+    for p in r
+        .files
+        .iter()
+        .map(|f| f.path.as_str())
+        .chain(r.shims.iter().map(|s| s.path.as_str()))
+    {
+        if !safe_rel(p) {
+            return Err(bad(format!(
+                "the path `{p}` is not a plain path inside the toolchain"
+            )));
+        }
+    }
+    Ok(r)
 }
 
 /// Build `toolchains/<tool>/<version>/` from staged files, inside `txn`:
@@ -315,6 +339,9 @@ pub fn verify_toolchain(home: &Home, tool: &str, v: &Version) -> Vec<Damage> {
     };
     let mut out = Vec::new();
     let mut listed = BTreeSet::new();
+    if receipt.files.iter().any(|f| !safe_rel(&f.path)) {
+        return vec![Damage::NoReceipt];
+    }
     for f in &receipt.files {
         listed.insert(f.path.clone());
         let p = dir.join(&f.path);
@@ -377,7 +404,8 @@ pub fn installed(home: &Home) -> Vec<(String, Version)> {
     };
     for t in tools.flatten() {
         let tool = t.file_name().to_string_lossy().into_owned();
-        if tool.starts_with('.') {
+        // a link where a directory should be is not an install (a remove would go through it)
+        if tool.starts_with('.') || !t.file_type().is_ok_and(|ft| ft.is_dir()) {
             continue;
         }
         let Ok(vs) = fs::read_dir(t.path()) else {
@@ -385,7 +413,7 @@ pub fn installed(home: &Home) -> Vec<(String, Version)> {
         };
         for v in vs.flatten() {
             let name = v.file_name().to_string_lossy().into_owned();
-            if name.starts_with('.') {
+            if name.starts_with('.') || !v.file_type().is_ok_and(|ft| ft.is_dir()) {
                 continue;
             }
             let Ok(ver) = Version::parse(&name) else {
@@ -488,12 +516,30 @@ fn check_toolchain_name(tool: &str, v: &Version) -> Result<(), ToolchainError> {
     Ok(())
 }
 
+/// `toolchains/<tool>` and `toolchains/<tool>/<version>` must be directories, not links: a
+/// remove goes through an intermediate link to wherever it points.
+fn check_real_dirs(home: &Home, tool: &str, v: &Version) -> Result<(), ToolchainError> {
+    for p in [home.toolchains().join(tool), home.toolchain(tool, v)] {
+        match fs::symlink_metadata(&p) {
+            Ok(m) if m.file_type().is_symlink() => {
+                return Err(ToolchainError::BadPath(format!(
+                    "{} is a symbolic link, not a toolchain directory",
+                    p.display()
+                )))
+            }
+            _ => {}
+        }
+    }
+    Ok(())
+}
+
 /// Remove a toolchain directory outside any transaction, after the transaction that stopped
 /// using it has committed (`gc`): best effort, idempotent, same name rules as
 /// [`remove_toolchain`]. Nothing runs from it any more, so a crash before this leaves only a
 /// directory the next `gc` removes.
 pub fn remove_toolchain_now(home: &Home, tool: &str, v: &Version) -> Result<(), ToolchainError> {
     check_toolchain_name(tool, v)?;
+    check_real_dirs(home, tool, v)?;
     let dir = home.toolchain(tool, v);
     let first = fs::remove_dir_all(&dir);
     if let Err(e) = first {
@@ -547,6 +593,7 @@ pub fn remove_toolchain(
     v: &Version,
 ) -> Result<(), ToolchainError> {
     check_toolchain_name(tool, v)?;
+    check_real_dirs(home, tool, v)?;
     txn.delete(&home.toolchain(tool, v))?;
     Ok(())
 }
@@ -560,10 +607,17 @@ pub fn restore_file(
     v: &Version,
     file: &ReceiptFile,
 ) -> Result<(), ToolchainError> {
+    if !safe_rel(&file.path) {
+        return Err(ToolchainError::BadPath(file.path.clone()));
+    }
     let store = home.object_store();
     let id = ObjectId::new(file.sha256.clone(), file.exec);
     store.verify(&id)?;
-    let dest = home.toolchain(tool, v).join(&file.path);
+    let tc = home.toolchain(tool, v);
+    let dest = tc.join(&file.path);
+    if !dest.starts_with(&tc) {
+        return Err(ToolchainError::BadPath(file.path.clone()));
+    }
     if let Some(parent) = dest.parent() {
         txn.mkdir_all(parent)?;
     }

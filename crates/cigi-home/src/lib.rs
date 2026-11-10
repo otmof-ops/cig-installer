@@ -39,7 +39,7 @@ pub use error::{
     HomeError, HumidorError, JournalError, LockError, PathError, ShimError, StateError, StoreError,
     ToolchainError,
 };
-pub use home::Home;
+pub use home::{Home, OWNER_FILE, OWNER_TEXT};
 pub use humidor::{
     mirror_humidor, remirror_humidor, remove_all_humidor_mirrors, remove_humidor_mirror,
     HumidorEntry, HumidorMirror,

@@ -1258,7 +1258,7 @@ remedy = "run the tool's own doctor by hand to see what it waits for"
 code = "E1865"
 title = "an uninstall was cut short after its last step"
 meaning = "uninstall --all had already moved installer/ aside, which is its commit point, when it stopped, so everything is removed and only its journal is left beside the home."
-fix = "`ciginstaller uninstall --all`"
+fix = "`ciginstaller gc`"
 no = "none"
 arises = ["doctor"]
 tags = ["installer"]
@@ -1267,7 +1267,47 @@ related = ["E1861", "E1832"]
 [[code.cause]]
 why = "the process was killed or the machine lost power between the move and the delete of the journal"
 probe = "none"
-remedy = "`ciginstaller uninstall --all` finds the journal beside the home and deletes it"
+remedy = "`ciginstaller gc` finds the journal beside the home and deletes it"
+
+[[code]]
+code = "E1868"
+title = "this is not a home the installer made"
+meaning = "uninstall --all found no installer state of its own in this home (installer/state.json is missing or is not the installer's), so it removed nothing: a directory that only has an installer/ in it is not the installer's to empty."
+fix = "`ciginstaller explain E1868`, then check CIGSCRIPT_HOME or --home"
+no = "these-are-mine"
+arises = ["any"]
+tags = ["installer", "irreversible-involved"]
+since = "0.1.0"
+related = ["E1861", "E1863"]
+[[code.cause]]
+why = "CIGSCRIPT_HOME or --home points at a directory that is not ~/.cigscript"
+no = "these-are-mine"
+probe = "state-dir-writable"
+remedy = "point it at the home you installed into, or unset it"
+[[code.cause]]
+why = "an install never finished, so there is no state.json yet"
+probe = "installed-cartons"
+remedy = "`ciginstaller install carton` finishes it, then uninstall"
+
+[[code]]
+code = "E1869"
+title = "a path the installer will not follow or remove"
+meaning = "A path the installer was about to remove or write is a symbolic link where it keeps a directory, a link it cannot journal, or lies outside the place it may touch, so it stopped and left the path alone."
+fix = "`ciginstaller doctor`, then remove the path named in the message by hand if you mean it"
+no = "these-are-mine"
+arises = ["any"]
+tags = ["installer"]
+since = "0.1.0"
+related = ["E1862", "E1831"]
+[[code.cause]]
+why = "something replaced a directory of the installer's with a link"
+no = "these-are-mine"
+probe = "path-exists"
+remedy = "remove the link by hand, then run `ciginstaller repair`"
+[[code.cause]]
+why = "a shell profile is a link into a dotfiles repository"
+probe = "profile-block"
+remedy = "delete the lines between the cigscript markers in the file the link points to"
 
 [[code]]
 code = "E1870"
@@ -1288,7 +1328,7 @@ remedy = "`ciginstaller <command> --help` shows the flags"
 code = "E1871"
 title = "a question was needed and there is no TTY"
 meaning = "The command needs an answer and there is no terminal to ask on, so the safe default was taken, which was no."
-fix = "`ciginstaller <command> --yes`, if you mean it"
+fix = "`ciginstaller <command> --yes`, or `--yes-irreversible` for a step that cannot be undone, if you mean it"
 no = "none"
 arises = ["any"]
 tags = ["installer", "ci-likely"]

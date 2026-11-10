@@ -363,7 +363,29 @@ fn size_text(n: u64) -> String {
 
 pub fn run(cx: &mut Cx, a: &GcArgs) -> Result<Report, InstallerError> {
     cx.lock_and_recover()?;
-    run_locked(cx, a)
+    // the journals a cut-short `uninstall --all` left beside the home (E1865), whether or not
+    // `installer/` has been made again since; only the exact sibling name is ever removed
+    let mut leftovers: Vec<String> = Vec::new();
+    for s in cigi_home::uninstall::leftover_asides(&cx.home)
+        .into_iter()
+        .filter(|s| !s.kept)
+    {
+        if !a.dry_run {
+            cigi_home::uninstall::discard_aside(&cx.home, &s.path).map_err(ie)?;
+        }
+        leftovers.push(s.path.display().to_string());
+    }
+    let mut r = run_locked(cx, a)?;
+    let verb = if a.dry_run { "would remove" } else { "removed" };
+    for l in &leftovers {
+        r = r.detail(format!(
+            "{verb} {l} (the journal of an interrupted uninstall)"
+        ));
+    }
+    if let Some(o) = r.data.as_object_mut() {
+        o.insert("uninstall_journals".into(), json!(leftovers));
+    }
+    Ok(r)
 }
 
 pub fn run_locked(cx: &mut Cx, a: &GcArgs) -> Result<Report, InstallerError> {

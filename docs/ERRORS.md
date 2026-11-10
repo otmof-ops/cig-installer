@@ -671,9 +671,11 @@ the installer: shims, pins, updates, rollbacks, repair, uninstall, and the comma
 | [`E1862`](#e1862-a-profile-block-was-edited-and-is-left-alone) | a profile block was edited and is left alone | these are MY ciggies | `ciginstaller doctor` |
 | [`E1863`](#e1863-nothing-installed-by-that-name-to-repair-uninstall-or-remove) | nothing installed by that name to repair, uninstall or remove | don't have any over here | `ciginstaller list` |
 | [`E1864`](#e1864-a-tools-own-doctor-could-not-be-run) | a tool's own doctor could not be run | not one of the four | `ciginstaller doctor --tools`, once the tool runs |
-| [`E1865`](#e1865-an-uninstall-was-cut-short-after-its-last-step) | an uninstall was cut short after its last step | not one of the four | `ciginstaller uninstall --all` |
+| [`E1865`](#e1865-an-uninstall-was-cut-short-after-its-last-step) | an uninstall was cut short after its last step | not one of the four | `ciginstaller gc` |
+| [`E1868`](#e1868-this-is-not-a-home-the-installer-made) | this is not a home the installer made | these are MY ciggies | `ciginstaller explain E1868`, then check CIGSCRIPT_HOME or --home |
+| [`E1869`](#e1869-a-path-the-installer-will-not-follow-or-remove) | a path the installer will not follow or remove | these are MY ciggies | `ciginstaller doctor`, then remove the path named in the message by hand if you mean it |
 | [`E1870`](#e1870-usage) | usage | not one of the four | `ciginstaller --help`, or `ciginstaller <command> --help` |
-| [`E1871`](#e1871-a-question-was-needed-and-there-is-no-tty) | a question was needed and there is no TTY | not one of the four | `ciginstaller <command> --yes`, if you mean it |
+| [`E1871`](#e1871-a-question-was-needed-and-there-is-no-tty) | a question was needed and there is no TTY | not one of the four | `ciginstaller <command> --yes`, or `--yes-irreversible` for a step that cannot be undone, if you mean it |
 | [`E1872`](#e1872-platform-not-supported) | platform not supported | don't have any over here | `ciginstaller carton show <version> --verbose` lists the targets |
 | [`E1873`](#e1873-offline-was-requested-and-the-step-needs-the-network) | offline was requested and the step needs the network | these are MY ciggies | `ciginstaller <command>` without --offline |
 | [`E1874`](#e1874-there-is-nothing-to-build-the-shims-from) | there is nothing to build the shims from | don't have any over here | `ciginstaller install carton` |
@@ -1037,13 +1039,47 @@ Related: [`E1831`](#e1831-installed-file-differs-from-its-receipt).
 
 uninstall --all had already moved installer/ aside, which is its commit point, when it stopped, so everything is removed and only its journal is left beside the home.
 
-**What to type next:** `ciginstaller uninstall --all`
+**What to type next:** `ciginstaller gc`
 
 **Known causes**, ranked; the doctor checks them in this order:
 
-1. the process was killed or the machine lost power between the move and the delete of the journal (no probe; a suggestion, not a finding). **Remedy:** `ciginstaller uninstall --all` finds the journal beside the home and deletes it
+1. the process was killed or the machine lost power between the move and the delete of the journal (no probe; a suggestion, not a finding). **Remedy:** `ciginstaller gc` finds the journal beside the home and deletes it
 
 Related: [`E1861`](#e1861---purge-needs-os-authentication), [`E1832`](#e1832-an-interrupted-change-was-recovered).
+
+### E1868 this is not a home the installer made
+
+*usage · since 0.1.0 · arises in any*
+
+**Kind of no:** these are MY ciggies (the door: it knows you and said no; 403 Forbidden; permission denied; a lock; a refusal by policy).
+
+uninstall --all found no installer state of its own in this home (installer/state.json is missing or is not the installer's), so it removed nothing: a directory that only has an installer/ in it is not the installer's to empty.
+
+**What to type next:** `ciginstaller explain E1868`, then check CIGSCRIPT_HOME or --home
+
+**Known causes**, ranked; the doctor checks them in this order:
+
+1. CIGSCRIPT_HOME or --home points at a directory that is not ~/.cigscript (probe `state-dir-writable`). **Remedy:** point it at the home you installed into, or unset it
+2. an install never finished, so there is no state.json yet (probe `installed-cartons`). **Remedy:** `ciginstaller install carton` finishes it, then uninstall
+
+Related: [`E1861`](#e1861---purge-needs-os-authentication), [`E1863`](#e1863-nothing-installed-by-that-name-to-repair-uninstall-or-remove).
+
+### E1869 a path the installer will not follow or remove
+
+*usage · since 0.1.0 · arises in any*
+
+**Kind of no:** these are MY ciggies (the door: it knows you and said no; 403 Forbidden; permission denied; a lock; a refusal by policy).
+
+A path the installer was about to remove or write is a symbolic link where it keeps a directory, a link it cannot journal, or lies outside the place it may touch, so it stopped and left the path alone.
+
+**What to type next:** `ciginstaller doctor`, then remove the path named in the message by hand if you mean it
+
+**Known causes**, ranked; the doctor checks them in this order:
+
+1. something replaced a directory of the installer's with a link (probe `path-exists`). **Remedy:** remove the link by hand, then run `ciginstaller repair`
+2. a shell profile is a link into a dotfiles repository (probe `profile-block`). **Remedy:** delete the lines between the cigscript markers in the file the link points to
+
+Related: [`E1862`](#e1862-a-profile-block-was-edited-and-is-left-alone), [`E1831`](#e1831-installed-file-differs-from-its-receipt).
 
 ### E1870 usage
 
@@ -1069,7 +1105,7 @@ Related: [`E1871`](#e1871-a-question-was-needed-and-there-is-no-tty).
 
 The command needs an answer and there is no terminal to ask on, so the safe default was taken, which was no.
 
-**What to type next:** `ciginstaller <command> --yes`, if you mean it
+**What to type next:** `ciginstaller <command> --yes`, or `--yes-irreversible` for a step that cannot be undone, if you mean it
 
 **Known causes**, ranked; the doctor checks them in this order:
 
