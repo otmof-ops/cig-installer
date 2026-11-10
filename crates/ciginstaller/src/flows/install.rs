@@ -317,6 +317,9 @@ pub(super) fn materialize_fetched(
                 manifest_sequence: m.sequence,
             },
             shims,
+            license: m
+                .product(&f.tool, &f.version)
+                .and_then(|p| p.license.clone()),
         };
         materialize(txn, home, &f.tool, &f.version, &f.files, prov).map_err(ie)?;
         if f.tool == "cig" {
@@ -481,6 +484,10 @@ pub fn run_locked(cx: &mut Cx, a: &InstallArgs) -> Result<Report, InstallerError
         })));
     }
 
+    // the licenses are shown (and acknowledged) once, before a byte is fetched; the record is written
+    // with the install's own state save, so a decline or a failed install leaves it alone
+    let terms_note = super::terms::gate(cx, &m, &cv, &want)?;
+
     // fetch and admit, outside the transaction: a failure here leaves the home untouched
     let fetched = fetch_builds(cx, &m, &todo)?;
 
@@ -563,6 +570,9 @@ pub fn run_locked(cx: &mut Cx, a: &InstallArgs) -> Result<Report, InstallerError
     for w in &warnings {
         rep = rep.detail(format!("warning {w}"));
     }
+    if let Some(n) = &terms_note {
+        rep = rep.detail(n.line.clone());
+    }
     if let Some(p) = &a.preset {
         rep = rep.detail(format!(
             "preset {p} is recorded; the guard applies it once cig-orchestrator#66 lands"
@@ -610,6 +620,7 @@ pub fn run_locked(cx: &mut Cx, a: &InstallArgs) -> Result<Report, InstallerError
         "changed": true,
         "source": cx.source.name(),
         "preset": a.preset,
+        "terms": terms_note.as_ref().map(|n| n.data.clone()),
         "txn": txn_id,
         "tools": want.iter().map(|(t, v)| json!({
             "tool": t, "version": v.to_string(),
@@ -706,6 +717,7 @@ fn bootstrap(cx: &Cx, txn: &mut Txn) -> Result<(ObjectId, ObjectId), InstallerEr
             manifest_sequence: 0,
         },
         shims: Vec::new(),
+        license: Some(super::terms::INSTALLER_LICENSE.to_string()),
     };
     materialize(txn, &cx.home, "ciginstaller", &ver, &files, prov).map_err(ie)?;
     objects(&cx.home)

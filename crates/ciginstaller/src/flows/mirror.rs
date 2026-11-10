@@ -139,13 +139,21 @@ pub fn run(cx: &mut Cx, a: &MirrorArgs) -> Result<Report, InstallerError> {
     if !dir.is_dir() {
         return Err(refused(format!("{} is not a directory", dir.display())));
     }
-    if cx.source.name() == format!("dir:{}", dir.display()) {
+    // compare canonical forms: a source or a home named through a link (macOS: /var is
+    // /private/var) is the same directory as `dir`, which was canonicalized above
+    let canon = |p: &std::path::Path| std::fs::canonicalize(p).unwrap_or_else(|_| p.to_path_buf());
+    let reads_from = cx
+        .source
+        .name()
+        .strip_prefix("dir:")
+        .map(|s| canon(std::path::Path::new(s)));
+    if reads_from.as_deref() == Some(dir.as_path()) {
         return Err(refused(format!(
             "{} is the mirror this run reads from; give it another directory",
             dir.display()
         )));
     }
-    if dir.starts_with(cx.home.root()) {
+    if dir.starts_with(canon(&cx.home.root())) {
         return Err(refused(format!(
             "{} is inside the home {}; a mirror lives outside it",
             dir.display(),

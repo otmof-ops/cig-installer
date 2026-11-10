@@ -3,6 +3,10 @@
 //! Phase 4 acceptance (SPEC 14.3): `uninstall <tool>`, `uninstall --all`, `remove <carton>`.
 //! `--all` leaves only the user's data, at every kill point.
 
+// Unix only: uninstall tests run shell-script fake products and set Unix modes.
+// The Windows runtime drafts add their own equivalents.
+#![cfg(unix)]
+
 mod common;
 
 use cigi_testkit::{Fixture, Snapshot};

@@ -369,6 +369,11 @@ pub fn assemble(req: &Request, rel: &dyn Releases) -> Result<Assembled, String> 
             }
         }
         into.insert(vs.clone(), Value::Table(product.clone()));
+        if !product.contains_key("license") {
+            report.push(format!(
+                "{tool} {v}: [product.{tool}.\"{vs}\"] has no `license`; `ciginstaller licences` will show it as \"not stated\""
+            ));
+        }
 
         let published = previous
             .as_ref()

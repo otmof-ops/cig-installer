@@ -12,7 +12,8 @@
 //! * a hostile `PATH` is never used to find `stty`, `dd` or `sh`;
 //! * three typed answers that are not options end the run with exit 3.
 
-#![cfg(target_os = "linux")]
+// Linux and macOS: both have `script(1)`, with different arguments (`script_args` below).
+#![cfg(any(target_os = "linux", target_os = "macos"))]
 
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
@@ -20,9 +21,25 @@ use std::process::{Child, ChildStdin, Command, Stdio};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
+/// The arguments for `script` that run `line` on a pseudo-terminal: util-linux takes
+/// `-qec <line> /dev/null`, BSD `script` (macOS) takes `-q /dev/null <command>`.
+fn script_args(line: &str) -> Vec<String> {
+    if cfg!(target_os = "macos") {
+        ["-q", "/dev/null", line].map(String::from).to_vec()
+    } else {
+        ["-qec", line, "/dev/null"].map(String::from).to_vec()
+    }
+}
+
 fn have_script() -> bool {
+    // BSD `script` has no `--version`: ask it to run `true` instead
+    let args = script_args("true");
     Command::new("script")
-        .arg("--version")
+        .args(if cfg!(target_os = "macos") {
+            args
+        } else {
+            vec!["--version".to_string()]
+        })
         .stdout(Stdio::null())
         .stderr(Stdio::null())
         .status()
@@ -68,7 +85,7 @@ impl Tty {
             .env("LANG", "en_US.UTF-8")
             .env("COLORFGBG", "15;0")
             .envs(env.iter().copied())
-            .args(["-qec", &probe().to_string_lossy(), "/dev/null"])
+            .args(script_args(&probe().to_string_lossy()))
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::null());
@@ -114,6 +131,9 @@ impl Tty {
 
     /// Play the terminal: answer the background query with `rgb` after `delay`.
     fn answer_background(&mut self, rgb: &str, delay: Duration) {
+        if cfg!(target_os = "macos") {
+            return; // no query is sent there (detect::query_background), so nothing to answer
+        }
         if self.wait_for("\x1b]11;?") {
             std::thread::sleep(delay);
             self.send(&format!("\x1b]11;rgb:{rgb}\x07"));
@@ -217,6 +237,8 @@ fn an_enter_after_the_key_does_not_answer_the_next_question() {
     assert!(t.wait_for("answer 2: 'n' by Typed"), "{}", t.text());
 }
 
+// Linux only: the macOS probe is off (detect::query_background), so there is no reply to read.
+#[cfg(target_os = "linux")]
 #[test]
 fn a_late_background_reply_never_answers_a_question() {
     if !have_script() {
@@ -236,6 +258,8 @@ fn a_late_background_reply_never_answers_a_question() {
     assert!(t.wait_for("answer 1: 'y' by Typed"), "{}", t.text());
 }
 
+// Linux only: the macOS probe is off (detect::query_background), so there is no reply to read.
+#[cfg(target_os = "linux")]
 #[test]
 fn an_in_time_background_reply_picks_the_theme() {
     if !have_script() {
@@ -263,7 +287,11 @@ fn a_silent_terminal_gets_the_neutral_theme_within_the_budget() {
         .and_then(|r| r.split(' ').next())
         .and_then(|n| n.parse().ok())
         .expect("a time");
-    assert!(ms < 150, "the query took {ms} ms");
+    // #32 bounds the wait for the reply at 50 ms (`detect::tests` measures that wait on its own,
+    // with no spawns in it). This is the whole time to the first prompt, which also spawns the
+    // helpers (stty, sh, dd, kill) and tears them down: tens of milliseconds each on a macOS runner.
+    let budget = if cfg!(target_os = "macos") { 500 } else { 150 };
+    assert!(ms < budget, "the query took {ms} ms (limit {budget})");
 }
 
 #[test]

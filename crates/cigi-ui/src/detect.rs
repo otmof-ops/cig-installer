@@ -107,6 +107,7 @@ pub fn key_of(byte: u8) -> Key {
 /// The device-attributes reply (`ESC [ ? ... c`) that ends the query: terminals answer it
 /// even when they ignore OSC 11, so an unsupportive terminal costs a few milliseconds, not
 /// the whole timeout.
+#[cfg_attr(not(unix), allow(dead_code))] // only the Unix terminal query reads it
 fn answered_da1(buf: &[u8]) -> bool {
     buf.windows(3)
         .position(|w| w == b"\x1b[?")
@@ -116,6 +117,10 @@ fn answered_da1(buf: &[u8]) -> bool {
 /// Is this process in the foreground process group of its terminal? Reads `tpgid` and `pgrp`
 /// from `/proc/self/stat` (Linux). Where there is no `/proc`, the answer is yes.
 pub fn in_foreground() -> bool {
+    // only Linux has `/proc/self/stat`; elsewhere there is nothing to read, so the answer is yes
+    if !cfg!(target_os = "linux") {
+        return true;
+    }
     match std::fs::read_to_string("/proc/self/stat") {
         Ok(stat) => foreground_in_stat(&stat).unwrap_or(false),
         Err(_) => !std::path::Path::new("/proc/self").exists(),
@@ -223,6 +228,38 @@ mod unix {
         }
     }
 
+    /// How long the helpers may take to get the query written, before the wait for the reply starts.
+    const SETUP: Duration = Duration::from_millis(250);
+
+    /// The pid the probe reported, once its whole line has arrived.
+    fn pid_line(got: &[u8]) -> Option<String> {
+        let text = String::from_utf8_lossy(got);
+        let line = text.split_inclusive('\n').find(|l| l.starts_with("pid="))?;
+        let pid = line.strip_suffix('\n')?.strip_prefix("pid=")?;
+        (!pid.is_empty() && pid.chars().all(|c| c.is_ascii_digit())).then(|| pid.to_string())
+    }
+
+    /// Append what arrives on `rx` to `got` until `done(got)` or `deadline`, whichever is first.
+    /// The deadline is hard: a quiet channel returns at it, not after it.
+    pub(super) fn collect(
+        rx: &std::sync::mpsc::Receiver<Vec<u8>>,
+        got: &mut Vec<u8>,
+        deadline: Instant,
+        done: impl Fn(&[u8]) -> bool,
+    ) {
+        while let Some(left) = deadline.checked_duration_since(Instant::now()) {
+            match rx.recv_timeout(left) {
+                Ok(chunk) => {
+                    got.extend_from_slice(&chunk);
+                    if done(got) {
+                        break;
+                    }
+                }
+                Err(_) => break,
+            }
+        }
+    }
+
     const PROBE: &str = "STTY=$1; DD=$2; saved=$3\n\
         case \"$saved\" in ''|-*) exit 1;; esac\n\
         trap '$STTY \"$saved\" </dev/tty' EXIT\n\
@@ -243,15 +280,25 @@ mod unix {
     /// does not answer in time, or anything goes wrong. Pending input is drained before the
     /// terminal is restored, so a late reply is not typed into the next prompt.
     pub fn query_background(timeout: Duration) -> Option<Rgb> {
-        let start = Instant::now();
-        let hard = start + timeout;
+        // macOS: not asked. Under BSD `script(1)` the probe never read a reply that was sent in
+        // time (the cause could not be told apart without a Mac: `stty min 0 time 1`, `dd` on the
+        // tty, or how `script` forwards input), so it would cost its spawns for an answer it cannot
+        // be trusted to read. The theme then comes from `COLORFGBG` or `theme =`, else Neutral.
+        if cfg!(target_os = "macos") {
+            return None;
+        }
+        // `timeout` (#32: 50 ms) bounds the wait for the terminal's reply, which starts when the
+        // probe has written the query. Getting there spawns a handful of helper programs, which
+        // is startup, not waiting: it has its own, looser cap (`SETUP`), so a slow process spawn
+        // (macOS runners take tens of milliseconds each) cannot eat the reply's time.
+        let setup_end = Instant::now() + SETUP;
         let (stty_path, dd, kill) = (tool("stty")?, tool("dd")?, tool("kill"));
         let tty = OpenOptions::new()
             .read(true)
             .write(true)
             .open("/dev/tty")
             .ok()?;
-        let saved = stty(&stty_path, &tty, &["-g"], hard)?;
+        let saved = stty(&stty_path, &tty, &["-g"], setup_end)?;
         if !safe_stty_state(&saved) {
             return None;
         }
@@ -278,22 +325,13 @@ mod unix {
             });
         }
         let mut got = Vec::new();
-        while let Some(left) = hard.checked_duration_since(Instant::now()) {
-            match rx.recv_timeout(left) {
-                Ok(chunk) => {
-                    got.extend_from_slice(&chunk);
-                    if answered_da1(&got) {
-                        break;
-                    }
-                }
-                Err(_) => break,
-            }
+        // the probe prints `pid=<n>` just before it writes the query: that is when the clock starts
+        collect(&rx, &mut got, setup_end, |g| pid_line(g).is_some());
+        if pid_line(&got).is_some() {
+            collect(&rx, &mut got, Instant::now() + timeout, answered_da1);
         }
         // stop the reader by pid (SIGTERM): the script's trap then restores the terminal
-        let pid = String::from_utf8_lossy(&got)
-            .lines()
-            .find_map(|l| l.strip_prefix("pid=").map(str::to_string))
-            .filter(|p| p.chars().all(|c| c.is_ascii_digit()));
+        let pid = pid_line(&got);
         let stop = |sig: &str| {
             if let (Some(k), Some(p)) = (&kill, &pid) {
                 let _ = Command::new(k)
@@ -502,5 +540,50 @@ mod tests {
             assert!(p.starts_with("/bin") || p.starts_with("/usr/bin"), "{p:?}");
         }
         assert!(tool("definitely-not-a-tool").is_none());
+    }
+
+    // #32: the OSC 11 wait is bounded at 50 ms. This measures the wait itself, with no process
+    // spawns in it, so it holds on every platform however slow a spawn is.
+    #[cfg(unix)]
+    #[test]
+    fn a_silent_reply_wait_ends_at_its_deadline() {
+        let (tx, rx) = std::sync::mpsc::channel::<Vec<u8>>();
+        let mut got = Vec::new();
+        let t = std::time::Instant::now();
+        unix::collect(&rx, &mut got, t + Duration::from_millis(50), answered_da1);
+        let took = t.elapsed();
+        // The wait is a timed condvar wait. How late the OS wakes it is the scheduler's (192 ms on a
+        // loaded macOS runner, with other tests' threads running), not this code's, so the upper
+        // bound only catches a wait that ignores its deadline. What the code decides is exact below.
+        assert!(took >= Duration::from_millis(50), "{took:?}");
+        assert!(took < Duration::from_secs(2), "{took:?}");
+        assert!(got.is_empty());
+        drop(tx);
+    }
+
+    // The deadline logic without a clock to oversleep: past deadline, nothing is read.
+    #[cfg(unix)]
+    #[test]
+    fn a_deadline_already_past_reads_nothing() {
+        let (tx, rx) = std::sync::mpsc::channel::<Vec<u8>>();
+        tx.send(b"late".to_vec()).unwrap();
+        let mut got = Vec::new();
+        let past = std::time::Instant::now();
+        unix::collect(&rx, &mut got, past, answered_da1);
+        assert!(got.is_empty());
+        assert_eq!(rx.try_recv().unwrap(), b"late");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_reply_that_ends_in_da1_ends_the_wait_early() {
+        let (tx, rx) = std::sync::mpsc::channel::<Vec<u8>>();
+        tx.send(b"\x1b]11;rgb:0/0/0\x07".to_vec()).unwrap();
+        tx.send(b"\x1b[?62;4c".to_vec()).unwrap();
+        let mut got = Vec::new();
+        let t = std::time::Instant::now();
+        unix::collect(&rx, &mut got, t + Duration::from_millis(500), answered_da1);
+        assert!(t.elapsed() < Duration::from_millis(100));
+        assert!(answered_da1(&got));
     }
 }

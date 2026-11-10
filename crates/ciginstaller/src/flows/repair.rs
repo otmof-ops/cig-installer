@@ -489,7 +489,8 @@ pub fn run(cx: &mut Cx, a: &RepairArgs) -> Result<Report, InstallerError> {
     })))
 }
 
-#[cfg(test)]
+// Unix only: proves a staged download that is a symlink is never read.
+#[cfg(all(test, unix))]
 mod tests {
     use super::read_staged;
     use std::os::unix::fs::symlink;

@@ -437,6 +437,9 @@ fn a2_path_block() {
     assert!(!fx2.user_home.join(".profile").exists());
 }
 
+// Unix only: damages read-only store objects through a Unix mode so that repair must download;
+// proves no command that fetches sends anything but the request.
+#[cfg(unix)]
 #[test]
 fn a2_no_telemetry() {
     let mut fx = fixture();

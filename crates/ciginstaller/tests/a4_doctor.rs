@@ -222,6 +222,8 @@ fn a4_doctor_interrupted_transaction() {
     assert!(!fx.cigscript().join("toolchains/cigo/1.17.0").exists());
 }
 
+// Unix only: a shell-script shadow earlier on PATH is reported with E1844 (PATH is `:`-separated).
+#[cfg(unix)]
 #[test]
 fn a4_doctor_shadowing_binary_and_path() {
     let fx = setup();

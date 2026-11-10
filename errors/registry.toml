@@ -1575,6 +1575,63 @@ probe = "none"
 remedy = "unset the variable in your shell"
 
 [[code]]
+code = "E1876"
+title = "the license notice was not confirmed"
+meaning = "The first install shows the licenses of what it installs and asks whether you have seen them. The answer was no, or no answer came: an unanswered question, Ctrl-C and end of input all count as no. The install stopped before anything was fetched and nothing was recorded. This is a notice, not a refusal of the license: the licenses still let you use the code."
+fix = "`ciginstaller licences`"
+no = "these-are-mine"
+arises = ["any"]
+tags = ["installer"]
+since = "0.1.0"
+related = ["E1877"]
+[[code.cause]]
+why = "you answered no, or the question went unanswered (Ctrl-C and end of input count as no)"
+no = "these-are-mine"
+probe = "none"
+remedy = "`ciginstaller licences` lists each license and where its text is; run the install again to be asked once more, or pass `--yes` to confirm it in advance"
+
+[[code]]
+code = "E1877"
+title = "no build of that tool to list a license for"
+meaning = "`ciginstaller licences <tool>` names a tool that no installed carton or stick holds."
+fix = "`ciginstaller licences`"
+no = "cant-see-any"
+arises = ["any"]
+tags = ["installer"]
+since = "0.1.0"
+related = ["E1814", "E1878"]
+[[code.cause]]
+why = "the tool name is mistyped"
+no = "cant-see-any"
+probe = "none"
+remedy = "`ciginstaller licences` lists the installer and every installed build"
+[[code.cause]]
+why = "the tool is not installed on this machine"
+no = "dont-have-any"
+probe = "none"
+remedy = "`ciginstaller list` shows what is installed"
+
+[[code]]
+code = "E1878"
+title = "no license file for that build"
+meaning = "`ciginstaller licences <tool> --text` looks for a file named `LICENSE`, `COPYING` or `UNLICENSE` (or the British spelling of the first) in the installed build, and the build has none. Its receipt names the repository and tag the license is published in."
+fix = "`ciginstaller licences`"
+no = "dont-have-any"
+arises = ["any"]
+tags = ["installer"]
+since = "0.1.0"
+related = ["E1877"]
+[[code.cause]]
+why = "the product's release archive does not carry a license file"
+no = "dont-have-any"
+probe = "none"
+remedy = "`ciginstaller licences` names the repository and tag the build came from; the license is published there"
+[[code.cause]]
+why = "the file was deleted from the install"
+probe = "none"
+remedy = "`ciginstaller repair` checks every installed file against its receipt and restores what is missing"
+
+[[code]]
 code = "E1890"
 title = "a bug in the installer"
 meaning = "ciginstaller hit a state it believes cannot happen. The machine was not changed."

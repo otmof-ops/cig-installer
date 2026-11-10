@@ -109,3 +109,33 @@ fn the_cig_key_is_the_top_level_one() {
     assert_eq!(cig_from_json(r#"{"components":{"cig":"1.2"}}"#), None);
     assert_eq!(cig_from_json(r#"{"cig":{"path":"."}}"#), None);
 }
+
+// Unix only (symlinks): a home named through a link is still the home of the real path under it
+// (macOS: HOME is /var/..., a cwd is /private/var/...), and the walk stops there.
+#[cfg(unix)]
+#[test]
+fn a_home_named_through_a_link_bounds_the_walk_of_its_real_path() {
+    let tmp = std::env::temp_dir().join(format!("cigi-bound-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&tmp);
+    std::fs::create_dir_all(&tmp).unwrap();
+    // the temp directory is itself behind a link on macOS: every expected path starts canonical
+    let base = std::fs::canonicalize(&tmp).unwrap();
+    let real = base.join("private/home");
+    std::fs::create_dir_all(real.join("a/b")).unwrap();
+    std::os::unix::fs::symlink(base.join("private"), base.join("link")).unwrap();
+    let home_by_link = base.join("link/home");
+    let cwd = real.join("a/b"); // what getcwd reports: the real path
+    let canon_home = std::fs::canonicalize(&home_by_link).unwrap();
+    let (start, stop) = super::bound(&cwd, Some(&home_by_link));
+    assert_eq!(start.as_ref(), cwd.as_path());
+    assert_eq!(stop.as_deref(), Some(canon_home.as_path()));
+    // the other way round: the home real, the start through the link
+    let via_link = base.join("link/home/a/b");
+    let (start, stop) = super::bound(&via_link, Some(&canon_home));
+    assert_eq!(start.as_ref(), cwd.as_path());
+    assert_eq!(stop.as_deref(), Some(canon_home.as_path()));
+    // outside the home altogether: no stop
+    let (_, stop) = super::bound(&base, Some(&home_by_link));
+    assert!(stop.is_none());
+    let _ = std::fs::remove_dir_all(&base);
+}

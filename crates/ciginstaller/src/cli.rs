@@ -90,6 +90,15 @@ pub enum Command {
     },
     /// Installed cartons, sticks and tools.
     List,
+    /// The license of the installer and of each build here, and where its text is; `--text`
+    /// prints one license file. Reads this machine only; nothing is sent anywhere.
+    Licences {
+        /// Only this one: `ciginstaller` or a tool.
+        tool: Option<String>,
+        /// Print the license text of `tool` as it is.
+        #[arg(long)]
+        text: bool,
+    },
     /// What runs here, and why.
     Which {
         /// A tool; with none, every tool of the family and why it runs from where it does.

@@ -1052,7 +1052,8 @@ pub fn run(cx: &mut Cx, a: &DoctorArgs) -> Result<Report, InstallerError> {
     Ok(report.data(data))
 }
 
-#[cfg(test)]
+// Unix only: these tests drive shell-script tools to prove the doctor's probes.
+#[cfg(all(test, unix))]
 mod tests {
     use super::*;
     use std::os::unix::fs::PermissionsExt;

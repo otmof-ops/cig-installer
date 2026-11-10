@@ -46,6 +46,7 @@ pub struct ProductBuilder {
     pub version: String,
     pub(crate) faults: Faults,
     pub(crate) requires: Option<String>,
+    pub(crate) license: Option<String>,
     pub(crate) yanked: Option<String>,
     pub(crate) dry_run_output: Option<String>,
     pub(crate) selfcheck_fails: bool,
@@ -72,6 +73,7 @@ impl ProductBuilder {
             version: version.into(),
             faults: Faults::default(),
             requires: None,
+            license: None,
             yanked: None,
             dry_run_output: None,
             selfcheck_fails: false,
@@ -109,6 +111,11 @@ impl ProductBuilder {
     /// Listed in the manifest's `[yanked]` as `"<tool> <version>"`.
     pub fn yank(&mut self, reason: &str) -> &mut Self {
         self.yanked = Some(reason.into());
+        self
+    }
+    /// `[product.<tool>."<version>"] license = "<spdx>"`: the license the manifest states for the build.
+    pub fn license(&mut self, spdx: &str) -> &mut Self {
+        self.license = Some(spdx.to_string());
         self
     }
     /// `[product.<tool>."<version>"] requires = { <tool> = "<range>" }`; give `"cig", ">=1.16.1, <2"`.

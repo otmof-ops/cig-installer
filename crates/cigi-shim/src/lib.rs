@@ -32,8 +32,10 @@ pub const MAX_FILE_INSTALLER: u64 = 1024 * 1024;
 /// Who may own a project pin file: the owner of CIGSCRIPT_HOME, or root. `None` off Unix.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct Trusted {
+    #[cfg_attr(not(unix), allow(dead_code))] // read by the Unix owner check only
     uid: Option<u32>,
     /// The check is on (Unix); a home whose owner cannot be read then trusts no pin file.
+    #[cfg_attr(not(unix), allow(dead_code))]
     on: bool,
 }
 
@@ -205,13 +207,43 @@ pub enum Found {
     Nothing,
 }
 
+/// `start` and the home it is searched up to, in one form that can be compared. When `start` is
+/// under `stop` as written, nothing is looked up. When it is not, a link in either name can hide
+/// that it is (macOS: `/var` is `/private/var`, and a cwd always comes back as the real path), so
+/// the home is canonicalized once (a few components) and, only if that is not enough, the start.
+/// A start that is still not under the home has no stop: the walk is not bounded by it.
+pub fn bound<'a>(
+    start: &'a Path,
+    stop: Option<&'a Path>,
+) -> (
+    std::borrow::Cow<'a, Path>,
+    Option<std::borrow::Cow<'a, Path>>,
+) {
+    use std::borrow::Cow::{Borrowed, Owned};
+    let Some(h) = stop else {
+        return (Borrowed(start), None);
+    };
+    if start.starts_with(h) {
+        return (Borrowed(start), Some(Borrowed(h)));
+    }
+    match fs::canonicalize(h) {
+        Ok(c) if start.starts_with(&c) => (Borrowed(start), Some(Owned(c))),
+        Ok(c) => match fs::canonicalize(start) {
+            Ok(s) if s.starts_with(&c) => (Owned(s), Some(Owned(c))),
+            _ => (Borrowed(start), None),
+        },
+        Err(_) => (Borrowed(start), None),
+    }
+}
+
 /// Walk up from `start` (at most 40 levels): the first directory with a verdict decides.
 /// In one directory: `.cig-carton`, then `cig-tasks.json`, then `cigar.toml`, then the `legacy` names.
 ///
 /// `stop`: the user's home directory. A project inside it is searched up to and including the home
 /// and no further, so `/home/.cig-carton` or `/tmp/.cig-carton` never reaches into it.
 pub fn find(start: &Path, legacy: &[&str], t: Trusted, stop: Option<&Path>, cap: u64) -> Found {
-    let stop = stop.filter(|h| start.starts_with(h));
+    let (start, stop) = bound(start, stop);
+    let (start, stop) = (start.as_ref(), stop.as_deref());
     let mut dir = Some(start);
     for _ in 0..MAX_DEPTH {
         let Some(d) = dir else { break };

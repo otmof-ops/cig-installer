@@ -380,6 +380,68 @@ fn the_tracked_inputs_parse_with_the_clients_parser() {
         "cig-orchestrator-v1.17.0.tar.gz.sha256"
     );
     assert!(m.product("cigo", &v("1.17.0")).is_some());
+    // every tracked build states its license (an SPDX expression)
+    for ((tool, ver), p) in &m.products {
+        let l = p.license.as_deref().unwrap_or("");
+        assert!(!l.is_empty(), "{tool} {ver} states no license");
+    }
+}
+
+#[test]
+fn a_products_license_reaches_the_manifest_and_a_missing_one_is_reported() {
+    let (f, _) = fake();
+    let mut r = req("0.1.0", &[("cig", "1.20.0"), ("cigo", "1.17.0")]);
+    r.products_toml = r#"
+[product.cig."1.20.0"]
+requires = {}
+license = "Apache-2.0"
+[product.cigo."1.17.0"]
+requires = { cig = ">=1.16.1, <2" }
+"#
+    .into();
+    let a = assemble(&r, &f).unwrap();
+    assert_eq!(
+        a.manifest
+            .product("cig", &v("1.20.0"))
+            .unwrap()
+            .license
+            .as_deref(),
+        Some("Apache-2.0")
+    );
+    assert_eq!(
+        a.manifest.product("cigo", &v("1.17.0")).unwrap().license,
+        None
+    );
+    assert!(a
+        .report
+        .iter()
+        .any(|l| l.contains("cigo 1.17.0") && l.contains("no `license`")));
+    assert!(!a
+        .report
+        .iter()
+        .any(|l| l.contains("cig 1.20.0") && l.contains("no `license`")));
+    // it survives the render and the read
+    let again = Manifest::from_str(&a.text).unwrap();
+    assert_eq!(
+        again
+            .product("cig", &v("1.20.0"))
+            .unwrap()
+            .license
+            .as_deref(),
+        Some("Apache-2.0")
+    );
+    assert!(a.text.contains("license = \"Apache-2.0\""));
+}
+
+#[test]
+fn a_license_that_is_not_an_spdx_expression_is_refused() {
+    let (f, _) = fake();
+    for bad in ["", "all rights reserved!", "Apache 2.0; see file"] {
+        let mut r = req("0.1.0", &[("cig", "1.20.0")]);
+        r.products_toml =
+            format!("[product.cig.\"1.20.0\"]\nrequires = {{}}\nlicense = \"{bad}\"\n");
+        assert!(assemble(&r, &f).is_err(), "`{bad}` was taken");
+    }
 }
 
 #[test]

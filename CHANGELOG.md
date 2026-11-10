@@ -11,6 +11,26 @@ below is under Unreleased, and the first version will take it as its section.
 Installing, pinning, switching, updating and rolling back the family, on
 Linux, with every build checked first and every change one undoable step.
 
+### Licenses (#27)
+
+- **`ciginstaller licences [tool] [--text] [--json]`** lists the installer and
+  every installed build with its license (an SPDX id, or "not stated"), the
+  SPDX page, where the license file is, and what was acknowledged. `--text` prints
+  one license file. It reads this machine only and sends nothing.
+- **A per-build `license` field** (an SPDX expression, optional) in the
+  manifest's `[product.*]` tables, read by `cig-compat`, filled by
+  `cargo xtask manifest assemble` from `manifest/products.toml` (which says
+  so when a build has none), and recorded in each receipt at install. A
+  manifest or receipt without it still works and shows "not stated".
+- **The first-install display of the licenses**: shown once, and again only
+  when a license new to the machine comes in. The licenses are copyright
+  permissions, so the notice is acknowledged, not accepted: the answer
+  (carton, the installer license's sha256, time, how) is kept in `state.json`
+  and sent nowhere. `--yes` records `acknowledged-by-flag`; with no terminal
+  the licenses are noted in the report, not confirmed; a no, Ctrl-C or end of
+  input at a terminal installs nothing (E1876). E1877 and E1878 are the
+  `licences` errors.
+
 ### Bootstrap script
 
 - **`install.sh` and `install.ps1` templates** (`packaging/bootstrap/`) and

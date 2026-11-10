@@ -5,7 +5,6 @@
 use cig_compat::{Manifest, Version};
 use cigi_testkit::{asset_name, host_target, sha256_hex, Fixture, PublishOpts, Rule, Snapshot};
 use std::io::{Read, Write};
-use std::process::Command;
 
 fn read(fx: &Fixture, name: &str) -> Vec<u8> {
     std::fs::read(fx.releases.join(name)).unwrap()
@@ -234,6 +233,7 @@ fn carton_declares_products_it_names() {
 mod unix {
     use super::*;
     use std::os::unix::fs::PermissionsExt;
+    use std::process::Command;
 
     fn exec_script(path: &std::path::Path, bytes: &[u8]) {
         std::fs::create_dir_all(path.parent().unwrap()).unwrap();

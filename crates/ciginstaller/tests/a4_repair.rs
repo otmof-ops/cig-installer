@@ -3,6 +3,10 @@
 //! Phase 4 acceptance (SPEC 14.3): `repair`. Files come back byte for byte from the store, or
 //! from a download that is admitted again, or `E1860` leaves the home as it was.
 
+// Unix only: repair tests damage files through Unix modes and run shell-script fakes.
+// The Windows runtime drafts add their own equivalents.
+#![cfg(unix)]
+
 mod common;
 
 use std::path::Path;

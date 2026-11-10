@@ -106,7 +106,8 @@ pub fn discover(
 /// when it is not a link and is owned by the home's owner or root.
 pub fn project_root(start: &Path, cigscript_home: &Path, user_home: Option<&Path>) -> PathBuf {
     let t = trusted_for(cigscript_home);
-    let stop = user_home.filter(|h| start.starts_with(h));
+    let (bounded, stop) = cigi_shim::bound(start, user_home);
+    let (start, stop) = (bounded.as_ref(), stop.as_deref());
     let mut dir = Some(start);
     for _ in 0..MAX_DEPTH {
         let Some(d) = dir else { break };

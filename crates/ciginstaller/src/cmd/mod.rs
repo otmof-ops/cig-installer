@@ -12,6 +12,7 @@ pub mod doctor;
 pub mod gc;
 pub mod history;
 pub mod install;
+pub mod licences;
 pub mod list;
 pub mod mirror;
 pub mod pin;

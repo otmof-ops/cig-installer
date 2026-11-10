@@ -4,21 +4,35 @@
 # What each product build needs and carries: the [product.*] tables (SPEC 6.1). Every product
 # version a new carton names needs an entry here, even an empty one, and `assemble` refuses a
 # carton whose builds' requirements do not hold inside it. Write where each fact was read.
+#
+# `license` is the build's license as an SPDX expression. It is optional (a build without it shows
+# "not stated" in `ciginstaller licences`) and it is copied into the manifest and into the
+# receipt at install. It is the code license; a product's docs are CC-BY-4.0 and are not named
+# here. Each value is read from the LICENSE file at that build's own tag, because a build keeps the
+# license it shipped under when later releases change.
 
 [product.cig."1.20.0"]
 requires = {}
+license = "Apache-2.0"
+# otmof-ops/cig-script, LICENSE at tag v1.20.0: Apache-2.0.
 
 [product.cigo."1.17.0"]
 # bin/cigo checks cig >= 1.16.1 (needs_major/minor/patch), the same floor as orchestrate.cig's
 # `# cig >=1.16.1` pin.
 requires = { cig = ">=1.16.1, <2" }
+license = "Apache-2.0"
+# otmof-ops/cig-orchestrator, LICENSE at tag v1.17.0: Apache-2.0.
 
 [product.cigcompile."0.2.0"]
 requires = {}
+license = "Apache-2.0"
+# otmof-ops/cig-compile, LICENSE at tag v0.2.0: Apache-2.0.
 # Cargo.toml: cigscript at tag v1.18.0, whose JOURNAL_FORMAT is 3.
 embeds = { cig_runtime = "1.18.0", journal_format = 3 }
 
 [product.cigcompile."0.3.0"]
 requires = {}
+license = "Apache-2.0"
+# otmof-ops/cig-compile, LICENSE at tag v0.3.0: Apache-2.0.
 # Cargo.toml: cigscript at tag v1.20.0, whose JOURNAL_FORMAT is 3.
 embeds = { cig_runtime = "1.20.0", journal_format = 3 }

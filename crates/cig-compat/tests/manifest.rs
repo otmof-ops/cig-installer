@@ -460,3 +460,53 @@ fn rule_two_tools_never_share_a_shim() {
     );
     assert!(refused(&text).contains("already"), "{text}");
 }
+
+// ---- the per-build license (#27) ----
+
+/// The fleet manifest with a `license` line added to `[product.cig."1.6.0"]`.
+fn fleet_with_license(line: &str) -> String {
+    let base = fleet_text();
+    let at = "[product.cig.\"1.6.0\"]\n";
+    assert!(base.contains(at));
+    base.replacen(at, &format!("{at}license = {line}\n"), 1)
+}
+
+#[test]
+fn a_manifest_without_a_license_still_parses_and_says_none() {
+    let m = fleet();
+    assert!(m.products.values().all(|p| p.license.is_none()));
+    assert_eq!(Manifest::from_str(&m.render()).expect("parses"), m);
+}
+
+#[test]
+fn a_builds_license_is_read_kept_and_written_back() {
+    let m = Manifest::from_str(&fleet_with_license("\"Apache-2.0\"")).expect("parses");
+    let p = m.product("cig", &v("1.6.0")).expect("cig 1.6.0");
+    assert_eq!(p.license.as_deref(), Some("Apache-2.0"));
+    assert!(p.extra.get("license").is_none(), "not left in `extra`");
+    // the other builds say none
+    assert_eq!(
+        m.product("cig", &v("1.7.2"))
+            .and_then(|p| p.license.clone()),
+        None
+    );
+    let text = m.render();
+    assert!(text.contains("license = \"Apache-2.0\""));
+    let again = Manifest::from_str(&text).expect("rendered text parses");
+    assert_eq!(again, m);
+}
+
+#[test]
+fn a_license_that_is_not_an_spdx_expression_is_a_manifest_error() {
+    for bad in ["\"\"", "\"see the LICENSE file!\"", "7"] {
+        assert!(
+            Manifest::from_str(&fleet_with_license(bad)).is_err(),
+            "{bad} was taken"
+        );
+    }
+    assert!(cig_compat::is_spdx_expression(
+        "MIT OR (Apache-2.0 WITH LLVM-exception)"
+    ));
+    assert!(cig_compat::is_spdx_expression("FSL-1.1-ALv2"));
+    assert!(!cig_compat::is_spdx_expression("   "));
+}

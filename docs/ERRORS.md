@@ -776,6 +776,9 @@ the installer: shims, pins, updates, rollbacks, repair, uninstall, and the comma
 | [`E1873`](#e1873-offline-was-requested-and-the-step-needs-the-network) | offline was requested and the step needs the network | these are MY ciggies | `ciginstaller <command>` without --offline |
 | [`E1874`](#e1874-there-is-nothing-to-build-the-shims-from) | there is nothing to build the shims from | don't have any over here | `ciginstaller install carton` |
 | [`E1875`](#e1875-the-setting-is-not-in-the-file) | the setting is not in the file | don't have any over here | `ciginstaller config get <key>` |
+| [`E1876`](#e1876-the-license-notice-was-not-confirmed) | the license notice was not confirmed | these are MY ciggies | `ciginstaller licences` |
+| [`E1877`](#e1877-no-build-of-that-tool-to-list-a-license-for) | no build of that tool to list a license for | can't see any ciggies bro | `ciginstaller licences` |
+| [`E1878`](#e1878-no-license-file-for-that-build) | no license file for that build | don't have any over here | `ciginstaller licences` |
 
 ### E1840 nothing installed for this tool
 
@@ -1308,6 +1311,56 @@ Related: [`E1831`](#e1831-installed-file-differs-from-its-receipt), [`E1840`](#e
 2. the value comes from a CIGI_<KEY> environment variable, not the file (no probe; a suggestion, not a finding). **Remedy:** unset the variable in your shell
 
 Related: [`E1870`](#e1870-usage).
+
+### E1876 the license notice was not confirmed
+
+*usage · since 0.1.0 · arises in any*
+
+**Kind of no:** these are MY ciggies (the door: it knows you and said no; 403 Forbidden; permission denied; a lock; a refusal by policy).
+
+The first install shows the licenses of what it installs and asks whether you have seen them. The answer was no, or no answer came: an unanswered question, Ctrl-C and end of input all count as no. The install stopped before anything was fetched and nothing was recorded. This is a notice, not a refusal of the license: the licenses still let you use the code.
+
+**What to type next:** `ciginstaller licences`
+
+**Known causes**, ranked; the doctor checks them in this order:
+
+1. you answered no, or the question went unanswered (Ctrl-C and end of input count as no) (no probe; a suggestion, not a finding). **Remedy:** `ciginstaller licences` lists each license and where its text is; run the install again to be asked once more, or pass `--yes` to confirm it in advance
+
+Related: [`E1877`](#e1877-no-build-of-that-tool-to-list-a-license-for).
+
+### E1877 no build of that tool to list a license for
+
+*usage · since 0.1.0 · arises in any*
+
+**Kind of no:** can't see any ciggies bro (yours: you're pointed at the wrong place; wrong address: a path, a name, a directory not on PATH; ENOENT).
+
+`ciginstaller licences <tool>` names a tool that no installed carton or stick holds.
+
+**What to type next:** `ciginstaller licences`
+
+**Known causes**, ranked; the doctor checks them in this order:
+
+1. the tool name is mistyped (no probe; a suggestion, not a finding). **Remedy:** `ciginstaller licences` lists the installer and every installed build
+2. the tool is not installed on this machine (no probe; a suggestion, not a finding). **Remedy:** `ciginstaller list` shows what is installed
+
+Related: [`E1814`](#e1814-no-such-tool), [`E1878`](#e1878-no-license-file-for-that-build).
+
+### E1878 no license file for that build
+
+*usage · since 0.1.0 · arises in any*
+
+**Kind of no:** don't have any over here (nobody's: right place, right you, nothing there; 404 from the server's side; an empty result).
+
+`ciginstaller licences <tool> --text` looks for a file named `LICENSE`, `COPYING` or `UNLICENSE` (or the British spelling of the first) in the installed build, and the build has none. Its receipt names the repository and tag the license is published in.
+
+**What to type next:** `ciginstaller licences`
+
+**Known causes**, ranked; the doctor checks them in this order:
+
+1. the product's release archive does not carry a license file (no probe; a suggestion, not a finding). **Remedy:** `ciginstaller licences` names the repository and tag the build came from; the license is published there
+2. the file was deleted from the install (no probe; a suggestion, not a finding). **Remedy:** `ciginstaller repair` checks every installed file against its receipt and restores what is missing
+
+Related: [`E1877`](#e1877-no-build-of-that-tool-to-list-a-license-for).
 
 
 ## installer (`E1880`–`E1889`)

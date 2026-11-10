@@ -85,6 +85,8 @@ pub struct Provenance {
     pub artifact: ReceiptArtifact,
     pub trust: ReceiptTrust,
     pub shims: Vec<ShimRef>,
+    /// The build's license as an SPDX expression, when the manifest or the installer states one.
+    pub license: Option<String>,
 }
 
 /// `.cigi-receipt.json` (5.4). Field order is the file's key order.
@@ -103,6 +105,10 @@ pub struct Receipt {
     pub shims: Vec<ShimRef>,
     /// `null`, `"mirrored"` or `"skipped"` (4.4).
     pub humidor_mirror: Option<String>,
+    /// The build's license (SPDX expression) as stated when it was installed. Absent in
+    /// receipts written before it was recorded and for builds whose manifest states none.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub license: Option<String>,
 }
 
 impl Receipt {
@@ -315,6 +321,7 @@ pub fn materialize(
         files: entries,
         shims: provenance.shims,
         humidor_mirror: None,
+        license: provenance.license,
     };
     let rpath = partial.join(RECEIPT_NAME);
     util::write_atomic(&rpath, receipt.to_json().as_bytes(), Some(0o644))
