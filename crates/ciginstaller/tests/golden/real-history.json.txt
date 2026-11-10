@@ -1,0 +1,4 @@
+--- exit 0 ---
+--- stdout ---
+{"ok":true,"command":"history","headline":"2 operation(s), newest first","detail":[],"next":"ciginstaller rollback","code":null,"data":{"entries":[{"id":"<id>","at":"<time>","what":"update","from":"0.1.0","to":"0.1.1","ok":true,"txn":"<id>"},{"id":"<id>","at":"<time>","what":"install","from":null,"to":"0.1.0","ok":true,"txn":"<id>"}]}}
+--- stderr ---

@@ -1,0 +1,37 @@
+--- exit 2 ---
+--- stdout ---
+[ok] home: the directories the installer writes into are yours alone
+  because I checked owner and mode of bin/, toolchains/, store/ and installer/
+[ok] transactions: no transaction is interrupted
+  because I checked 2 journal(s) in installer/txn, all ended
+[ok] toolchains: 4 toolchain(s) match their receipts
+  because I checked every file's hash, mode and presence against .cigi-receipt.json
+[ok] index: state.json and the shim-index agree
+  because I checked the shim-index against the one state.json calls for
+[x] can't see any ciggies bro: shims: missing or replaced in bin/: cig     E1844
+  because I checked each shim in bin/ against the store object it must be a link of
+  -> ciginstaller repair
+[ok] PATH: the shims come first on PATH in this shell, and no other copy shadows them
+  because I checked the 3 directories of $PATH, in order, for each family tool
+[ok] PATH block: the PATH block is in ~/.profile
+  because I checked ~/.profile for the marked block
+[ok] matrix: carton 0.1.1 checks out against channel stable
+  because I checked every installed product against the manifest's requirements, yanks, advisories and the OS minimums
+[ok] manifest: the cached manifest of channel stable is sequence 3, fetched <time>
+  because I checked the cached manifest's age and expiry
+[ok] manifest: the manifest last admitted for an install was sequence 2 on channel stable, trust checksummed
+  because I checked state.json's manifest entry
+[ok] trust: trust level of each install: bootstrap: ciginstaller 0.1.0; checksummed: cig 1.20.0, cig 1.20.1, cigo 1.17.0
+  because I checked the trust entry of every receipt
+[ok] history: the last successful update was at <time>
+  because I checked state.json's history
+[ok] disk: the store holds 8 object(s), 24.4 MiB, shared by 4 toolchain(s) as hard links; `gc` has nothing to free
+  because I checked the sizes in store/objects and what `gc --dry-run` plans
+[ok] humidor: the humidor mirror agrees with the installed cig(s)
+  because I checked humidor/index.json and each humidor/<version>/cig against the toolchain's binary
+[-] not in this build: the guard's checks, the ashtray's queue and consent, and the guard's kernel features are not checked
+  because I checked this build of ciginstaller has none of them, so there is nothing to look at
+[-] the tools' own doctors were not run (add --tools to print them)
+[x] 1 thing(s) need action
+  -> ciginstaller repair
+--- stderr ---

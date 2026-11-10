@@ -196,6 +196,16 @@ impl Config {
         Ok(true)
     }
 
+    /// The whole-number range a numeric key accepts, inclusive. Every numeric key in [`KEYS`]
+    /// is listed here; a key with no entry is text or a fixed list of words.
+    pub fn numeric_range(key: &str) -> Option<(u32, u32)> {
+        match key {
+            // 0 would make every carton "unused" and `gc` remove them all; ten years is the ceiling
+            "keep_days" => Some((1, 3650)),
+            _ => None,
+        }
+    }
+
     /// Check a key and value against 5.2 (`E1870` otherwise).
     pub fn validate(key: &str, value: &str) -> Result<(), StateError> {
         let s = spec(key).ok_or_else(|| StateError::Usage(format!("unknown setting `{key}`")))?;
@@ -214,9 +224,14 @@ impl Config {
                     .collect::<Vec<_>>()
                     .join(", ")
             ))),
-            None if key == "keep_days" && value.parse::<u32>().is_err() => Err(StateError::Usage(
-                "`keep_days` is a whole number of days".to_string(),
-            )),
+            None => match Config::numeric_range(key) {
+                Some((lo, hi)) if !value.parse::<u32>().is_ok_and(|n| (lo..=hi).contains(&n)) => {
+                    Err(StateError::Usage(format!(
+                        "`{key}` is a whole number from {lo} to {hi}; got `{value}`"
+                    )))
+                }
+                _ => Ok(()),
+            },
             _ => Ok(()),
         }
     }
@@ -312,6 +327,21 @@ mod tests {
     }
 
     #[test]
+    fn every_numeric_key_has_a_range() {
+        // keys with no list of words are numeric, except the text ones named here
+        for k in KEYS.iter().filter(|k| k.values.is_none()) {
+            if k.key == "mirror" {
+                continue;
+            }
+            assert!(
+                Config::numeric_range(k.key).is_some(),
+                "{} has no list of values and no range",
+                k.key
+            );
+        }
+    }
+
+    #[test]
     fn validation() {
         assert!(Config::validate("channel", "stable").is_ok());
         assert_eq!(
@@ -320,6 +350,13 @@ mod tests {
         );
         assert!(Config::validate("keep_days", "30").is_ok());
         assert!(Config::validate("keep_days", "soon").is_err());
+        for bad in ["0", "3651", "-1", "", "4294967296"] {
+            let e = Config::validate("keep_days", bad).unwrap_err();
+            assert_eq!(e.code(), "E1870");
+            assert!(e.to_string().contains("from 1 to 3650"), "{e}");
+        }
+        assert!(Config::validate("keep_days", "1").is_ok());
+        assert!(Config::validate("keep_days", "3650").is_ok());
         assert!(Config::validate("bogus", "1").is_err());
         assert!(Config::validate("mirror", "https://x").is_ok());
     }

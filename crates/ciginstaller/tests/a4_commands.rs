@@ -432,3 +432,71 @@ fn a4_which_path_with_no_tool_is_a_usage_error() {
     assert_eq!(o.status.code(), Some(3), "{}", text(&o));
     assert!(text(&o).contains("E1870"), "{}", text(&o));
 }
+
+// ---------------------------------------------------------------- review fixes
+
+fn state_bytes_and_mtime(fx: &Fixture) -> (Vec<u8>, std::time::SystemTime) {
+    let p = fx.cigscript().join("installer/state.json");
+    (
+        std::fs::read(&p).unwrap(),
+        std::fs::metadata(&p).unwrap().modified().unwrap(),
+    )
+}
+
+#[test]
+fn a4_which_with_no_tool_does_not_write_state_json() {
+    let fx = installed();
+    // age the machine carton's `last_used` so a once-a-day touch would have something to write
+    let p = fx.cigscript().join("installer/state.json");
+    let mut s: Value = serde_json::from_str(&std::fs::read_to_string(&p).unwrap()).unwrap();
+    s["cartons"]["0.1.0"]["last_used"] = "2020-01-01T00:00:00Z".into();
+    std::fs::write(&p, serde_json::to_string_pretty(&s).unwrap() + "\n").unwrap();
+    // a later mtime than the write above, so a rewrite shows
+    std::thread::sleep(std::time::Duration::from_millis(30));
+    let before = state_bytes_and_mtime(&fx);
+    for args in [
+        &["which"][..],
+        &["which", "--why"],
+        &["--json", "which", "--why"],
+    ] {
+        ok(&cigi(&fx, args));
+    }
+    assert_eq!(
+        state_bytes_and_mtime(&fx),
+        before,
+        "`which` with no tool must leave state.json alone"
+    );
+}
+
+#[test]
+fn a4_config_refuses_keep_days_outside_its_range_and_says_the_range() {
+    let fx = fixture();
+    for bad in ["0", "3651", "ninety", "99999999999"] {
+        let o = cigi(&fx, &["config", "set", "keep_days", bad]);
+        assert_eq!(o.status.code(), Some(3), "{bad}: {}", text(&o));
+        let t = text(&o);
+        assert!(t.contains("E1870"), "{bad}: {t}");
+        assert!(
+            t.contains("from 1 to 3650"),
+            "{bad}: the range is named: {t}"
+        );
+    }
+    assert!(
+        !config_file(&fx).contains("keep_days"),
+        "{}",
+        config_file(&fx)
+    );
+    // the edges are fine
+    for good in ["1", "3650"] {
+        data(&fx, &["config", "set", "keep_days", good]);
+    }
+    // and `config list` says what a numeric key accepts
+    let d = data(&fx, &["config"]);
+    let kd = d["settings"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|s| s["key"] == "keep_days")
+        .unwrap();
+    assert_eq!(kd["range"], serde_json::json!([1, 3650]));
+}

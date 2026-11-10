@@ -49,7 +49,8 @@ fn all(cx: &mut Cx, why: bool) -> Result<Outcome, InstallerError> {
     for tool in cigi_shim::TOOLS {
         match resolve(cx, tool, Mode::Which) {
             Ok(res) => {
-                touch_last_used(cx, &res);
+                // No `touch_last_used` here: this is a survey of every tool, it must leave
+                // `state.json` alone (the one-tool form keeps its once-a-day touch).
                 resolved += 1;
                 let from = res
                     .carton
@@ -79,7 +80,13 @@ fn all(cx: &mut Cx, why: bool) -> Result<Outcome, InstallerError> {
                     Cell::new(tool),
                     Cell::changed("nothing"),
                     Cell::new("-"),
-                    Cell::new(format!("{}: {}", e.code, e.message)),
+                    // short on purpose: the last column is cut to the terminal's width, and
+                    // the whole message is in `--json`
+                    Cell::new(if e.code == "E1840" {
+                        format!("{}: not installed", e.code)
+                    } else {
+                        format!("{}: {}", e.code, e.message)
+                    }),
                 ]);
                 if first_fix.is_none() {
                     first_fix = e.fix_text();

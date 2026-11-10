@@ -57,14 +57,15 @@ fn setting(cfg: &Config, k: &KeySpec) -> Value {
         "source": cfg.source(k.key),
         "default": k.default,
         "allowed": k.values,
+        "range": Config::numeric_range(k.key),
     })
 }
 
 fn list(cx: &mut Cx) -> Result<Outcome, InstallerError> {
     let mut table = Table::new(&[
         ("setting", Align::Left),
-        ("value", Align::Left),
         ("from", Align::Left),
+        ("value", Align::Left),
     ]);
     let mut config = Map::new();
     let mut settings = Vec::new();
@@ -82,7 +83,8 @@ fn list(cx: &mut Cx) -> Result<Outcome, InstallerError> {
             "environment" => format!("environment ({})", env_name(k.key)),
             s => s.to_string(),
         };
-        table = table.row(vec![Cell::new(k.key), cell, Cell::new(from)]);
+        // the value goes last: a long one (a mirror URL) is the column that may be cut short
+        table = table.row(vec![Cell::new(k.key), Cell::new(from), cell]);
         config.insert(k.key.to_string(), Value::String(value));
         settings.push(setting(&cx.cfg, k));
     }

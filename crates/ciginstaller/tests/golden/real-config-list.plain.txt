@@ -1,0 +1,18 @@
+--- exit 0 ---
+--- stdout ---
+ok: 12 settings, 2 not at their default
+  setting               from                                     value
+  channel               default                                  stable
+  auto_update           default                                  notify
+  update_check          default                                  on
+  pin_fetch             default                                  ask
+  trust                 default                                  checksummed
+  allow_single_source   environment (CIGI_ALLOW_SINGLE_SOURCE)   true
+  keep_days             default                                  90
+  mirror                environment (CIGI_MIRROR)                file:///mirror
+  reports               default                                  ask
+  preset                default                                  (unset)
+  theme                 default                                  auto
+  voice                 default                                  voice
+  next: ciginstaller config set <setting> <value>
+--- stderr ---
