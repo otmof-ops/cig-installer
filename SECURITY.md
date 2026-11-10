@@ -30,7 +30,11 @@ the rest of the family:
   anyone unless you send a report yourself. An update check is a plain `GET`
   of public metadata with no identifier in it, and `update_check = off` stops
   even that. A test records the requests an install makes and fails if any
-  carries an identifier.
+  carries an identifier. A staged rollout (`rollout = N%`) is decided on the
+  machine from a hash of its machine id with a fixed prefix; neither the id nor
+  the hash is ever printed, stored or sent. `CIGI_TEST_MACHINE_ID` replaces the
+  id for one run, for tests, and can only move that machine's own place in the
+  rollout.
 - **A crash report is yours to send.** A crash is written to the local ashtray
   and nothing leaves until you run `ciginstaller crash send`; `reports = never`
   refuses even that. What travels is the allowlist in
@@ -45,7 +49,6 @@ the rest of the family:
   trial's differences, never file contents, environment values, user or host
   names. cig builds its own bundle for a cig run, and the installer runs it
   only from a build whose files match their receipt.
-
 - **A bug report is yours to read, keep and send.** `ciginstaller bug` shows
   exactly what would travel, section by section (the version matrix always, the
   rest removable), and saves it only on your yes (the last question or

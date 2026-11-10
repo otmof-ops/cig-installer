@@ -27,6 +27,7 @@ pub mod journal;
 pub mod lock;
 pub mod path;
 pub mod platform;
+pub mod rollout;
 pub mod shims;
 pub mod state;
 pub mod store;

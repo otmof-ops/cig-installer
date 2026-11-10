@@ -30,7 +30,7 @@ Keys are stable once released; new keys may be added. Versions are strings; path
 
 | command | `data` |
 |---|---|
-| (none), status | `{"carton":"0.1.0","channel":"stable","tools":{"cig":"1.20.0"},"trust":{"pinned":1,"checksummed":2},"waiting":{"update":"0.1.1"\|null,"advisories":[],"yanked":[]}}` |
+| (none), status | `{"carton":"0.1.0","channel":"stable","tools":{"cig":"1.20.0"},"trust":{"pinned":1,"checksummed":2},"waiting":{"update":"0.1.1"\|null,"advisories":[],"yanked":[]},"cartons":["0.1.0"],"rollout":{"percent":100,"in_share":true,"reason":null\|"no-machine-id"\|"invalid-setting"}}`; `cartons` are the installed cartons, and `rollout` is this machine's standing for `rollout = N%` (never the machine id or its hash). It makes no request |
 | `bundle` | `{"out":"/abs/carton-0.1.0.tar","carton":"0.1.0","channel":"stable","sequence":3,"targets":["linux-x86_64"],"builds":2,"files":[{"name":"manifest-stable.toml","size":1234,"sha256":"..."}],"bytes":123456,"signed":false}` |
 | `mirror` | `{"dir":"/abs/mirror","channel":"stable","sequence":3,"cartons":["0.1.0"],"targets":["linux-x86_64"],"added":["cig-v1.20.0-linux-x86_64"],"kept":0,"bytes_added":123,"manifest_written":true,"left_out_yanked":[]}`; a re-run has `"added":[]` and `"manifest_written":false` |
 | `install` | `{"carton":"0.1.0","tools":{"cig":"1.20.0"},"trust":{"pinned":1,"attested":0,"checksummed":2},"path_block":"added"\|"present"\|"skipped","txn":"<id>","dry_run":false,"source":"github"\|"dir:/path"\|"mirror:https://..."\|"bundle:file.tar"}` |
@@ -38,7 +38,7 @@ Keys are stable once released; new keys may be added. Versions are strings; path
 | `carton <v>`, `use`, `rollback` | `{"from":"0.1.0","to":"0.1.1","trial":{"scripts":14,"same":14,"differ":0}\|null}` |
 | `carton list` | `{"channel":"stable","cartons":[{"version":"0.1.1","installed":true,"yanked":false,"changes":[{"tool":"cig","from":"1.20.0","to":"1.20.1"}]}]}` |
 | `carton show` | `{"carton":"0.1.0","tools":[{"tool":"cig","build":"1.20.0","trust":"pinned","targets":["linux-x86_64"]}],"packs":{"standard":["cig","cigo"]}}` |
-| `update` | as `carton <v>` plus `{"checked":true,"installed":false}` under `--check`; with `--exit-code` the exit is 10 when newer |
+| `update` | as `carton <v>` plus `{"checked":true,"installed":false}` under `--check`; with `--exit-code` the exit is 10 when newer. `--check`, `--dry-run` and a finished update carry `"rollout":{"percent":10,"in_share":false,"explicit_override":true}`: `explicit_override` is true when this machine is outside the share and takes the newer carton because it was asked |
 | `which <tool>` | `{"tool":"cigo","build":"1.17.0","carton":"0.1.0","path":"/home/u/.cigscript/toolchains/cigo/1.17.0/bin/cigo","why":"pinned in .cig-carton","steps":[{"step":2,"result":"hit"}]}` |
 | `which cig --script <file>` | the `which <tool>` shape, plus `"script":{"file":"/home/u/work/s.cig","header":">=1.6.2"}` when the script carries a `# cig` pin; `steps` then holds the `H0` to `H3` lines for the header after the numbered ones |
 | `which` (no tool) | `{"tools":[{"tool":"cig","version":"1.20.0","carton":"0.1.0","path":"...","why":"...","steps":[...]}]}`; a tool that does not resolve has `"version":null`, `"code"` and `"error"` |

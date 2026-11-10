@@ -138,6 +138,12 @@ At most one line at the end of any command, and never the same one twice in a da
 · carton 0.1.2 is out: ciginstaller update
 ```
 
+Outside a `rollout = N%` share (#17) the same notice says the carton is rolling out, and how to take it now:
+
+```text
+· carton 0.1.2 is rolling out, 10% of machines so far (this machine is on 0.1.1); to take it now: ciginstaller update
+```
+
 ## Budgets
 
 | measure | target | proved by |

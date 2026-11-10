@@ -108,6 +108,19 @@ Linux, with every build checked first and every change one undoable step.
   index that lists other bytes for a build is refused (E1825), and the index
   is only read when the release is gone.
 
+### Staged rollouts (#17)
+
+- **`rollout = N%`** (1 to 100, default 100): a share of machines takes a new
+  carton on its own first, so a bad carton is caught on a few machines. The
+  share is decided on the machine, by a hash of the machine id with a fixed
+  prefix reduced to 0-99, and neither the id nor the hash is ever printed,
+  stored or sent. Outside the share the update notice says the carton is
+  rolling out; `ciginstaller update` still takes it, because you asked, and
+  says so. A machine with no id, or a `rollout` value that is not a percent,
+  waits below 100.
+- **`status --json`** gains `cartons` and `rollout` (`percent`, `in_share`,
+  `reason`) for an organization's own inventory tools. It makes no request.
+
 ### Licenses (#27)
 
 - **`ciginstaller licences [tool] [--text] [--json]`** lists the installer and

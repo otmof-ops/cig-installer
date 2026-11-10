@@ -262,7 +262,7 @@ lists them all.
 | `uninstall <tool>`, `uninstall --all`, `remove <carton>` | remove a tool, everything the installer added, or one carton; your data stays |
 | `gc` | remove cartons unused for `keep_days` and the store objects nothing uses |
 | `shims sync`, `shims list` | rewrite the shims from the installer's state, and list them |
-| `config list\|get\|set\|unset` | the installer's settings and where each value comes from, such as `channel`, `trust`, `update_check`, `keep_days`, `bench_after_update`, `theme` and `voice` |
+| `config list\|get\|set\|unset` | the installer's settings and where each value comes from, such as `channel`, `trust`, `update_check`, `keep_days`, `bench_after_update`, `rollout`, `theme` and `voice` |
 | `licences [tool] [--text]` | the license of the installer and of each build here (an SPDX id, or "not stated"), where its text is, and what was acknowledged at the first install; `--text` prints one license file; the field is the code license (docs are CC-BY-4.0); read-only, nothing is sent anywhere |
 | `history` | the last installs, updates and rollbacks |
 | `crash list\|show\|send\|delete` | every tool's crash reports, in one queue: `show` prints exactly what `send` sends, nothing leaves without `send`, and `reports = never` refuses |
@@ -319,9 +319,16 @@ start its tool. A shim otherwise passes the tool's own exit code through.
   the evidence for a run and the preview. The similarity search, "add mine",
   `bug status` and `bug withdraw`, the evidence for cigo, the guard, CigCompile
   and updates, and the products' own short ways in are not built.
-- **Not built:** organization
-  policy ([#17](https://github.com/otmof-ops/cig-installer/issues/17)), and
-  the window ([#18](https://github.com/otmof-ops/cig-installer/issues/18)).
+- **Organization policy is half built
+  ([#17](https://github.com/otmof-ops/cig-installer/issues/17)).**
+  `rollout = N%` stages a new carton to a share of machines, chosen by a hash
+  of the machine id that never leaves the machine, and `status --json` is the
+  inventory an organization's own tools collect. With no automatic install yet,
+  the stage gates the update notice; your own `ciginstaller update` always
+  takes the carton. System-wide locked settings wait for
+  [cig-orchestrator#66](https://github.com/otmof-ops/cig-orchestrator/issues/66).
+- **Not built:** the window
+  ([#18](https://github.com/otmof-ops/cig-installer/issues/18)).
 
 The plan of record is the issues, starting with the architecture
 ([#1](https://github.com/otmof-ops/cig-installer/issues/1)) and its decision,
@@ -333,7 +340,9 @@ This is a promise, and it is tested:
 
 - ciginstaller sends nothing about you or your machine to anyone. No ids, no
   usage statistics, no install counts beyond what a download server's own logs
-  show.
+  show. A staged rollout (`rollout = N%`) is decided on your machine from a
+  hash of its machine id with a fixed prefix; neither is ever printed, stored
+  or sent.
 - An update check is a plain `GET` of public metadata. It carries no
   identifier and no version in a query string (the comparison happens on your
   machine), only standard HTTP headers and `User-Agent: ciginstaller`.

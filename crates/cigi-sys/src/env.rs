@@ -16,7 +16,8 @@ use windows_sys::Win32::Foundation::{ERROR_FILE_NOT_FOUND, ERROR_MORE_DATA, ERRO
 use windows_sys::Win32::System::Com::CoTaskMemFree;
 use windows_sys::Win32::System::Registry::{
     RegCloseKey, RegDeleteValueW, RegOpenKeyExW, RegQueryValueExW, RegSetValueExW, HKEY,
-    HKEY_CURRENT_USER, KEY_QUERY_VALUE, KEY_SET_VALUE, REG_EXPAND_SZ, REG_SZ,
+    HKEY_CURRENT_USER, HKEY_LOCAL_MACHINE, KEY_QUERY_VALUE, KEY_SET_VALUE, KEY_WOW64_64KEY,
+    REG_EXPAND_SZ, REG_SZ,
 };
 use windows_sys::Win32::UI::Shell::{FOLDERID_Documents, SHGetKnownFolderPath};
 use windows_sys::Win32::UI::WindowsAndMessaging::{
@@ -248,4 +249,61 @@ pub fn documents_dir() -> io::Result<PathBuf> {
     // is freed exactly once, with CoTaskMemFree (a null pointer is allowed).
     unsafe { CoTaskMemFree(out.cast()) };
     result
+}
+
+/// The machine's `MachineGuid` (`HKLM\SOFTWARE\Microsoft\Cryptography`, the 64-bit view), which
+/// Windows makes at install time. `None` when the value does not exist or is not text. The staged
+/// rollout hashes it; it is never shown or sent.
+pub fn read_machine_guid() -> io::Result<Option<String>> {
+    let sub = wide("SOFTWARE\\Microsoft\\Cryptography");
+    let name = wide("MachineGuid");
+    let mut key: HKEY = ptr::null_mut();
+    // SAFETY: `sub` is a NUL-terminated UTF-16 string that outlives the call, `key` is a valid
+    // out-pointer, and HKEY_LOCAL_MACHINE is a predefined key handle.
+    let rc = unsafe {
+        RegOpenKeyExW(
+            HKEY_LOCAL_MACHINE,
+            sub.as_ptr(),
+            0,
+            KEY_QUERY_VALUE | KEY_WOW64_64KEY,
+            &mut key,
+        )
+    };
+    if rc == ERROR_FILE_NOT_FOUND {
+        return Ok(None);
+    }
+    if rc != ERROR_SUCCESS {
+        return Err(win_err(rc));
+    }
+    let key = EnvKey(key);
+    // a GUID is 38 characters; 512 bytes leaves room, and a longer value is not one
+    let mut buf = vec![0u16; 256];
+    let mut len = (buf.len() * 2) as u32;
+    let mut ty: u32 = 0;
+    // SAFETY: `name` is NUL-terminated; `buf` is `len` writable bytes (as the call is told); `ty`
+    // and `len` are valid out-pointers; the key is open for the whole call.
+    let rc = unsafe {
+        RegQueryValueExW(
+            key.0,
+            name.as_ptr(),
+            ptr::null(),
+            &mut ty,
+            buf.as_mut_ptr().cast::<u8>(),
+            &mut len,
+        )
+    };
+    if rc == ERROR_FILE_NOT_FOUND || rc == ERROR_MORE_DATA {
+        return Ok(None);
+    }
+    if rc != ERROR_SUCCESS {
+        return Err(win_err(rc));
+    }
+    if ty != REG_SZ {
+        return Ok(None);
+    }
+    buf.truncate(len as usize / 2);
+    while buf.last() == Some(&0) {
+        buf.pop();
+    }
+    Ok(String::from_utf16(&buf).ok())
 }

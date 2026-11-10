@@ -22,6 +22,15 @@ pub fn run(cx: &mut Cx) -> Result<Outcome, InstallerError> {
     let machine = cx.state.machine_carton.clone();
     let channel = cx.channel();
     let tools = effective_tools(cx);
+    // the share this machine is in (never the id or the bucket); a stable fact of the machine,
+    // so a fleet's own tools can read it with the rest
+    let standing = cigi_home::rollout::standing(&cx.cfg.get("rollout"));
+    let rollout = json!({
+        "percent": standing.percent,
+        "in_share": standing.in_share,
+        "reason": standing.why.map(|w| w.as_str()),
+    });
+    let cartons: Vec<&String> = cx.state.cartons.keys().collect();
     let Some(carton) = machine.clone().filter(|_| !tools.is_empty()) else {
         let mut r = Report::done("nothing is installed yet");
         if let Some(l) = interrupted(cx) {
@@ -32,7 +41,9 @@ pub fn run(cx: &mut Cx) -> Result<Outcome, InstallerError> {
         return Ok(r
             .data(json!({
                 "carton": null,
+                "cartons": cartons,
                 "channel": channel,
+                "rollout": rollout,
                 "tools": {},
                 "trust": {},
                 "waiting": { "update": null, "advisories": [], "yanked": [] },
@@ -139,6 +150,22 @@ pub fn run(cx: &mut Cx) -> Result<Outcome, InstallerError> {
         _ => {}
     }
 
+    if let Some(p) = standing.percent.filter(|p| *p < 100) {
+        lines.push(format!(
+            "rollout {p}%: this machine is {}",
+            if standing.in_share {
+                "in the share"
+            } else {
+                "not in the share yet"
+            }
+        ));
+    } else if standing.percent.is_none() {
+        lines.push(format!(
+            "rollout {}: this machine waits for its share",
+            standing.share_text()
+        ));
+    }
+
     // how this machine differs from a plain carton
     for s in cx.state.sticks.iter().filter(|s| s.is_rollback()) {
         lines.push(format!("{} is rolled back to {}", s.tool, s.version));
@@ -180,7 +207,9 @@ pub fn run(cx: &mut Cx) -> Result<Outcome, InstallerError> {
         trust.iter().map(|(k, v)| (k.clone(), json!(v))).collect();
     Ok(r.data(json!({
         "carton": carton,
+        "cartons": cartons,
         "channel": channel,
+        "rollout": rollout,
         "tools": tools,
         "trust": trust_json,
         "waiting": { "update": update, "advisories": advisories, "yanked": yanked },
