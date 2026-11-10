@@ -11,7 +11,7 @@ use std::process::Command;
 use cigi_ui::{InstallerError, EXIT_SHIM};
 
 use crate::cx::Cx;
-use crate::resolve::{resolve, Mode};
+use crate::resolve::{resolve_for, Mode};
 
 /// Returns the tool's exit code, or an error when it could not be found or started.
 pub fn run(cx: &mut Cx, tool: &str, args: &[OsString]) -> Result<i32, InstallerError> {
@@ -22,7 +22,9 @@ pub fn run(cx: &mut Cx, tool: &str, args: &[OsString]) -> Result<i32, InstallerE
     // machine does not have and policy will not fetch it: E1801, E1816, E1842; trust, yank and
     // marry-up refusals while fetching), usage 3, unreachable 4 and bugs 70. So a script can
     // tell "the shim found no tool" (127) from "refused" (2).
-    let res = resolve(cx, tool, Mode::Run).map_err(|mut e| {
+    // `cig run s.cig`: the script, when the command names one, so its header is met
+    let script = cigi_shim::script_arg(args).map(Path::new);
+    let res = resolve_for(cx, tool, Mode::Run, script).map_err(|mut e| {
         if matches!(e.code, "E1840" | "E1831" | "E1856") {
             e.exit = EXIT_SHIM;
         }

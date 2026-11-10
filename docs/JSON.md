@@ -31,13 +31,16 @@ Keys are stable once released; new keys may be added. Versions are strings; path
 | command | `data` |
 |---|---|
 | (none), status | `{"carton":"0.1.0","channel":"stable","tools":{"cig":"1.20.0"},"trust":{"pinned":1,"checksummed":2},"waiting":{"update":"0.1.1"\|null,"advisories":[],"yanked":[]}}` |
-| `install` | `{"carton":"0.1.0","tools":{"cig":"1.20.0"},"trust":{"pinned":1,"attested":0,"checksummed":2},"path_block":"added"\|"present"\|"skipped","txn":"<id>","dry_run":false}` |
+| `bundle` | `{"out":"/abs/carton-0.1.0.tar","carton":"0.1.0","channel":"stable","sequence":3,"targets":["linux-x86_64"],"builds":2,"files":[{"name":"manifest-stable.toml","size":1234,"sha256":"..."}],"bytes":123456,"signed":false}` |
+| `mirror` | `{"dir":"/abs/mirror","channel":"stable","sequence":3,"cartons":["0.1.0"],"targets":["linux-x86_64"],"added":["cig-v1.20.0-linux-x86_64"],"kept":0,"bytes_added":123,"manifest_written":true,"left_out_yanked":[]}`; a re-run has `"added":[]` and `"manifest_written":false` |
+| `install` | `{"carton":"0.1.0","tools":{"cig":"1.20.0"},"trust":{"pinned":1,"attested":0,"checksummed":2},"path_block":"added"\|"present"\|"skipped","txn":"<id>","dry_run":false,"source":"github"\|"dir:/path"\|"mirror:https://..."\|"bundle:file.tar"}` |
 | `carton` | `{"carton":"0.1.0","newer":"0.1.1"\|null,"channel":"stable"}` |
 | `carton <v>`, `use`, `rollback` | `{"from":"0.1.0","to":"0.1.1","trial":{"scripts":14,"same":14,"differ":0}\|null}` |
 | `carton list` | `{"channel":"stable","cartons":[{"version":"0.1.1","installed":true,"yanked":false,"changes":[{"tool":"cig","from":"1.20.0","to":"1.20.1"}]}]}` |
 | `carton show` | `{"carton":"0.1.0","tools":[{"tool":"cig","build":"1.20.0","trust":"pinned","targets":["linux-x86_64"]}],"packs":{"standard":["cig","cigo"]}}` |
 | `update` | as `carton <v>` plus `{"checked":true,"installed":false}` under `--check`; with `--exit-code` the exit is 10 when newer |
 | `which <tool>` | `{"tool":"cigo","build":"1.17.0","carton":"0.1.0","path":"/home/u/.cigscript/toolchains/cigo/1.17.0/bin/cigo","why":"pinned in .cig-carton","steps":[{"step":2,"result":"hit"}]}` |
+| `which cig --script <file>` | the `which <tool>` shape, plus `"script":{"file":"/home/u/work/s.cig","header":">=1.6.2"}` when the script carries a `# cig` pin; `steps` then holds the `H0` to `H3` lines for the header after the numbered ones |
 | `which` (no tool) | `{"tools":[{"tool":"cig","version":"1.20.0","carton":"0.1.0","path":"...","why":"...","steps":[...]}]}`; a tool that does not resolve has `"version":null`, `"code"` and `"error"` |
 | `list` | `{"cartons":["0.1.0"],"sticks":[{"tool":"cigo","build":"1.16.0"}],"disk_bytes":123}` |
 | `check` | `{"findings":[{"code":"E1801","severity":"refuse","headline":"...","detail":[],"fixes":["..."],"subject":"cigo"}]}` |
@@ -55,6 +58,6 @@ Keys are stable once released; new keys may be added. Versions are strings; path
 | `config unset <key>` | `{"config":{"channel":"stable"},"key":"channel","value":"stable","previous":"beta","source":"default"}` |
 | `history` | `{"entries":[{"id":"<id>","at":"...","what":"update","from":"0.1.0","to":"0.1.1","ok":true,"txn":"<id>"}]}`, newest first |
 | `explain` | the registry node: `{"code","title","meaning","fix","no","arises","tags","since","related","causes":[...]}` |
-| `bench` | `{"shim_dispatch_ns":240000,"check_ms":0,"switch_ms":0,"shim_bytes":344008,"installer_bytes":0}` |
+| `bench` | `{"shim_dispatch_ns":240000,"check_ms":12.4,"switch_ms":8.1,"shim_bytes":344008,"installer_bytes":6170000,` then, added: `"shim_dispatch_p95_ns","check_p95_ms","switch_p95_ms","disk_five_cigo_ratio","first_line_status_ms","first_line_list_ms","install_pack_dev_ms","install_carton_ms","build":"debug"\|"release","runs":100,"over_budget":0,"budgets":[{"id","what","source","unit","limit","median","p95","runs","status":"ok"\|"over"\|"info"\|"not measured","note"}],"not_measured_by_bench":[{"id","what","limit","unit"}],"not_built":[{"view","blocked_by"}]}`; a figure that was not measured is `null`. The five reserved keys keep their meaning; times are medians. `--strict` with a budget over is an error, `E1866`. |
 
 Progress, prompts and notices are never printed in JSON mode. A question that would be asked takes its safe default (exit 3 when that default was a refusal) and nothing is written to stderr.

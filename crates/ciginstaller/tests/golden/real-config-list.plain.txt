@@ -1,6 +1,6 @@
 --- exit 0 ---
 --- stdout ---
-ok: 12 settings, 2 not at their default
+ok: 13 settings, 2 not at their default
   setting               from                                     value
   channel               default                                  stable
   auto_update           default                                  notify
@@ -12,6 +12,7 @@ ok: 12 settings, 2 not at their default
   mirror                environment (CIGI_MIRROR)                file:///mirror
   reports               default                                  ask
   preset                default                                  (unset)
+  bench_after_update    default                                  off
   theme                 default                                  auto
   voice                 default                                  voice
   preset: recorded only: nothing enforces the preset until cig-orchestrator#66 lands, so choosing paranoid does not turn protection on yet

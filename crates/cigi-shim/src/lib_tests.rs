@@ -1,7 +1,9 @@
 // SPDX-FileCopyrightText: 2026 Jay Taylor (https://github.com/otmof-ops/cig-installer)
 // SPDX-License-Identifier: FSL-1.1-ALv2
 
-use super::pins::pin_from_toml;
+use super::pins::{cig_from_json, header_pin, pin_from_toml};
+use super::script_arg;
+use std::ffi::OsString;
 
 #[test]
 fn toml_pin_ignores_arrays_and_strings_that_look_like_tables() {
@@ -47,4 +49,63 @@ fn opening_a_fifo_never_waits_for_a_writer() {
         .expect("the open of a fifo waited for a writer");
     assert!(opened);
     let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn a_header_pin_is_found_the_way_cig_finds_it() {
+    let pin = |s: &str| header_pin(s).map(|p| (p.text, p.line));
+    assert_eq!(
+        pin("# cig >=1.6.2\nroll x = 1\n"),
+        Some((">=1.6.2".into(), 1))
+    );
+    assert_eq!(
+        pin("#!/usr/bin/env cig\n# cig 1.1\n"),
+        Some(("1.1".into(), 2))
+    );
+    assert_eq!(pin("\n\n#cig: v1.1.2\n"), Some(("v1.1.2".into(), 3)));
+    assert_eq!(pin("\u{feff}# cig 1\n"), Some(("1".into(), 1)));
+    // other comments before it are fine; the first statement ends the header
+    assert_eq!(pin("# a tool\n# cig 1.2\n"), Some(("1.2".into(), 2)));
+    assert_eq!(pin("roll x = 1\n# cig 1.1\n"), None);
+    // usage lines and directives are not pins; a shebang after the first line is an ordinary
+    // comment, which cig reads past
+    assert_eq!(pin("# cig run s.cig -- x\nroll x = 1\n"), None);
+    assert_eq!(pin("# cig: run --dry-run\n"), None);
+    assert_eq!(
+        pin("
+#!/usr/bin/env cig
+# cig 1.1
+"),
+        Some(("1.1".into(), 3))
+    );
+    assert_eq!(pin(""), None);
+}
+
+#[test]
+fn the_script_is_the_first_argument_that_is_not_a_flag() {
+    let a = |v: &[&str]| v.iter().map(OsString::from).collect::<Vec<_>>();
+    let name = |v: &[&str]| {
+        let args = a(v);
+        script_arg(&args).map(|s| s.to_string_lossy().into_owned())
+    };
+    assert_eq!(name(&["s.cig"]), Some("s.cig".into()));
+    assert_eq!(name(&["run", "s.cig", "--", "x"]), Some("s.cig".into()));
+    assert_eq!(
+        name(&["--no-check", "check", "--deny-warnings", "s.cig"]),
+        Some("s.cig".into())
+    );
+    assert_eq!(name(&["run", "--", "-odd.cig"]), Some("-odd.cig".into()));
+    assert_eq!(name(&["--version"]), None);
+    assert_eq!(name(&[]), None);
+    assert_eq!(name(&["run"]), None);
+}
+
+#[test]
+fn the_cig_key_is_the_top_level_one() {
+    assert_eq!(
+        cig_from_json(r#"{"project":"p","cig":">=1.20.0","components":{"cig":{"path":"."}}}"#),
+        Some(">=1.20.0".into())
+    );
+    assert_eq!(cig_from_json(r#"{"components":{"cig":"1.2"}}"#), None);
+    assert_eq!(cig_from_json(r#"{"cig":{"path":"."}}"#), None);
 }

@@ -56,6 +56,8 @@ pub struct Cx {
     pub manifest: OnceCell<Admitted<Manifest>>,
     pub globals: Globals,
     pub cwd: PathBuf,
+    /// The steps of the last resolution that ended in an error, for `which --why`.
+    pub last_steps: Vec<String>,
     lock: Option<InstallerLock>,
 }
 
@@ -107,6 +109,7 @@ impl Cx {
             manifest: OnceCell::new(),
             globals,
             cwd,
+            last_steps: Vec::new(),
             lock: None,
         })
     }

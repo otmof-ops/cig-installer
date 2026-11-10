@@ -70,6 +70,11 @@ pub const KEYS: &[KeySpec] = &[
         default: "",
     },
     KeySpec {
+        key: "bench_after_update",
+        values: Some(&["on", "off"]),
+        default: "off",
+    },
+    KeySpec {
         key: "theme",
         values: Some(&["auto", "dark", "light"]),
         default: "auto",

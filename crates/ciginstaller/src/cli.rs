@@ -103,7 +103,42 @@ pub enum Command {
         /// Resolve as if run from this directory.
         #[arg(long, value_name = "DIR")]
         cwd: Option<PathBuf>,
+        /// For `cig`: as if running this script, so a `# cig >=1.6.2` header in it counts.
+        #[arg(long, value_name = "FILE")]
+        script: Option<PathBuf>,
     },
+    // ---- offline: bundle, mirror ----
+    /// One file with a carton's manifest and the builds of chosen targets, for a machine with no
+    /// network. Unsigned until #9; install it with `install --from <file>`.
+    Bundle {
+        /// An exact carton or a pin such as 0.1 (default: the newest that is not yanked).
+        #[arg(long, value_name = "V")]
+        carton: Option<String>,
+        /// Targets to include, such as linux-x86_64,windows-x86_64 (default: this machine's).
+        #[arg(long, value_delimiter = ',', value_name = "TARGET")]
+        targets: Vec<String>,
+        /// The file to write.
+        #[arg(long, value_name = "FILE")]
+        out: PathBuf,
+    },
+    /// Fill a directory with the channel's manifest and builds, each admitted, so a team can
+    /// serve it (`mirror = https://...`, or `install --from <dir>`). Run it again to bring it up
+    /// to date; it removes nothing.
+    Mirror {
+        /// The directory to fill (made when missing).
+        dir: PathBuf,
+        /// Only this carton's builds (an exact carton or a pin); default every carton that is
+        /// not yanked.
+        #[arg(long, value_name = "V")]
+        carton: Option<String>,
+        /// The channel to mirror for this run (stable, beta or nightly).
+        #[arg(long, value_name = "CHANNEL")]
+        channel: Option<String>,
+        /// Only these targets (default: every target the builds are published for).
+        #[arg(long, value_delimiter = ',', value_name = "TARGET")]
+        targets: Vec<String>,
+    },
+    // ---- end of the offline block ----
     // ---- the update lifecycle: update, rollback ----
     /// Check, choose, verify, trial and switch to a newer carton.
     Update(UpdateCmd),
@@ -147,6 +182,10 @@ pub enum Command {
     /// The shims in `bin/`: `sync` rebuilds them and the index from state, `list` shows them.
     Shims(ShimsCmd),
     // ---- end of the a4 block ----
+    // ---- bench (#35) ----
+    /// Measure this machine against the performance budgets; nothing is sent anywhere.
+    Bench(BenchCmd),
+    // ---- end of the bench block ----
     // ---- health: doctor, repair, uninstall, remove ----
     /// One report on the whole family: shims, PATH, toolchains, state, matrix, manifest, disk,
     /// humidor, transactions. Reads only; each finding ends with the command that fixes it.
@@ -223,8 +262,8 @@ pub struct InstallCmd {
     /// bash, zsh, fish, sh or powershell (default: from $SHELL).
     #[arg(long, global = true, value_name = "SHELL")]
     pub shell: Option<String>,
-    /// A mirror directory to install from.
-    #[arg(long, global = true, value_name = "DIR")]
+    /// A mirror directory, or a bundle file made by `ciginstaller bundle`, to install from.
+    #[arg(long, global = true, value_name = "DIR|FILE.tar")]
     pub from: Option<PathBuf>,
     /// Raise the trust floor: pinned, attested or checksummed.
     #[arg(long, global = true, value_name = "LEVEL")]
@@ -315,6 +354,42 @@ pub struct UpdateCmd {
     #[arg(long)]
     pub dry_run: bool,
 }
+
+// ---- bench (#35) ----
+#[derive(Args)]
+pub struct BenchCmd {
+    /// How many shim dispatches to time (default 100, at least 5); the slower measurements take a fifth.
+    #[arg(long, value_name = "N")]
+    pub runs: Option<usize>,
+    /// Fail with E1866 when any measurement is over its budget.
+    #[arg(long)]
+    pub strict: bool,
+    /// Make the scratch home in this directory (default: the system's temporary directory).
+    #[arg(long, value_name = "DIR")]
+    pub scratch: Option<PathBuf>,
+    /// Also time `install pack dev` and `install carton` from this local mirror, in a scratch home.
+    #[arg(long, value_name = "DIR")]
+    pub from: Option<PathBuf>,
+    /// Not built yet (E1867): rerun when a product's checkout changes.
+    #[arg(long)]
+    pub watch: bool,
+    /// Not built yet (E1867): this carton against another.
+    #[arg(long, value_name = "V")]
+    pub carton: Option<String>,
+    /// Not built yet (E1867): one product swapped under the others, `cig=1.16.0`.
+    #[arg(long = "with", value_name = "PRODUCT=V")]
+    pub with: Vec<String>,
+    /// Not built yet (E1867): cartons side by side, `carton=1.1.1,1.1.2`.
+    #[arg(long, value_name = "LIST")]
+    pub matrix: Option<String>,
+    /// Not built yet (E1867): one product's suite.
+    #[arg(long, value_name = "PRODUCT")]
+    pub product: Option<String>,
+    /// Not built yet (E1867): one case of a suite.
+    #[arg(long, value_name = "CASE")]
+    pub only: Option<String>,
+}
+// ---- end of the bench block ----
 
 #[derive(Args)]
 pub struct SelfCmd {

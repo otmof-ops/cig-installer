@@ -57,9 +57,23 @@ Around those levels:
   not be lower than the highest the installer has seen for that channel, which
   stops an old manifest being replayed. The first manifest a machine ever
   fetches is trusted on first use, and its `sequence` is recorded from then on.
-- **A mirror is one source.** A mirror directory serves both the manifest and
-  the builds, so the two sources are not independent. The receipt says so, and
-  the doctor says so.
+- **A mirror is one source, and so is a bundle.** A mirror directory serves
+  both the manifest and the builds, so the two sources are not independent. A
+  bundle (`install --from <file.tar>`) is the same thing in one file: the
+  manifest, the checksums and the builds all come out of it, so it is treated
+  exactly as a mirror is. It reaches `pinned` only for builds whose digests are
+  compiled into this installer, and otherwise is refused (E1822) unless
+  `allow_single_source` is set. Nothing about a bundle lowers the `trust`
+  floor, and no flag, variable or file in it can. The receipt says so, and the
+  doctor says so. **Bundles are unsigned until #9:** anyone who can write the
+  file can write a manifest, its checksum and builds that agree with each
+  other, which is why the digests compiled into the installer are what count.
+  Unpacking refuses anything but plain files with plain names, in a private
+  directory inside the home that is removed afterwards, and every build is
+  checked against the manifest inside the bundle before it is used. `mirror`
+  admits every build before it writes it, writes through a partial file and a
+  rename, puts the manifest in last, never removes a file, and refuses to write
+  a manifest older than the one already in the directory.
 - **Downloads are plain and narrow.** One HTTPS client, `GET` only, with
   `User-Agent: ciginstaller`. Redirects stay on the same host or go to GitHub's
   release host, never from HTTPS to HTTP, and stop after five. It downloads the
@@ -79,7 +93,21 @@ Around those levels:
 - **No signature on the installer or its bootstrap script.** The installer's
   own tarballs are built by a workflow that publishes a checksum and a build
   attestation for each, and a draft release is the only thing it creates.
-  Publishing one is a human act. `self update` admits the new build at the
+  Publishing one is a human act. The same workflow fills `install.sh` and
+  `install.ps1` from their templates with that release's tarball digests and
+  attaches them, with a checksum and an attestation each. There is no
+  installer release yet, so no such script has been published.
+  The script checks the downloaded tarball's SHA-256 against the digest it
+  carries and runs `gh attestation verify` when `gh` is present; it refuses on
+  any mismatch and leaves nothing behind. That is integrity, not authorship: a
+  script that was swapped before you downloaded it carries the digests of
+  whatever its maker chose, which is why you read it first and check it
+  against the `.sha256` and the attestation on the release page. It checks no
+  signature, because there are none until #9 is built. It never pipes anything
+  into a shell and sends nothing about the machine, only plain `GET`s of the
+  release's tarball. `CIGI_BOOTSTRAP_BASE_URL` exists for mirrors and tests and
+  says so when used; the embedded digest still has to match. The attestation is
+  checked whenever `gh` is installed and signed in, and nothing turns it off. `self update` admits the new build at the
   same levels as any other.
 - **No pinned digests yet.** The `pinned` level exists and is tested, and the
   list it reads is empty until a manifest is reviewed and its digests are

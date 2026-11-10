@@ -2,8 +2,11 @@
 // SPDX-License-Identifier: FSL-1.1-ALv2
 //! The flows (SPEC 2.6 and 12). Each is `fn run(cx, args) -> Result<Report, InstallerError>`.
 
+pub mod bench;
+pub mod bundle;
 pub mod gc;
 pub mod install;
+pub mod mirror;
 // ---- the update lifecycle ----
 pub mod notice;
 pub mod rollback;

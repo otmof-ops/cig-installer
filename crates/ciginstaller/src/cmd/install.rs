@@ -11,6 +11,7 @@ use super::Outcome;
 use crate::cli::{InstallCmd, InstallWhat};
 use crate::cx::{Cx, ManifestMode};
 use crate::errors::ie;
+use crate::flows::bundle;
 use crate::flows::install::{self, InstallArgs, What};
 
 /// Said wherever a preset is asked for or shown: choosing one protects nothing yet.
@@ -183,9 +184,46 @@ pub fn run(cx: &mut Cx, c: &InstallCmd) -> Result<Outcome, InstallerError> {
             .set_for_run("channel", ch)
             .map_err(|_| no_such_channel(ch))?;
     }
+    // held to the end of the install: dropping it removes the unpacked bundle
+    let mut _bundle = None;
+    let mut bundle_carton: Option<String> = None;
     if let Some(dir) = &c.from {
         let abs = std::fs::canonicalize(dir).unwrap_or_else(|_| dir.clone());
-        cx.source = Box::new(MirrorSource::parse(&abs.to_string_lossy()).map_err(ie)?);
+        if abs.is_file() {
+            // a bundle: one file, so one source, admitted exactly as a mirror directory is
+            cx.lock_and_recover()?;
+            let open = bundle::open_bundle(cx, &abs)?;
+            let channel = cx.channel();
+            if !open.channels.contains(&channel) {
+                match open.channels.as_slice() {
+                    [only] if c.channel.is_none() => {
+                        cx.cfg
+                            .set_for_run("channel", only)
+                            .map_err(|_| no_such_channel(only))?;
+                    }
+                    _ => {
+                        let has = open.channels.join(", ");
+                        return Err(InstallerError::new(
+                            "E1837",
+                            format!(
+                                "{} holds the manifest of channel {has}, not {channel}",
+                                abs.display()
+                            ),
+                        )
+                        .with_fix(format!(
+                            "ciginstaller install carton --channel {} --from {}",
+                            open.channels.first().map_or("stable", String::as_str),
+                            abs.display()
+                        ))
+                        .with_exit(EXIT_REFUSED));
+                    }
+                }
+            }
+            bundle_carton = open.carton.clone();
+            _bundle = Some(open);
+        } else {
+            cx.source = Box::new(MirrorSource::parse(&abs.to_string_lossy()).map_err(ie)?);
+        }
     }
     if let Some(level) = &c.require {
         let l = TrustLevel::parse(level).ok_or_else(|| {
@@ -196,7 +234,8 @@ pub fn run(cx: &mut Cx, c: &InstallCmd) -> Result<Outcome, InstallerError> {
         })?;
         cx.require_trust(l);
     }
-    let mut carton = c.carton.clone();
+    // a bundle holds one carton's builds: with none named, that is the carton meant
+    let mut carton = c.carton.clone().or(bundle_carton);
     let what = match &c.what {
         None if asking => ask_what(cx)?,
         // unattended, `--yes` alone takes the recommended answer: the whole carton

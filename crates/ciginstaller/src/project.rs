@@ -15,6 +15,12 @@ use cigi_ui::{InstallerError, EXIT_USAGE};
 /// `.cigar-version`, and `.cigo-version` is the installer's own (#6 is silent on cigo's).
 pub use cig_compat::PER_TOOL_PIN_FILES as LEGACY_FILES;
 
+/// The cigo manifest: its top-level `"cig"` key is the cig the project is written for (cig-orchestrator
+/// `docs/manifest.md`), a pin like `.cig-version` that cigo itself warns about and the installer
+/// honors. cig-orchestrator names no cigo version a project needs; this key and cigo's own floor on
+/// cig (`CIG_NEEDS`, which the carton manifest carries as `requires`) are all it declares.
+pub const MANIFEST_FILE: &str = "cig-tasks.json";
+
 /// What the walk up from a directory found.
 #[derive(Debug, Clone, Default)]
 pub struct ProjectCtx {
@@ -63,20 +69,27 @@ pub fn discover(
             let mut legacy = Vec::new();
             for p in files {
                 let name = file_label(&p);
-                let Some((_, tool)) = LEGACY_FILES.iter().find(|(n, _)| *n == name) else {
-                    continue;
+                let tool = match LEGACY_FILES.iter().find(|(n, _)| *n == name) {
+                    Some((_, tool)) => *tool,
+                    None if name == MANIFEST_FILE => "cig",
+                    None => continue,
                 };
                 let text = match read_capped(&p, t, MAX_FILE_INSTALLER) {
                     Reading::Absent => continue,
                     Reading::Unusable(why) => return Err(bad_pin_file(&p, &why)),
                     Reading::Text(s) => s,
                 };
-                let line = text
-                    .lines()
-                    .map(str::trim)
-                    .find(|l| !l.is_empty() && !l.starts_with('#'))
-                    .ok_or_else(|| bad_pin_file(&p, "the file holds no constraint"))?;
-                let pin = Pin::parse(line).map_err(|e| bad_pin_file(&p, &e.to_string()))?;
+                let line = if name == MANIFEST_FILE {
+                    cigi_shim::pins::cig_from_json(&text)
+                        .ok_or_else(|| bad_pin_file(&p, "the \"cig\" key holds no constraint"))?
+                } else {
+                    text.lines()
+                        .map(str::trim)
+                        .find(|l| !l.is_empty() && !l.starts_with('#'))
+                        .ok_or_else(|| bad_pin_file(&p, "the file holds no constraint"))?
+                        .to_string()
+                };
+                let pin = Pin::parse(&line).map_err(|e| bad_pin_file(&p, &e.to_string()))?;
                 legacy.push((tool.to_string(), pin, p));
             }
             Ok((!legacy.is_empty()).then_some(ProjectCtx {
@@ -109,6 +122,16 @@ pub fn project_root(start: &Path, cigscript_home: &Path, user_home: Option<&Path
         dir = d.parent();
     }
     start.to_path_buf()
+}
+
+/// A legacy pin as `which --why` names it: `.cig-version >=1.6.2`, `cig-tasks.json "cig" >=1.20.0`.
+pub fn legacy_label(file: &Path, pin: &Pin) -> String {
+    let name = file_label(file);
+    if name == MANIFEST_FILE {
+        format!("{name} \"cig\" {pin}")
+    } else {
+        format!("{name} {pin}")
+    }
 }
 
 /// The name of a pin file for messages (`.cig-carton`), not its whole path.

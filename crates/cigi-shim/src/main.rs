@@ -17,7 +17,7 @@ use std::time::Instant;
 #[cfg(test)]
 mod tests;
 
-use cigi_shim::{find, trusted_for, Found, MAX_FILE, TOOLS};
+use cigi_shim::{find, read_script_header, script_arg, trusted_for, Found, MAX_FILE, TOOLS};
 
 /// What the walk up from the working directory found.
 #[derive(Debug, PartialEq)]
@@ -205,6 +205,15 @@ fn main() {
         ),
         _ => Pin::None,
     };
+    // A script that pins its cig (`# cig >=1.6.2`) is the resolver's to place, so the build that
+    // runs is one that satisfies the header. Only `cig` reads headers; only the one argument that
+    // names the script is looked at, and only when it is a readable file; `CIGI_CARTON` is the
+    // user's own word and wins, as it does everywhere.
+    let has_header = matches!(pin, Pin::None | Pin::Carton(_))
+        && name == "cig"
+        && forced.is_none()
+        && script_arg(&rest).is_some_and(|a| read_script_header(Path::new(a)).is_some());
+    let pin = if has_header { Pin::Slow } else { pin };
     if let Pin::Unreadable(file) = &pin {
         eprintln!(
             "note: {file} is too large or not text for the shim; \

@@ -1,0 +1,185 @@
+# SPDX-FileCopyrightText: 2026 Jay Taylor (https://github.com/otmof-ops/cig-installer)
+# SPDX-License-Identifier: FSL-1.1-ALv2
+#
+# install.ps1: the bootstrap script for ciginstaller (Windows). It mirrors install.sh step for step.
+#
+# DOWNLOAD IT, READ IT, THEN RUN IT. Do not pipe it into Invoke-Expression. It is short on purpose.
+# Check the file you downloaded against the install.ps1.sha256 beside it on the release page.
+#
+# There is no Windows build of ciginstaller yet (phase 5, issue #21). Until a release carries
+# one, this script says so and stops; it never guesses at another platform's build.
+#
+# What it does, in order:
+#   1. checks this is 64-bit Windows;
+#   2. downloads the Windows ciginstaller archive from this exact release, over HTTPS, into a
+#      scratch directory, and checks its SHA-256 against the digest written into this script
+#      when the release was built;
+#   3. if `gh` is on PATH, also runs `gh attestation verify` on the archive (build provenance);
+#   4. refuses on any mismatch and leaves nothing behind;
+#   5. only then unpacks it under the CigScript home (CIGSCRIPT_HOME, else %USERPROFILE%\.cigscript)
+#      and runs `ciginstaller install`, handing it every argument you gave this script, for example
+#          .\install.ps1 --yes carton --preset strict
+#      With no arguments, ciginstaller asks its install questions itself.
+#
+# What this is NOT: integrity, not authorship. The digests prove the bytes you downloaded are
+# the bytes the release build produced. Nothing here is signed, so nothing proves who made
+# them; signed metadata (issue #9) is not built yet. The build attestation, where `gh` can
+# check it, ties the archive to this repository's release workflow and is the only provenance
+# check there is.
+#
+# It sends nothing about your machine: the only request is a plain GET of the release's public
+# archive URL with the fixed user agent "ciginstaller".
+#
+# Environment:
+#   CIGSCRIPT_HOME               the home to install into (an absolute path)
+#   CIGI_BOOTSTRAP_BASE_URL      download from here instead of GitHub (https, or http on 127.0.0.1).
+#                                The embedded digest still has to match.
+
+$ErrorActionPreference = 'Stop'
+Set-StrictMode -Version 2
+
+$Version = '@VERSION@'
+$Tag = '@TAG@'
+$Repo = '@REPO@'
+$ShaWindowsX86_64 = '@SHA256_WINDOWS_X86_64@'
+
+function Say($Message) { [Console]::Error.WriteLine($Message) }
+function Stop-Bootstrap($Message) {
+    Say "error: $Message"
+    exit 1
+}
+
+if ($Version.StartsWith('@')) {
+    Stop-Bootstrap 'this is the template, not a release script. Download install.ps1 from a ciginstaller release page.'
+}
+
+if ($args.Count -gt 0 -and ($args[0] -eq '-h' -or $args[0] -eq '--help')) {
+    Say "install.ps1 for ciginstaller v$Version"
+    Say 'usage: .\install.ps1 [ARGUMENTS FOR ciginstaller install]'
+    Say 'example: .\install.ps1 --yes carton --preset strict'
+    Say 'Read the comments at the top of this file first. They say what it checks and what it does not.'
+    exit 0
+}
+
+# 1. the platform
+if ($env:OS -ne 'Windows_NT') {
+    Stop-Bootstrap 'this script is for Windows. On Linux, use install.sh from the same release.'
+}
+$Cpu = "$env:PROCESSOR_ARCHITECTURE"
+if ($Cpu -ne 'AMD64') {
+    Stop-Bootstrap "there is no ciginstaller build for Windows $Cpu. See the README's Install section to build it from source."
+}
+$Want = $ShaWindowsX86_64
+if ($Want -eq 'none') {
+    Stop-Bootstrap "release $Tag has no build for windows-x86_64 (phase 5, issue #21). See the README's Install section to build it from source."
+}
+$Asset = "ciginstaller-v$Version-windows-x86_64.zip"
+
+# the home
+if ($env:CIGSCRIPT_HOME) {
+    $Home_ = $env:CIGSCRIPT_HOME
+} elseif ($env:USERPROFILE) {
+    $Home_ = Join-Path $env:USERPROFILE '.cigscript'
+} else {
+    Stop-Bootstrap 'USERPROFILE is not set; set CIGSCRIPT_HOME to an absolute path.'
+}
+if (-not [System.IO.Path]::IsPathRooted($Home_)) {
+    Stop-Bootstrap "CIGSCRIPT_HOME must be an absolute path (got: $Home_)."
+}
+
+# where from
+$Base = "https://github.com/$Repo/releases/download/$Tag"
+if ($env:CIGI_BOOTSTRAP_BASE_URL) {
+    $Base = $env:CIGI_BOOTSTRAP_BASE_URL.TrimEnd('/')
+    if (-not ($Base -match '^https://' -or $Base -match '^http://(127\.0\.0\.1|localhost)([:/]|$)')) {
+        Stop-Bootstrap "CIGI_BOOTSTRAP_BASE_URL must be https, or http on 127.0.0.1 (got: $Base)."
+    }
+    Say "note: downloading from $Base instead of GitHub. The digest check still applies."
+}
+
+$Created = New-Object System.Collections.Generic.List[string]
+$Tmp = Join-Path ([System.IO.Path]::GetTempPath()) ("ciginstaller-bootstrap-" + [System.Guid]::NewGuid().ToString('N'))
+$Stage = Join-Path (Join-Path $Home_ 'installer') 'bootstrap'
+$Code = 1
+try {
+    # 2. download into scratch, never into the home
+    New-Item -ItemType Directory -Path $Tmp | Out-Null
+    Say "ciginstaller v$Version for windows-x86_64"
+    $File = Join-Path $Tmp $Asset
+    try {
+        Invoke-WebRequest -UseBasicParsing -UserAgent 'ciginstaller' -Uri "$Base/$Asset" -OutFile $File
+    } catch {
+        Stop-Bootstrap "could not download $Base/$Asset"
+    }
+    $Got = (Get-FileHash -Algorithm SHA256 -Path $File).Hash.ToLowerInvariant()
+    if ($Got -ne $Want) {
+        Say 'error: the download does not match the digest in this script.'
+        Say "  expected $Want"
+        Say "  got      $Got"
+        Stop-Bootstrap 'refusing to unpack it. Nothing was installed.'
+    }
+    Say 'sha256 ok'
+
+    # 3. build provenance, where gh can check it
+    $gh = Get-Command gh -ErrorAction SilentlyContinue
+    $signedIn = $false
+    if ($gh) {
+        & gh auth status *> $null
+        $signedIn = ($LASTEXITCODE -eq 0)
+    }
+    if ($gh -and $signedIn) {
+        & gh attestation verify $File -R $Repo *> $null
+        if ($LASTEXITCODE -ne 0) {
+            Stop-Bootstrap "gh attestation verify failed for $Asset. Run it yourself to see why: gh attestation verify <archive> -R $Repo. Nothing was installed."
+        }
+        Say "attestation ok (gh attestation verify, $Repo)"
+    } elseif ($gh) {
+        Say 'attestation: gh is not signed in, so build provenance was not checked; only the digest was (gh auth login, then run this again, to check it)'
+    } else {
+        Say 'attestation: gh is not on PATH, so build provenance was not checked; only the digest was'
+    }
+
+    # 4. the archive must hold files inside its own directory
+    Add-Type -AssemblyName System.IO.Compression.FileSystem
+    $Zip = [System.IO.Compression.ZipFile]::OpenRead($File)
+    try {
+        foreach ($Entry in $Zip.Entries) {
+            $Name = $Entry.FullName
+            if ($Name.StartsWith('/') -or $Name.StartsWith('\') -or $Name -match '(^|[\\/])\.\.([\\/]|$)' -or $Name -match '^[A-Za-z]:') {
+                Stop-Bootstrap "the archive holds an unsafe path ($Name). Nothing was installed."
+            }
+        }
+    } finally {
+        $Zip.Dispose()
+    }
+
+    # 5. unpack under the home, run the installer
+    foreach ($Dir in @($Home_, (Join-Path $Home_ 'installer'), $Stage)) {
+        if (-not (Test-Path -LiteralPath $Dir)) {
+            New-Item -ItemType Directory -Path $Dir | Out-Null
+            $Created.Insert(0, $Dir)
+        }
+    }
+    Expand-Archive -LiteralPath $File -DestinationPath $Stage -Force
+    $Exe = Join-Path $Stage 'ciginstaller.exe'
+    if (-not (Test-Path -LiteralPath $Exe) -or -not (Test-Path -LiteralPath (Join-Path $Stage 'cigi-shim.exe'))) {
+        Stop-Bootstrap 'the archive does not hold ciginstaller.exe and cigi-shim.exe.'
+    }
+    $env:CIGSCRIPT_HOME = $Home_
+    & $Exe install @args
+    $Code = $LASTEXITCODE
+    if ($Code -ne 0) {
+        Say "ciginstaller install did not finish (exit $Code). An install is a burn: the machine is as it was."
+    }
+} finally {
+    if (Test-Path -LiteralPath $Tmp) { Remove-Item -LiteralPath $Tmp -Recurse -Force -ErrorAction SilentlyContinue }
+    if (Test-Path -LiteralPath $Stage) { Remove-Item -LiteralPath $Stage -Recurse -Force -ErrorAction SilentlyContinue }
+    if ($Code -ne 0) {
+        foreach ($Dir in $Created) {
+            if ((Test-Path -LiteralPath $Dir) -and -not (Get-ChildItem -LiteralPath $Dir -Force)) {
+                Remove-Item -LiteralPath $Dir -Force -ErrorAction SilentlyContinue
+            }
+        }
+    }
+}
+exit $Code

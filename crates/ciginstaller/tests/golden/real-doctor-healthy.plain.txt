@@ -22,6 +22,8 @@ ok: manifest: the manifest last admitted for an install was sequence 2 on channe
   because I checked state.json's manifest entry
 ok: trust: trust level of each install: bootstrap: ciginstaller 0.1.0; checksummed: cig 1.20.0, cig 1.20.1, cigo 1.17.0
   because I checked the trust entry of every receipt
+note: trust: one source served the manifest and the builds, so no second place agreed with it: ciginstaller 0.1.0 from a mirror (bootstrap); cig 1.20.0, cig 1.20.1, cigo 1.17.0 from a mirror (dir:<tmp>/releases)
+  because I checked the origin and independence entries of every receipt
 ok: history: the last successful update was at <time>
   because I checked state.json's history
 ok: disk: the store holds 8 object(s), <size>, shared by 4 toolchain(s) as hard links; `gc` has nothing to free
@@ -31,5 +33,5 @@ ok: humidor: the humidor mirror agrees with the installed cig(s)
 note: not in this build: the guard's checks, the ashtray's queue and consent, and the guard's kernel features are not checked
   because I checked this build of ciginstaller has none of them, so there is nothing to look at
 note: the tools' own doctors were not run (add --tools to print them)
-ok: nothing needs action (15 check(s), 1 note(s))
+ok: nothing needs action (16 check(s), 2 note(s))
 --- stderr ---

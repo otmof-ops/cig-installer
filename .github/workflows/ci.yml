@@ -40,6 +40,18 @@ jobs:
       - name: THIRD-PARTY-NOTICES.md is current
         run: python3 ci/gen-third-party.py --check
 
+  # The bootstrap scripts (#5): shellcheck, then the fill and install tests against a local fixture.
+  # Cheap and Linux only; nothing leaves the runner.
+  bootstrap:
+    name: bootstrap scripts
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: shellcheck
+        run: shellcheck -s sh packaging/bootstrap/install.sh.in && shellcheck ci/fill-bootstrap.sh ci/test-bootstrap.sh
+      - name: fill the templates and install from a local fixture
+        run: ci/test-bootstrap.sh
+
   # The declared rust-version (Cargo.toml) must really build.
   msrv:
     name: cargo +1.88 check

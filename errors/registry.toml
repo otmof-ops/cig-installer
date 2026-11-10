@@ -380,6 +380,31 @@ probe = "project-pins"
 remedy = "install a carton that satisfies it: `ciginstaller carton list`"
 
 [[code]]
+code = "E1809"
+title = "a script's pin is not met"
+meaning = "A script pins the cig it was written for in its header (`# cig >=1.6.2`), and no cig installed here meets that pin. The resolver tried the carton the project or the machine uses, then every installed cig, and fetching a carton that has one was off or is not possible: `which` never fetches, `pin_fetch` was `never` or `ask` with nobody to ask, or no carton on the channel has a cig that meets it."
+fix = "`ciginstaller install carton --carton <version>` (the message names the carton), or `ciginstaller carton list`"
+no = "these-are-mine"
+arises = ["run"]
+tags = ["installer", "beginner-likely"]
+since = "0.1.0"
+related = ["E1801", "E1842"]
+[[code.cause]]
+why = "the carton that has a cig new enough is on the channel but not installed, and fetching is off"
+no = "these-are-mine"
+probe = "installed-cartons"
+remedy = "`ciginstaller install carton --carton <version>`, then run the script again; `ciginstaller config set pin_fetch auto` lets the shim do it"
+[[code.cause]]
+why = "no carton on this channel has a cig that meets the header, because the pin asks for a cig newer than any shipped or for another major version"
+no = "cant-see-any"
+probe = "carton-list"
+remedy = "`ciginstaller carton list` shows each carton's cig; loosen the header, or `ciginstaller channel beta` if a newer cig is there"
+[[code.cause]]
+why = "the header holds a typo, such as `>=1.62` for `>=1.6.2`"
+probe = "pin-file"
+remedy = "`ciginstaller which cig --why --script <file>` shows what was asked for and how far the look got"
+
+[[code]]
 code = "E1810"
 title = "no manifest"
 meaning = "The installer has no manifest to work from: it is offline and the cache is empty, or the channel returned nothing."
@@ -543,6 +568,27 @@ why = "the carton's record was made before the tool was added to it, or the tool
 no = "dont-have-any"
 probe = "installed-cartons"
 remedy = "`ciginstaller install carton --carton <version>` fills the carton in"
+
+[[code]]
+code = "E1819"
+title = "the channel's latest carton is not fetched"
+meaning = "Nothing is installed here and no project pin or machine carton says what to run, so the resolver's last step is the channel's latest carton. It was not fetched: `which` never fetches, `pin_fetch` was `never`, `--offline` was given, or `ask` had no terminal to ask on."
+fix = "`ciginstaller install carton`"
+no = "dont-have-any"
+arises = ["run"]
+tags = ["installer", "beginner-likely", "ci-likely"]
+since = "0.1.0"
+related = ["E1840", "E1842"]
+[[code.cause]]
+why = "ciginstaller has not installed anything yet, and a shim or `which` was run first"
+no = "dont-have-any"
+probe = "installed-cartons"
+remedy = "`ciginstaller install carton`"
+[[code.cause]]
+why = "the shim ran with no terminal and `pin_fetch` is `ask`, the default, which acts as `never` then"
+no = "these-are-mine"
+probe = "manifest-cache"
+remedy = "`ciginstaller install carton` once, or `ciginstaller config set pin_fetch auto` for CI"
 
 [[code]]
 code = "E1820"
@@ -860,6 +906,84 @@ why = "the filesystem holding the home is full"
 no = "depends"
 probe = "disk-free"
 remedy = "`ciginstaller gc` removes cartons and store objects nothing uses"
+
+[[code]]
+code = "E1837"
+title = "bundle unreadable or unsafe"
+meaning = "A bundle file given to `install --from` is not a bundle this installer will unpack: it is not a tar, its index is missing or does not match its files, it holds anything but plain files with plain names, or it is over a limit (4096 entries, 1 GiB a file, 8 GiB in all). Nothing was installed and the home is unchanged."
+fix = "`ciginstaller bundle --out carton.tar`, on a machine with a network, to make a new one"
+no = "these-are-mine"
+arises = ["any"]
+tags = ["installer", "ci-likely"]
+since = "0.1.0"
+related = ["E1826", "E1827"]
+[[code.cause]]
+why = "the file was cut short or damaged in the copy"
+no = "depends"
+probe = "file-hash"
+remedy = "copy it again and compare its sha256 with the one the maker has; `ciginstaller bundle --out carton.tar` makes a fresh one"
+[[code.cause]]
+why = "the file was changed after it was made, or is not a bundle made by ciginstaller"
+no = "these-are-mine"
+probe = "none"
+remedy = "do not unpack it by hand; ask the maker for a new one, and report it at https://github.com/otmof-ops/cig-installer/issues if it came from us"
+[[code.cause]]
+why = "the bundle holds the manifest of another channel than the one this machine follows"
+no = "cant-see-any"
+probe = "channel-list"
+remedy = "`ciginstaller install carton --channel beta --from carton.tar` names the channel it holds"
+
+[[code]]
+code = "E1838"
+title = "mirror directory refused"
+meaning = "`ciginstaller mirror` will not write to that directory: it cannot be made or written, it is the mirror this run reads from, it is inside the installer's own home, it already holds a newer manifest than the one fetched, or two builds want the same file name. Nothing already in it was removed."
+fix = "`ciginstaller mirror ./mirror`, with a directory you can write that is outside the home"
+no = "these-are-mine"
+arises = ["any"]
+tags = ["installer", "ci-likely"]
+since = "0.1.0"
+related = ["E1824", "E1835"]
+[[code.cause]]
+why = "the directory is not writable, or something that is not a directory has its name"
+no = "these-are-mine"
+probe = "path-permissions"
+remedy = "pick a directory you own, or fix its mode with chmod"
+[[code.cause]]
+why = "the directory already holds a newer manifest, because the source this run read from is behind it"
+no = "dont-have-any"
+probe = "manifest-cache"
+remedy = "`ciginstaller update --check --refresh` shows what the source serves now; run the mirror again once it has caught up"
+[[code.cause]]
+why = "the directory is the one this run reads from, or lies inside the home"
+no = "these-are-mine"
+probe = "path-exists"
+remedy = "give `ciginstaller mirror` a directory that is neither"
+
+[[code]]
+code = "E1839"
+title = "bundle cannot be written"
+meaning = "`ciginstaller bundle` cannot write its output file: the path is a directory, its folder is not there, the disk refused the write, or a build changed after it was admitted so the bytes were not the ones checked. Any partial file was removed."
+fix = "`ciginstaller bundle --out carton.tar`, with a path in a folder that exists and is writable"
+no = "depends"
+arises = ["any"]
+tags = ["installer"]
+since = "0.1.0"
+related = ["E1836", "E1837"]
+[[code.cause]]
+why = "the output path is a directory or its folder does not exist"
+no = "cant-see-any"
+probe = "path-exists"
+remedy = "give `--out` a file path inside a folder that exists"
+[[code.cause]]
+why = "the folder is not writable"
+no = "these-are-mine"
+probe = "path-permissions"
+remedy = "pick a folder you own, or fix its mode with chmod"
+[[code.cause]]
+why = "a downloaded build changed on disk between being checked and being written"
+no = "none"
+probe = "file-hash"
+remedy = "run the bundle command again; if it repeats, report it at https://github.com/otmof-ops/cig-installer/issues"
 
 [[code]]
 code = "E1840"
@@ -1308,6 +1432,44 @@ remedy = "remove the link by hand, then run `ciginstaller repair`"
 why = "a shell profile is a link into a dotfiles repository"
 probe = "profile-block"
 remedy = "delete the lines between the cigscript markers in the file the link points to"
+
+[[code]]
+code = "E1866"
+title = "a measurement is over its budget"
+meaning = "bench --strict measured something on this machine that is over its budget in bench/bench.toml (#20, #32), so it stopped. Nothing was changed: bench only reads, and it works in a scratch home."
+fix = "`ciginstaller bench`"
+no = "none"
+arises = ["any"]
+tags = ["installer", "ci-likely"]
+since = "0.1.0"
+related = ["E1867"]
+[[code.cause]]
+why = "this is a debug build, or the machine was busy while it measured"
+probe = "none"
+remedy = "`ciginstaller bench --runs 300` on a release build, with nothing else running: the median and the p95 say whether it was noise"
+[[code.cause]]
+why = "the scratch directory is on a slower disk than the real home, or the real home is on one"
+probe = "disk-free"
+remedy = "`ciginstaller bench --scratch <a directory on the same disk as the home>`"
+[[code.cause]]
+why = "a change made the installer slower than its budget"
+probe = "none"
+remedy = "report it at https://github.com/otmof-ops/cig-installer/issues with the output of `ciginstaller bench --json`"
+
+[[code]]
+code = "E1867"
+title = "a bench view is not built yet"
+meaning = "bench was asked for a view that waits on other work: the family view and the suites of every product, cartons against cartons (--carton, --with, --matrix, --product, --only) and --watch depend on otmof-ops/cig-script#179 (the tool) and #30 (the resolver); the window's Bench view depends on #33; reporting a regression goes through #29. All are open. `ciginstaller bench` with no flag measures the installer's own budgets."
+fix = "`ciginstaller bench`"
+no = "none"
+arises = ["any"]
+tags = ["installer"]
+since = "0.1.0"
+related = ["E1866", "E1870"]
+[[code.cause]]
+why = "the flag belongs to the family benchmark, which is not built yet"
+probe = "none"
+remedy = "`ciginstaller bench` measures the installer's own budgets in the meantime"
 
 [[code]]
 code = "E1870"

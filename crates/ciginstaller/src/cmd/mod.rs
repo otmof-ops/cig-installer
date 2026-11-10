@@ -2,6 +2,8 @@
 // SPDX-License-Identifier: FSL-1.1-ALv2
 //! One module per command group. Each returns an `Outcome` for `main` to print.
 
+pub mod bench;
+pub mod bundle;
 pub mod carton;
 pub mod channel;
 pub mod check;
@@ -11,6 +13,7 @@ pub mod gc;
 pub mod history;
 pub mod install;
 pub mod list;
+pub mod mirror;
 pub mod pin;
 pub mod repair;
 pub mod resolve;

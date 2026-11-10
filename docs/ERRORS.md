@@ -42,6 +42,7 @@ the installer: carton and tool combinations that do not fit (marry-up), and cart
 | [`E1806`](#e1806-journal-format-against-this-cig) | journal format against this cig *(planned)* | these are MY ciggies | `ciginstaller carton list`, then `ciginstaller carton <version>` for a cig that reads it |
 | [`E1807`](#e1807-operating-system-or-kernel-below-a-minimum) | operating system or kernel below a minimum | these are MY ciggies | `ciginstaller carton list`, then `ciginstaller carton <version>` for one that supports this system |
 | [`E1808`](#e1808-a-packages-requirements) | a package's requirements *(planned)* | these are MY ciggies | `ciginstaller check --project <dir>` |
+| [`E1809`](#e1809-a-scripts-pin-is-not-met) | a script's pin is not met | these are MY ciggies | `ciginstaller install carton --carton <version>` (the message names the carton), or `ciginstaller carton list` |
 | [`E1810`](#e1810-no-manifest) | no manifest | don't have any over here | `ciginstaller update --check`, online, to fetch the manifest |
 | [`E1811`](#e1811-no-such-carton) | no such carton | can't see any ciggies bro | `ciginstaller carton list` |
 | [`E1812`](#e1812-no-such-channel) | no such channel | can't see any ciggies bro | `ciginstaller config list`, then `ciginstaller channel stable` |
@@ -51,6 +52,7 @@ the installer: carton and tool combinations that do not fit (marry-up), and cart
 | [`E1816`](#e1816-carton-not-installed) | carton not installed | don't have any over here | `ciginstaller install carton --carton <version>` |
 | [`E1817`](#e1817-carton-is-only-partly-installed) | carton is only partly installed | don't have any over here | `ciginstaller install carton --carton <version>` |
 | [`E1818`](#e1818-carton-lacks-a-tool-this-machine-has) | carton lacks a tool this machine has | don't have any over here | `ciginstaller install carton --carton <version>` |
+| [`E1819`](#e1819-the-channels-latest-carton-is-not-fetched) | the channel's latest carton is not fetched | don't have any over here | `ciginstaller install carton` |
 
 ### E1800 combination refused
 
@@ -198,6 +200,24 @@ A package a project adds needs a product version the carton does not provide. Em
 1. the package declares a minimum for cig or cigo above the installed build (probe `project-pins`). **Remedy:** install a carton that satisfies it: `ciginstaller carton list`
 
 Related: [`E1801`](#e1801-a-product-needs-another).
+
+### E1809 a script's pin is not met
+
+*usage · since 0.1.0 · arises in run*
+
+**Kind of no:** these are MY ciggies (the door: it knows you and said no; 403 Forbidden; permission denied; a lock; a refusal by policy).
+
+A script pins the cig it was written for in its header (`# cig >=1.6.2`), and no cig installed here meets that pin. The resolver tried the carton the project or the machine uses, then every installed cig, and fetching a carton that has one was off or is not possible: `which` never fetches, `pin_fetch` was `never` or `ask` with nobody to ask, or no carton on the channel has a cig that meets it.
+
+**What to type next:** `ciginstaller install carton --carton <version>` (the message names the carton), or `ciginstaller carton list`
+
+**Known causes**, ranked; the doctor checks them in this order:
+
+1. the carton that has a cig new enough is on the channel but not installed, and fetching is off (probe `installed-cartons`). **Remedy:** `ciginstaller install carton --carton <version>`, then run the script again; `ciginstaller config set pin_fetch auto` lets the shim do it
+2. no carton on this channel has a cig that meets the header, because the pin asks for a cig newer than any shipped or for another major version (probe `carton-list`). **Remedy:** `ciginstaller carton list` shows each carton's cig; loosen the header, or `ciginstaller channel beta` if a newer cig is there
+3. the header holds a typo, such as `>=1.62` for `>=1.6.2` (probe `pin-file`). **Remedy:** `ciginstaller which cig --why --script <file>` shows what was asked for and how far the look got
+
+Related: [`E1801`](#e1801-a-product-needs-another), [`E1842`](#e1842-pinned-carton-unavailable-and-fetching-refused).
 
 ### E1810 no manifest
 
@@ -348,6 +368,23 @@ The carton named is meant to have a tool the machine's carton has (by the manife
 
 Related: [`E1817`](#e1817-carton-is-only-partly-installed), [`E1840`](#e1840-nothing-installed-for-this-tool).
 
+### E1819 the channel's latest carton is not fetched
+
+*usage · since 0.1.0 · arises in run*
+
+**Kind of no:** don't have any over here (nobody's: right place, right you, nothing there; 404 from the server's side; an empty result).
+
+Nothing is installed here and no project pin or machine carton says what to run, so the resolver's last step is the channel's latest carton. It was not fetched: `which` never fetches, `pin_fetch` was `never`, `--offline` was given, or `ask` had no terminal to ask on.
+
+**What to type next:** `ciginstaller install carton`
+
+**Known causes**, ranked; the doctor checks them in this order:
+
+1. ciginstaller has not installed anything yet, and a shim or `which` was run first (probe `installed-cartons`). **Remedy:** `ciginstaller install carton`
+2. the shim ran with no terminal and `pin_fetch` is `ask`, the default, which acts as `never` then (probe `manifest-cache`). **Remedy:** `ciginstaller install carton` once, or `ciginstaller config set pin_fetch auto` for CI
+
+Related: [`E1840`](#e1840-nothing-installed-for-this-tool), [`E1842`](#e1842-pinned-carton-unavailable-and-fetching-refused).
+
 
 ## installer (`E1820`–`E1839`)
 
@@ -371,6 +408,9 @@ the installer: fetching and trusting artifacts, the store, toolchains and transa
 | [`E1834`](#e1834-another-ciginstaller-holds-the-lock) | another ciginstaller holds the lock | these are MY ciggies | `ciginstaller doctor` |
 | [`E1835`](#e1835-home-directory-unsafe-or-unwritable) | home directory unsafe or unwritable | these are MY ciggies | `ciginstaller doctor`, or set CIGSCRIPT_HOME to a directory you own |
 | [`E1836`](#e1836-disk-full) | disk full | one of the four; the message says which | `ciginstaller gc --dry-run` |
+| [`E1837`](#e1837-bundle-unreadable-or-unsafe) | bundle unreadable or unsafe | these are MY ciggies | `ciginstaller bundle --out carton.tar`, on a machine with a network, to make a new one |
+| [`E1838`](#e1838-mirror-directory-refused) | mirror directory refused | these are MY ciggies | `ciginstaller mirror ./mirror`, with a directory you can write that is outside the home |
+| [`E1839`](#e1839-bundle-cannot-be-written) | bundle cannot be written | one of the four; the message says which | `ciginstaller bundle --out carton.tar`, with a path in a folder that exists and is writable |
 
 ### E1820 download failed
 
@@ -643,6 +683,60 @@ There is not enough free space to stage and install what you asked for. Nothing 
 
 Related: [`E1835`](#e1835-home-directory-unsafe-or-unwritable).
 
+### E1837 bundle unreadable or unsafe
+
+*runtime · since 0.1.0 · arises in any*
+
+**Kind of no:** these are MY ciggies (the door: it knows you and said no; 403 Forbidden; permission denied; a lock; a refusal by policy).
+
+A bundle file given to `install --from` is not a bundle this installer will unpack: it is not a tar, its index is missing or does not match its files, it holds anything but plain files with plain names, or it is over a limit (4096 entries, 1 GiB a file, 8 GiB in all). Nothing was installed and the home is unchanged.
+
+**What to type next:** `ciginstaller bundle --out carton.tar`, on a machine with a network, to make a new one
+
+**Known causes**, ranked; the doctor checks them in this order:
+
+1. the file was cut short or damaged in the copy (probe `file-hash`). **Remedy:** copy it again and compare its sha256 with the one the maker has; `ciginstaller bundle --out carton.tar` makes a fresh one
+2. the file was changed after it was made, or is not a bundle made by ciginstaller (no probe; a suggestion, not a finding). **Remedy:** do not unpack it by hand; ask the maker for a new one, and report it at https://github.com/otmof-ops/cig-installer/issues if it came from us
+3. the bundle holds the manifest of another channel than the one this machine follows (probe `channel-list`). **Remedy:** `ciginstaller install carton --channel beta --from carton.tar` names the channel it holds
+
+Related: [`E1826`](#e1826-unsafe-archive), [`E1827`](#e1827-sidecar-missing-or-disagrees).
+
+### E1838 mirror directory refused
+
+*runtime · since 0.1.0 · arises in any*
+
+**Kind of no:** these are MY ciggies (the door: it knows you and said no; 403 Forbidden; permission denied; a lock; a refusal by policy).
+
+`ciginstaller mirror` will not write to that directory: it cannot be made or written, it is the mirror this run reads from, it is inside the installer's own home, it already holds a newer manifest than the one fetched, or two builds want the same file name. Nothing already in it was removed.
+
+**What to type next:** `ciginstaller mirror ./mirror`, with a directory you can write that is outside the home
+
+**Known causes**, ranked; the doctor checks them in this order:
+
+1. the directory is not writable, or something that is not a directory has its name (probe `path-permissions`). **Remedy:** pick a directory you own, or fix its mode with chmod
+2. the directory already holds a newer manifest, because the source this run read from is behind it (probe `manifest-cache`). **Remedy:** `ciginstaller update --check --refresh` shows what the source serves now; run the mirror again once it has caught up
+3. the directory is the one this run reads from, or lies inside the home (probe `path-exists`). **Remedy:** give `ciginstaller mirror` a directory that is neither
+
+Related: [`E1824`](#e1824-manifest-sequence-went-backwards), [`E1835`](#e1835-home-directory-unsafe-or-unwritable).
+
+### E1839 bundle cannot be written
+
+*runtime · since 0.1.0 · arises in any*
+
+**Kind of no:** one of the four; the message says which (read the operating-system reason in the message; ENOENT, EACCES, ENOSPC and friends, each mapped in the causes below).
+
+`ciginstaller bundle` cannot write its output file: the path is a directory, its folder is not there, the disk refused the write, or a build changed after it was admitted so the bytes were not the ones checked. Any partial file was removed.
+
+**What to type next:** `ciginstaller bundle --out carton.tar`, with a path in a folder that exists and is writable
+
+**Known causes**, ranked; the doctor checks them in this order:
+
+1. the output path is a directory or its folder does not exist (probe `path-exists`). **Remedy:** give `--out` a file path inside a folder that exists
+2. the folder is not writable (probe `path-permissions`). **Remedy:** pick a folder you own, or fix its mode with chmod
+3. a downloaded build changed on disk between being checked and being written (probe `file-hash`). **Remedy:** run the bundle command again; if it repeats, report it at https://github.com/otmof-ops/cig-installer/issues
+
+Related: [`E1836`](#e1836-disk-full), [`E1837`](#e1837-bundle-unreadable-or-unsafe).
+
 
 ## installer (`E1840`–`E1879`)
 
@@ -674,6 +768,8 @@ the installer: shims, pins, updates, rollbacks, repair, uninstall, and the comma
 | [`E1865`](#e1865-an-uninstall-was-cut-short-after-its-last-step) | an uninstall was cut short after its last step | not one of the four | `ciginstaller gc` |
 | [`E1868`](#e1868-this-is-not-a-home-the-installer-made) | this is not a home the installer made | these are MY ciggies | `ciginstaller explain E1868`, then check CIGSCRIPT_HOME or --home |
 | [`E1869`](#e1869-a-path-the-installer-will-not-follow-or-remove) | a path the installer will not follow or remove | these are MY ciggies | `ciginstaller doctor`, then remove the path named in the message by hand if you mean it |
+| [`E1866`](#e1866-a-measurement-is-over-its-budget) | a measurement is over its budget | not one of the four | `ciginstaller bench` |
+| [`E1867`](#e1867-a-bench-view-is-not-built-yet) | a bench view is not built yet | not one of the four | `ciginstaller bench` |
 | [`E1870`](#e1870-usage) | usage | not one of the four | `ciginstaller --help`, or `ciginstaller <command> --help` |
 | [`E1871`](#e1871-a-question-was-needed-and-there-is-no-tty) | a question was needed and there is no TTY | not one of the four | `ciginstaller <command> --yes`, or `--yes-irreversible` for a step that cannot be undone, if you mean it |
 | [`E1872`](#e1872-platform-not-supported) | platform not supported | don't have any over here | `ciginstaller carton show <version> --verbose` lists the targets |
@@ -1080,6 +1176,40 @@ A path the installer was about to remove or write is a symbolic link where it ke
 2. a shell profile is a link into a dotfiles repository (probe `profile-block`). **Remedy:** delete the lines between the cigscript markers in the file the link points to
 
 Related: [`E1862`](#e1862-a-profile-block-was-edited-and-is-left-alone), [`E1831`](#e1831-installed-file-differs-from-its-receipt).
+
+### E1866 a measurement is over its budget
+
+*usage · since 0.1.0 · arises in any*
+
+**Kind of no:** not one of the four (a mistake in the text, in the arithmetic, or in CigScript; syntax, type or logic error; an internal error).
+
+bench --strict measured something on this machine that is over its budget in bench/bench.toml (#20, #32), so it stopped. Nothing was changed: bench only reads, and it works in a scratch home.
+
+**What to type next:** `ciginstaller bench`
+
+**Known causes**, ranked; the doctor checks them in this order:
+
+1. this is a debug build, or the machine was busy while it measured (no probe; a suggestion, not a finding). **Remedy:** `ciginstaller bench --runs 300` on a release build, with nothing else running: the median and the p95 say whether it was noise
+2. the scratch directory is on a slower disk than the real home, or the real home is on one (probe `disk-free`). **Remedy:** `ciginstaller bench --scratch <a directory on the same disk as the home>`
+3. a change made the installer slower than its budget (no probe; a suggestion, not a finding). **Remedy:** report it at https://github.com/otmof-ops/cig-installer/issues with the output of `ciginstaller bench --json`
+
+Related: [`E1867`](#e1867-a-bench-view-is-not-built-yet).
+
+### E1867 a bench view is not built yet
+
+*usage · since 0.1.0 · arises in any*
+
+**Kind of no:** not one of the four (a mistake in the text, in the arithmetic, or in CigScript; syntax, type or logic error; an internal error).
+
+bench was asked for a view that waits on other work: the family view and the suites of every product, cartons against cartons (--carton, --with, --matrix, --product, --only) and --watch depend on otmof-ops/cig-script#179 (the tool) and #30 (the resolver); the window's Bench view depends on #33; reporting a regression goes through #29. All are open. `ciginstaller bench` with no flag measures the installer's own budgets.
+
+**What to type next:** `ciginstaller bench`
+
+**Known causes**, ranked; the doctor checks them in this order:
+
+1. the flag belongs to the family benchmark, which is not built yet (no probe; a suggestion, not a finding). **Remedy:** `ciginstaller bench` measures the installer's own budgets in the meantime
+
+Related: [`E1866`](#e1866-a-measurement-is-over-its-budget), [`E1870`](#e1870-usage).
 
 ### E1870 usage
 

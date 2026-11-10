@@ -1,0 +1,224 @@
+#!/bin/sh
+# SPDX-FileCopyrightText: 2026 Jay Taylor (https://github.com/otmof-ops/cig-installer)
+# SPDX-License-Identifier: FSL-1.1-ALv2
+#
+# install.sh: the bootstrap script for ciginstaller (Linux).
+#
+# DOWNLOAD IT, READ IT, THEN RUN IT. Do not pipe it into a shell. It is short on purpose.
+# Check the file you downloaded against the install.sh.sha256 beside it on the release page.
+#
+# What it does, in order:
+#   1. works out the platform (Linux x86_64 or aarch64);
+#   2. downloads that platform's ciginstaller tarball from this exact release, over HTTPS,
+#      into a scratch directory, and checks its SHA-256 against the digest written into this
+#      script when the release was built;
+#   3. if `gh` is on PATH, also runs `gh attestation verify` on the tarball (build provenance);
+#   4. refuses on any mismatch and leaves nothing behind;
+#   5. only then unpacks it under the CigScript home (CIGSCRIPT_HOME, else ~/.cigscript) and
+#      runs `ciginstaller install`, handing it every argument you gave this script, for example
+#          sh install.sh --yes carton --preset strict
+#      With no arguments, ciginstaller asks its install questions itself.
+#
+# What this is NOT: integrity, not authorship. The digests prove the bytes you downloaded are
+# the bytes the release build produced. Nothing here is signed, so nothing proves who made
+# them; signed metadata (issue #9) is not built yet. The build attestation, where `gh` can
+# check it, ties the tarball to this repository's release workflow and is the only provenance
+# check there is.
+#
+# It sends nothing about your machine: the only requests are plain GETs of the release's
+# public tarball URL with the fixed user agent "ciginstaller". It reads no account, writes
+# no profile (ciginstaller shows you any profile change before making it), and runs nothing
+# it downloaded until the checks above have passed.
+#
+# Environment:
+#   CIGSCRIPT_HOME               the home to install into (an absolute path)
+#   CIGI_BOOTSTRAP_BASE_URL      download from here instead of GitHub (a mirror or a test
+#                                fixture: https, or http on 127.0.0.1, or file://). The embedded
+#                                digest still has to match.
+
+set -eu
+
+version='@VERSION@'
+tag='@TAG@'
+repo='@REPO@'
+sha_linux_x86_64='@SHA256_LINUX_X86_64@'
+sha_linux_aarch64='@SHA256_LINUX_AARCH64@'
+
+say() { printf '%s\n' "$*" >&2; }
+die() {
+  say "error: $*"
+  exit 1
+}
+have() { command -v "$1" >/dev/null 2>&1; }
+
+case $version in
+  @*) die "this is the template, not a release script. Download install.sh from a ciginstaller release page." ;;
+esac
+
+if [ "${1:-}" = "-h" ] || [ "${1:-}" = "--help" ]; then
+  say "install.sh for ciginstaller v$version"
+  say "usage: sh install.sh [ARGUMENTS FOR ciginstaller install]"
+  say "example: sh install.sh --yes carton --preset strict"
+  say "Read the comments at the top of this file first. They say what it checks and what it does not."
+  exit 0
+fi
+
+# 1. the platform
+os=$(uname -s 2>/dev/null || echo unknown)
+cpu=$(uname -m 2>/dev/null || echo unknown)
+case $os in
+  Linux) ;;
+  Darwin) die "there is no ciginstaller build for macOS yet (phase 5, issue #21). See the README's Install section to build it from source." ;;
+  *) die "there is no ciginstaller build for $os $cpu. See the README's Install section to build it from source." ;;
+esac
+case $cpu in
+  x86_64 | amd64)
+    asset_platform=linux-x86_64
+    want=$sha_linux_x86_64
+    ;;
+  aarch64 | arm64)
+    asset_platform=linux-aarch64
+    want=$sha_linux_aarch64
+    ;;
+  *) die "there is no ciginstaller build for $os $cpu (builds exist for x86_64 and aarch64). See the README's Install section to build it from source." ;;
+esac
+case $want in
+  none) die "release $tag has no build for $asset_platform." ;;
+esac
+asset="ciginstaller-v$version-$asset_platform.tar.gz"
+
+# the home
+if [ -n "${CIGSCRIPT_HOME:-}" ]; then
+  home=$CIGSCRIPT_HOME
+else
+  [ -n "${HOME:-}" ] || die "HOME is not set; set CIGSCRIPT_HOME to an absolute path."
+  home=$HOME/.cigscript
+fi
+case $home in
+  /*) ;;
+  *) die "CIGSCRIPT_HOME must be an absolute path (got: $home)." ;;
+esac
+
+# where from
+base="https://github.com/$repo/releases/download/$tag"
+proto='=https'
+if [ -n "${CIGI_BOOTSTRAP_BASE_URL:-}" ]; then
+  base=${CIGI_BOOTSTRAP_BASE_URL%/}
+  case $base in
+    https://*) ;;
+    file://*) proto='=file' ;;
+    http://127.0.0.1[:/]* | http://127.0.0.1 | http://localhost[:/]* | http://localhost) proto='=http' ;;
+    *) die "CIGI_BOOTSTRAP_BASE_URL must be https, or http on 127.0.0.1, or file:// (got: $base)." ;;
+  esac
+  have curl || die "CIGI_BOOTSTRAP_BASE_URL needs curl."
+  say "note: downloading from $base instead of GitHub. The digest check still applies."
+fi
+
+# cleanup: scratch space always; directories this run created, if it failed
+tmp=''
+stage=''
+created=''
+# shellcheck disable=SC2317  # runs from the trap below
+cleanup() {
+  rc=$?
+  trap - EXIT
+  if [ -n "$tmp" ]; then rm -rf "$tmp"; fi
+  if [ -n "$stage" ]; then rm -rf "$stage"; fi
+  if [ "$rc" -ne 0 ]; then
+    for d in $created; do rmdir "$d" 2>/dev/null || true; done
+  fi
+  exit "$rc"
+}
+trap cleanup EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
+trap 'exit 129' HUP
+
+sha256_of() {
+  if have sha256sum; then
+    sha256sum "$1" | cut -d ' ' -f 1
+  elif have shasum; then
+    shasum -a 256 "$1" | cut -d ' ' -f 1
+  elif have openssl; then
+    openssl dgst -sha256 -r "$1" | cut -d ' ' -f 1
+  else
+    die "need sha256sum, shasum or openssl to check the download."
+  fi
+}
+
+fetch() {
+  if have curl; then
+    curl --proto "$proto" --proto-redir "$proto" --tlsv1.2 -fsSL -A ciginstaller -o "$2" "$1" ||
+      die "could not download $1"
+  elif have wget; then
+    wget -q -U ciginstaller -O "$2" "$1" || die "could not download $1"
+  else
+    die "need curl or wget to download ciginstaller."
+  fi
+}
+
+# 2. download into scratch, never into the home
+tmp=$(mktemp -d "${TMPDIR:-/tmp}/ciginstaller-bootstrap.XXXXXX") || die "cannot make a scratch directory."
+say "ciginstaller v$version for $asset_platform"
+fetch "$base/$asset" "$tmp/$asset"
+
+got=$(sha256_of "$tmp/$asset")
+if [ "$got" != "$want" ]; then
+  say "error: the download does not match the digest in this script."
+  say "  expected $want"
+  say "  got      $got"
+  die "refusing to unpack it. Nothing was installed."
+fi
+say "sha256 ok"
+
+# 3. build provenance, where gh can check it
+if have gh && gh auth status >/dev/null 2>&1; then
+  if gh attestation verify "$tmp/$asset" -R "$repo" >/dev/null 2>&1; then
+    say "attestation ok (gh attestation verify, $repo)"
+  else
+    die "gh attestation verify failed for $asset. Run it yourself to see why: gh attestation verify <tarball> -R $repo. Nothing was installed."
+  fi
+elif have gh; then
+  say "attestation: gh is not signed in, so build provenance was not checked; only the digest was (gh auth login, then run this again, to check it)"
+else
+  say "attestation: gh is not on PATH, so build provenance was not checked; only the digest was"
+fi
+
+# 4. the tarball must hold plain files, none outside its own directory
+tar -tzf "$tmp/$asset" >"$tmp/list" 2>/dev/null || die "the tarball cannot be read. Nothing was installed."
+while IFS= read -r entry; do
+  case $entry in
+    /* | .. | ../* | */../* | */..) die "the tarball holds an unsafe path ($entry). Nothing was installed." ;;
+  esac
+done <"$tmp/list"
+tar -tvzf "$tmp/$asset" 2>/dev/null | while IFS= read -r line; do
+  case $line in
+    -*) ;;
+    d*) ;;
+    *) exit 1 ;;
+  esac
+done || die "the tarball holds something other than plain files. Nothing was installed."
+
+# 5. unpack under the home, run the installer
+for d in "$home" "$home/installer" "$home/installer/bootstrap"; do
+  if [ ! -d "$d" ]; then
+    mkdir "$d" || die "cannot create $d"
+    created="$d $created"
+  fi
+done
+stage="$home/installer/bootstrap"
+tar -xzf "$tmp/$asset" -C "$stage" || die "could not unpack the tarball."
+if [ ! -f "$stage/ciginstaller" ] || [ ! -f "$stage/cigi-shim" ]; then
+  die "the tarball does not hold ciginstaller and cigi-shim."
+fi
+chmod +x "$stage/ciginstaller" "$stage/cigi-shim"
+
+CIGSCRIPT_HOME=$home
+export CIGSCRIPT_HOME
+if "$stage/ciginstaller" install "$@"; then
+  exit 0
+else
+  rc=$?
+  say "ciginstaller install did not finish (exit $rc). An install is a burn: the machine is as it was."
+  exit "$rc"
+fi

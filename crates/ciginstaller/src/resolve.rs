@@ -3,15 +3,15 @@
 //! Resolution, SPEC section 8: what runs here? The reference the shim's fast path must agree with.
 
 use std::collections::BTreeSet;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use cig_compat::{legacy_resolve, LegacyOutcome, Pin, Version};
 use cigi_ui::{InstallerError, EXIT_REFUSED};
 
-use crate::cx::Cx;
+use crate::cx::{Cx, ManifestMode};
 use crate::flows::install::{self, InstallArgs, What};
 use crate::flows::{cached_yanked, tool_exe};
-use crate::project::file_label;
+use crate::project::{file_label, legacy_label};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Mode {
@@ -26,6 +26,8 @@ pub enum Why {
     Forced(String),
     Pinned(String),
     Legacy(String),
+    /// A script's `# cig` header: `# cig >=1.6.2 in s.cig`.
+    Header(String),
     Machine,
     Stick,
 }
@@ -37,6 +39,16 @@ pub struct Resolution {
     pub path: PathBuf,
     pub why: Why,
     pub steps: Vec<String>,
+    /// The script whose header was read, when one was named and carries a pin.
+    pub script: Option<ScriptInfo>,
+}
+
+/// A script's header as the resolver read it.
+#[derive(Debug, Clone)]
+pub struct ScriptInfo {
+    pub file: PathBuf,
+    /// What follows `# cig`, as written: `>=1.6.2`.
+    pub header: String,
 }
 
 impl Resolution {
@@ -55,6 +67,7 @@ impl Resolution {
             Why::Forced(c) => format!("CIGI_CARTON={c}"),
             Why::Pinned(f) => format!("pinned in {f}"),
             Why::Legacy(f) => format!("satisfies {f}"),
+            Why::Header(h) => format!("satisfies {h}"),
             Why::Machine => "the machine's carton".to_string(),
             Why::Stick => "installed on its own".to_string(),
         }
@@ -118,11 +131,276 @@ fn found(
         path,
         why,
         steps,
+        script: None,
     })
 }
 
 pub fn resolve(cx: &mut Cx, tool: &str, mode: Mode) -> Result<Resolution, InstallerError> {
-    resolve_inner(cx, tool, mode, false)
+    resolve_for(cx, tool, mode, None)
+}
+
+/// What a resolution is told besides the tool.
+#[derive(Debug, Clone, Copy, Default)]
+struct Opts {
+    /// A script's header is in play: it wins over `.cig-version`, as cig reads them.
+    header_wins: bool,
+    /// Leave out the channel's-latest fallback: the caller has a better one.
+    no_latest: bool,
+}
+
+/// A script header the resolver can act on.
+struct Header {
+    file: PathBuf,
+    /// As written after `# cig`.
+    text: String,
+    pin: Pin,
+    /// `# cig >=1.6.2 in s.cig`.
+    label: String,
+}
+
+impl Header {
+    fn info(&self) -> ScriptInfo {
+        ScriptInfo {
+            file: self.file.clone(),
+            header: self.text.clone(),
+        }
+    }
+}
+
+/// `resolve`, for a command that runs `script` (when one is named): for `cig`, a header in the
+/// script (`# cig >=1.6.2`) must be met by the build that runs. The steps of a resolution that
+/// ends in an error are left in `cx.last_steps` for `which --why` to print.
+pub fn resolve_for(
+    cx: &mut Cx,
+    tool: &str,
+    mode: Mode,
+    script: Option<&Path>,
+) -> Result<Resolution, InstallerError> {
+    let mut steps = Vec::new();
+    let mut header = None;
+    if let (true, Some(file)) = (tool == "cig", script) {
+        let file = cx.cwd.join(file);
+        if let Some(found) = cigi_shim::read_script_header(&file) {
+            let name = file_label(&file);
+            match Pin::parse(&found.text) {
+                Ok(pin) => {
+                    header = Some(Header {
+                        label: format!("# cig {} in {name}", found.text),
+                        text: found.text,
+                        pin,
+                        file,
+                    })
+                }
+                Err(_) => steps.push(format!(
+                    "   {name} has `# cig {}` on line {}, which is not a constraint ciginstaller reads; cig will say so",
+                    found.text, found.line
+                )),
+            }
+        }
+    }
+    let result = match &header {
+        Some(h) => with_header(cx, mode, h, &mut steps, false).map(|mut r| {
+            r.script = Some(h.info());
+            r
+        }),
+        None => resolve_inner(cx, tool, mode, false, Opts::default(), &mut steps),
+    };
+    if result.is_err() {
+        cx.last_steps = steps;
+    }
+    result
+}
+
+/// The newest carton of the cached manifest whose cig meets `pin`, not yanked, not a prerelease.
+fn fitting_carton(m: &cig_compat::Manifest, pin: &Pin) -> Option<(Version, Version)> {
+    m.cartons
+        .values()
+        .rev()
+        .filter(|c| !c.version.is_prerelease() && !m.is_carton_yanked(&c.version))
+        .find_map(|c| {
+            let b = c.products.get("cig")?;
+            pin.satisfied_by(b).then(|| (c.version.clone(), b.clone()))
+        })
+}
+
+/// Resolve `cig` for a script whose header pins it. In order: the carton the project or the machine
+/// would use, when its cig meets the header; else the newest installed cig that does; else, when
+/// `pin_fetch` allows, the newest carton on the channel that has one; else E1809.
+fn with_header(
+    cx: &mut Cx,
+    mode: Mode,
+    h: &Header,
+    steps: &mut Vec<String>,
+    fetched: bool,
+) -> Result<Resolution, InstallerError> {
+    const TOOL: &str = "cig";
+    let pin = &h.pin;
+    steps.push(format!("H0. {} asks for cig {pin}", h.label));
+    // CIGI_CARTON is the user's own word: it runs what it names, and cig hands the run to a
+    // matching build from its humidor if that one does not fit
+    if std::env::var("CIGI_CARTON").is_ok_and(|s| !s.is_empty()) {
+        let mut r = resolve_inner(cx, TOOL, mode, false, Opts::default(), steps)?;
+        let verdict = if pin.satisfied_by(&r.build) {
+            format!("H1. cig {} meets it", r.build)
+        } else {
+            format!(
+                "H1. cig {} does not meet it; CIGI_CARTON decides, and cig hands the run to a matching build from its humidor",
+                r.build
+            )
+        };
+        r.steps.push(verdict);
+        return Ok(r);
+    }
+    let opts = Opts {
+        header_wins: true,
+        no_latest: true,
+    };
+    match resolve_inner(cx, TOOL, mode, false, opts, steps) {
+        Ok(mut r) if pin.satisfied_by(&r.build) => {
+            r.steps.push(format!(
+                "H1. cig {} meets it: no other build is looked for",
+                r.build
+            ));
+            return Ok(r);
+        }
+        Ok(r) => steps.push(format!(
+            "H1. cig {} ({}) does not meet it",
+            r.build,
+            r.why_text()
+        )),
+        Err(e) if e.code == "E1840" => {
+            steps.push("H1. the project and the machine have no cig to offer".to_string())
+        }
+        Err(e) => return Err(e),
+    }
+
+    // the newest installed cig that meets it: a carton's, or a stick's
+    let yanked: BTreeSet<String> = cached_yanked(cx).into_iter().collect();
+    let mut have: Vec<(Option<Version>, Version)> = holders(cx, TOOL)
+        .into_iter()
+        .filter(|(c, _)| !yanked.contains(&c.to_string()))
+        .map(|(c, b)| (Some(c), b))
+        .chain(
+            cx.state
+                .sticks
+                .iter()
+                .filter(|s| s.tool == TOOL)
+                .filter_map(|s| parsed(&s.version))
+                .map(|b| (None, b)),
+        )
+        .filter(|(_, b)| pin.satisfied_by(b))
+        .collect();
+    have.sort_by(|a, b| b.1.cmp(&a.1).then(b.0.cmp(&a.0)));
+    for (carton, build) in have {
+        let mut picked = steps.clone();
+        picked.push(format!(
+            "H2. the newest installed cig that meets it is {build}{}",
+            carton
+                .as_ref()
+                .map_or(" (installed on its own)".to_string(), |c| format!(
+                    ", in carton {c}"
+                ))
+        ));
+        if let Ok(r) = found(
+            cx,
+            TOOL,
+            carton,
+            build,
+            Why::Header(h.label.clone()),
+            picked,
+        ) {
+            if pin.satisfied_by(&r.build) {
+                return Ok(r);
+            }
+        }
+    }
+    steps.push("H2. no installed cig meets it".to_string());
+
+    // a carton from the channel
+    let listed = cx.peek_manifest().map(|m| fitting_carton(&m, pin));
+    let refuse = |why: String, fix: String| {
+        InstallerError::new(
+            "E1809",
+            format!("{} asks for cig {pin}, and {why}", h.label),
+        )
+        .with_fix(fix)
+        .with_exit(EXIT_REFUSED)
+    };
+    if let Some(None) = listed {
+        steps.push(format!(
+            "H3. no carton on the {} channel has a cig that meets it",
+            cx.channel()
+        ));
+        return Err(refuse(
+            format!(
+                "no carton on the {} channel has a cig that meets it",
+                cx.channel()
+            ),
+            "ciginstaller carton list".into(),
+        ));
+    }
+    let named = listed.flatten();
+    let fix = named.as_ref().map_or_else(
+        || "ciginstaller carton list".to_string(),
+        |(c, _)| format!("ciginstaller install carton --carton {c}"),
+    );
+    let what = named.as_ref().map_or_else(
+        || format!("a carton with a cig that meets {pin}"),
+        |(c, b)| format!("carton {c} (cig {b})"),
+    );
+    if mode == Mode::Which {
+        steps.push(format!(
+            "H3. {what} would be fetched on a run; `which` does not fetch"
+        ));
+        return Err(refuse("`which` does not fetch".into(), fix));
+    }
+    if fetched {
+        return Err(InstallerError::new(
+            "E1856",
+            format!(
+                "a carton was fetched for {}, but still no cig meets {pin}",
+                h.label
+            ),
+        )
+        .with_fix("ciginstaller carton list"));
+    }
+    if !cx.may_fetch_pinned(&what)? {
+        steps.push(format!(
+            "H3. {what} is not fetched: pin_fetch, --offline or no terminal to ask on"
+        ));
+        return Err(refuse(
+            "fetching is off (pin_fetch, --offline, or no terminal to ask on)".into(),
+            fix,
+        ));
+    }
+    let (carton, build) = match named {
+        Some(n) => n,
+        None => {
+            let m = cx.manifest(ManifestMode::Fresh)?.clone();
+            fitting_carton(&m, pin).ok_or_else(|| {
+                refuse(
+                    format!(
+                        "no carton on the {} channel has a cig that meets it",
+                        m.channel
+                    ),
+                    "ciginstaller carton list".into(),
+                )
+            })?
+        }
+    };
+    cx.ui.say(&cigi_ui::Report::new(
+        cigi_ui::Icon::Running,
+        format!(
+            "fetching carton {carton} for {} (it needs cig {pin}; carton {carton} has cig {build})",
+            file_label(&h.file)
+        ),
+    ));
+    let mut a = InstallArgs::carton(Some(carton.to_string()));
+    a.no_path = true;
+    a.reason = Some(format!("needed by {}", h.label));
+    install::run(cx, &a)?;
+    steps.clear();
+    with_header(cx, mode, h, steps, true)
 }
 
 /// Which installed `(carton, build)` runs `tool` under the legacy pins when one tool (`st`) comes
@@ -165,8 +443,10 @@ fn resolve_inner(
     tool: &str,
     mode: Mode,
     fetched: bool,
+    opts: Opts,
+    steps: &mut Vec<String>,
 ) -> Result<Resolution, InstallerError> {
-    let mut steps = Vec::new();
+    let base_len = steps.len();
     // 1. CIGI_CARTON
     if let Some(c) = std::env::var("CIGI_CARTON").ok().filter(|s| !s.is_empty()) {
         steps.push(format!("1. CIGI_CARTON is {c}"));
@@ -183,7 +463,7 @@ fn resolve_inner(
             InstallerError::new("E1840", format!("carton {c} has no {tool}"))
                 .with_fix(format!("ciginstaller install stick {tool} --carton {c}"))
         })?;
-        return found(cx, tool, Some(cv), b, Why::Forced(c), steps);
+        return found(cx, tool, Some(cv), b, Why::Forced(c), steps.clone());
     }
     steps.push("1. CIGI_CARTON is not set".to_string());
 
@@ -219,7 +499,7 @@ fn resolve_inner(
                     steps.push(format!("   warning E1855: {w}"));
                 }
             }
-            return found(cx, tool, Some(c), b, Why::Pinned(label), steps);
+            return found(cx, tool, Some(c), b, Why::Pinned(label), steps.clone());
         }
         let any_installed = cx
             .state
@@ -273,19 +553,33 @@ fn resolve_inner(
         a.no_path = true;
         a.reason = Some(format!("pinned in {label}"));
         install::run(cx, &a)?;
-        return resolve_inner(cx, tool, mode, true);
+        steps.truncate(base_len);
+        return resolve_inner(cx, tool, mode, true, opts, steps);
     }
     steps.push("2. no carton pin in this project".to_string());
 
     // 3. legacy pins
-    let legacy = project
+    let mut legacy = project
         .as_ref()
         .map(|p| p.legacy.clone())
         .unwrap_or_default();
+    if opts.header_wins {
+        // a header in the script wins over the file, as cig reads them
+        legacy.retain(|(t, p, f)| {
+            let drop = t == "cig" && file_label(f) == ".cig-version";
+            if drop {
+                steps.push(format!(
+                    "   {} is set aside: the script's header wins over it",
+                    legacy_label(f, p)
+                ));
+            }
+            !drop
+        });
+    }
     if !legacy.is_empty() {
         let label = legacy
             .iter()
-            .map(|(_, p, f)| format!("{} {p}", file_label(f)))
+            .map(|(_, p, f)| legacy_label(f, p))
             .collect::<Vec<_>>()
             .join(", ");
         steps.push(format!("3. legacy pin files: {label}"));
@@ -309,7 +603,7 @@ fn resolve_inner(
                 .get(tool)
                 .and_then(|v| parsed(v));
             if let Some(b) = b {
-                return found(cx, tool, Some(c), b, Why::Legacy(label), steps);
+                return found(cx, tool, Some(c), b, Why::Legacy(label), steps.clone());
             }
         }
         // nothing installed fits: one tool from a stick, the rest from a base carton
@@ -346,7 +640,7 @@ fn resolve_inner(
             Some(LegacyOutcome::Stick { tool: st, carton }) => {
                 // already installed (a record of that carton holds the stick's tool)?
                 if let Some((c, b)) = legacy_pick(cx, tool, &st, &carton, &pins) {
-                    return found(cx, tool, Some(c), b, Why::Legacy(label), steps);
+                    return found(cx, tool, Some(c), b, Why::Legacy(label), steps.clone());
                 }
                 let fix = format!("ciginstaller install stick {st} --carton {carton}");
                 if mode == Mode::Run
@@ -360,7 +654,7 @@ fn resolve_inner(
                     install::run(cx, &a)?;
                     // one look at what was just installed, never another fetch
                     if let Some((c, b)) = legacy_pick(cx, tool, &st, &carton, &pins) {
-                        return found(cx, tool, Some(c), b, Why::Legacy(label), steps);
+                        return found(cx, tool, Some(c), b, Why::Legacy(label), steps.clone());
                     }
                     return Err(InstallerError::new(
                         "E1856",
@@ -389,7 +683,7 @@ fn resolve_inner(
             .and_then(|v| parsed(v));
         if let Some(b) = b {
             steps.push(format!("4. the machine carton is {mc}"));
-            return found(cx, tool, Some(mc), b, Why::Machine, steps);
+            return found(cx, tool, Some(mc), b, Why::Machine, steps.clone());
         }
         steps.push(format!("4. the machine carton {mc} has no {tool}"));
     } else {
@@ -399,12 +693,59 @@ fn resolve_inner(
     if let Some(s) = cx.state.sticks.iter().find(|s| s.tool == tool) {
         if let Some(b) = parsed(&s.version) {
             steps.push(format!("5. a stick: {tool} {b}"));
-            return found(cx, tool, None, b, Why::Stick, steps);
+            return found(cx, tool, None, b, Why::Stick, steps.clone());
         }
     }
-    // 6. nothing
-    Err(
-        InstallerError::new("E1840", format!("nothing is installed for `{tool}`"))
-            .with_fix("ciginstaller install carton"),
-    )
+    // 6. the channel's latest: only a machine with nothing on it falls this far. One that has a
+    // carton but not this tool is told how to add the tool, not handed a second carton.
+    if cx.state.machine_carton.is_some() || opts.no_latest {
+        steps.push(format!("6. no {tool} anywhere on this machine"));
+        return Err(
+            InstallerError::new("E1840", format!("nothing is installed for `{tool}`"))
+                .with_fix("ciginstaller install carton"),
+        );
+    }
+    let latest = cx
+        .peek_manifest()
+        .and_then(|m| m.latest(false).map(|c| c.version.to_string()));
+    let what = latest.as_ref().map_or_else(
+        || "the channel's latest carton".to_string(),
+        |c| format!("carton {c}, the channel's latest"),
+    );
+    steps.push(format!(
+        "6. nothing is installed or pinned here, so the channel's latest: {what}"
+    ));
+    let unavailable = |why: &str| {
+        InstallerError::new(
+            "E1819",
+            format!("nothing is installed for `{tool}`, and {what} is not fetched: {why}"),
+        )
+        .with_fix("ciginstaller install carton")
+        .with_exit(EXIT_REFUSED)
+    };
+    if mode == Mode::Which {
+        return Err(unavailable("`which` does not fetch"));
+    }
+    if fetched {
+        return Err(InstallerError::new(
+            "E1856",
+            format!("{what} was fetched, but it still does not hold {tool}"),
+        )
+        .with_fix("ciginstaller carton list"));
+    }
+    if !cx.may_fetch_pinned(&what)? {
+        return Err(unavailable(
+            "fetching is off (pin_fetch, --offline, or no terminal to ask on)",
+        ));
+    }
+    cx.ui.say(&cigi_ui::Report::new(
+        cigi_ui::Icon::Running,
+        format!("fetching {what} (nothing is installed here)"),
+    ));
+    let mut a = InstallArgs::carton(None);
+    a.no_path = true;
+    a.reason = Some("the channel's latest".into());
+    install::run(cx, &a)?;
+    steps.truncate(base_len);
+    resolve_inner(cx, tool, mode, true, opts, steps)
 }

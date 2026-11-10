@@ -13,16 +13,23 @@ use serde_json::json;
 use super::tabular::details;
 use super::Outcome;
 use crate::cx::Cx;
-use crate::resolve::{resolve, Mode, Resolution};
+use crate::resolve::{resolve, resolve_for, Mode, Resolution};
 
 pub fn run(
     cx: &mut Cx,
     tool: Option<&str>,
     why: bool,
     path_only: bool,
+    script: Option<&Path>,
 ) -> Result<Outcome, InstallerError> {
     match tool {
-        Some(t) => one(cx, t, why, path_only),
+        Some(t) => one(cx, t, why, path_only, script),
+        None if script.is_some() => Err(InstallerError::new(
+            "E1870",
+            "--script needs a tool: `ciginstaller which cig --script <file>`",
+        )
+        .with_fix("ciginstaller which cig --script <file>")
+        .with_exit(EXIT_USAGE)),
         None if path_only => Err(InstallerError::new(
             "E1870",
             "--path needs a tool: `ciginstaller which <tool> --path`",
@@ -125,13 +132,27 @@ fn all(cx: &mut Cx, why: bool) -> Result<Outcome, InstallerError> {
     Ok(r.data(json!({ "tools": rows })).into())
 }
 
-fn one(cx: &mut Cx, tool: &str, why: bool, path_only: bool) -> Result<Outcome, InstallerError> {
+fn one(
+    cx: &mut Cx,
+    tool: &str,
+    why: bool,
+    path_only: bool,
+    script: Option<&Path>,
+) -> Result<Outcome, InstallerError> {
     // Exit rule: only the codes that mean "refused" (a pin or CIGI_CARTON the machine cannot
     // meet: E1816, E1842, E1801) exit 2. Everything else keeps its own code: E1840 (no tool) is
     // 127, E1831 and the rest follow the registry, E1890 (a bug) is 70.
-    let res = resolve(cx, tool, Mode::Which).map_err(|mut e| {
-        if matches!(e.code, "E1816" | "E1842" | "E1801") {
+    let res = resolve_for(cx, tool, Mode::Which, script).map_err(|mut e| {
+        if matches!(e.code, "E1816" | "E1842" | "E1801" | "E1809" | "E1819") {
             e.exit = EXIT_REFUSED;
+        }
+        // `--why` still says how far the look got, so the error is not the whole story
+        if why && !cx.last_steps.is_empty() {
+            let mut r = Report::new(cigi_ui::Icon::Note, format!("how {tool} was looked for"));
+            for s in &cx.last_steps {
+                r = r.detail(s.clone());
+            }
+            cx.ui.say(&r);
         }
         e
     })?;
@@ -145,14 +166,20 @@ fn one(cx: &mut Cx, tool: &str, why: bool, path_only: bool) -> Result<Outcome, I
             r = r.detail(s.clone());
         }
     }
-    Ok(r.data(json!({
+    let mut data = json!({
         "tool": tool,
         "version": res.build.to_string(),
         "carton": res.carton.as_ref().map(|c| c.to_string()),
         "path": res.path.display().to_string(),
         "steps": res.steps,
-    }))
-    .into())
+    });
+    if let (Some(s), Some(o)) = (&res.script, data.as_object_mut()) {
+        o.insert(
+            "script".into(),
+            json!({ "file": s.file.display().to_string(), "header": s.header }),
+        );
+    }
+    Ok(r.data(data).into())
 }
 
 /// `last_used` moves at most once a day, only when the lock is free, and never while a journal

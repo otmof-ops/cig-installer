@@ -204,7 +204,8 @@ pub fn role_of(code: &str) -> Role {
 /// about, in one lowercase word. Ranges follow `errors/registry.toml`.
 pub fn area(code: &str) -> &'static str {
     match number(code) {
-        Some(1800..=1809) => "check",
+        Some(1800..=1808) => "check",
+        Some(1809 | 1819) => "resolve",
         Some(1810) => "manifest",
         Some(1811 | 1816..=1818) => "carton",
         Some(1812) => "channel",
@@ -214,6 +215,8 @@ pub fn area(code: &str) -> &'static str {
         Some(1820..=1821) => "fetch",
         Some(1822..=1829) => "trust",
         Some(1830..=1836) => "store",
+        Some(1837 | 1839) => "bundle",
+        Some(1838) => "mirror",
         Some(1840..=1841 | 1844..=1845) => "shim",
         Some(1842..=1843 | 1846..=1848) => "pin",
         Some(1850..=1856) => "update",
@@ -221,6 +224,7 @@ pub fn area(code: &str) -> &'static str {
         Some(1863 | 1865 | 1868) => "uninstall",
         Some(1869) => "path",
         Some(1864) => "doctor",
+        Some(1866..=1867) => "bench",
         Some(1870..=1873) => "usage",
         Some(1874) => "shim",
         Some(1875) => "config",

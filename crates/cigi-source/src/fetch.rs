@@ -267,9 +267,13 @@ pub struct StagedArtifact {
     pub verified: Admitted<Verified>,
     /// `Source::name()` of where it came from (goes in the receipt's `origin`).
     pub origin: String,
+    /// The product's own `.sha256` text as the source served it (`None` when it served none).
+    /// `bundle` and `mirror` write it back out beside the asset.
+    pub sidecar: Option<String>,
 }
 
-fn asset_locations(art: &Artifact) -> (Location, Location) {
+/// Where the asset and its sidecar live: the two `Location`s a source is asked for.
+pub fn artifact_locations(art: &Artifact) -> (Location, Location) {
     if let Some(url) = &art.url {
         let base = url.rsplit_once('/').map(|(b, _)| b).unwrap_or_default();
         return (
@@ -342,7 +346,7 @@ pub fn get_artifact_for(
         crate::digest::random_suffix()
     ));
     let mut guard = Cleanup(Some(partial.clone()));
-    let (asset_loc, sidecar_loc) = asset_locations(&art);
+    let (asset_loc, sidecar_loc) = artifact_locations(&art);
     let sidecar = match src.fetch_text(&sidecar_loc, MAX_SIDECAR_BYTES) {
         Ok(t) => Some(t),
         Err(e) if e.is_not_found() => None,
@@ -376,6 +380,7 @@ pub fn get_artifact_for(
         path,
         verified,
         origin: src.name(),
+        sidecar,
     })
 }
 
