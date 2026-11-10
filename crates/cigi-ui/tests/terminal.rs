@@ -280,7 +280,11 @@ fn a_silent_terminal_gets_the_neutral_theme_within_the_budget() {
         .and_then(|r| r.split(' ').next())
         .and_then(|n| n.parse().ok())
         .expect("a time");
-    assert!(ms < 150, "the query took {ms} ms");
+    // #32 bounds the wait for the reply at 50 ms (`detect::tests` measures that wait on its own,
+    // with no spawns in it). This is the whole time to the first prompt, which also spawns the
+    // helpers (stty, sh, dd, kill) and tears them down: tens of milliseconds each on a macOS runner.
+    let budget = if cfg!(target_os = "macos") { 500 } else { 150 };
+    assert!(ms < budget, "the query took {ms} ms (limit {budget})");
 }
 
 #[test]

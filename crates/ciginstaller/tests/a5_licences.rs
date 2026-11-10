@@ -53,7 +53,7 @@ fn on_tty(fx: &Fixture, args: &str, keys: &[&str]) -> (i32, String) {
         }
     }
     s.env(MIRROR.0, MIRROR.1)
-        .args(["-qec", &line, "/dev/null"])
+        .args(cigi_testkit::script_args(&line))
         .current_dir(&fx.project)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
