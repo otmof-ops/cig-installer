@@ -939,32 +939,9 @@ fn apply(cx: &mut Cx, txn: &mut Txn, p: &Plan<'_>) -> Result<Applied, InstallerE
         ok: true,
     });
 
-    // 4. shims: every tool the state now lists, plus the installer's own two names
-    let mut names: BTreeSet<String> = BTreeSet::new();
-    let mut builds: Vec<(String, String)> = Vec::new();
-    for r in state.cartons.values() {
-        builds.extend(r.tools.iter().map(|(t, v)| (t.clone(), v.clone())));
-    }
-    builds.extend(
-        state
-            .sticks
-            .iter()
-            .map(|s| (s.tool.clone(), s.version.clone())),
-    );
-    for (t, v) in &builds {
-        if let Ok(v) = Version::parse(v) {
-            if let Ok(r) = read_receipt(&home, t, &v) {
-                // only the names the shim binary serves get a file in bin/: any other would be
-                // a dead command first on PATH (the shim refuses it with E1844)
-                names.extend(
-                    r.shims
-                        .iter()
-                        .map(|s| s.name.clone())
-                        .filter(|n| cigi_shim::TOOLS.contains(&n.as_str())),
-                );
-            }
-        }
-    }
+    // 4. shims: every tool the state now lists (and on Windows `cigi`, which is a shim there),
+    //    then the installer's own names
+    let names = super::switch::shim_names(&home, &state);
     let refs: Vec<&str> = names.iter().map(String::as_str).collect();
     sync_shims(txn, &home, &refs, &shim_obj).map_err(ie)?;
     let store = home.object_store();
