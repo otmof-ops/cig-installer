@@ -69,6 +69,7 @@ fn a4_config_lists_every_setting_with_its_source() {
         "mirror",
         "reports",
         "preset",
+        "bench_after_update",
         "theme",
     ] {
         assert!(keys.contains(&k), "{k} missing from {keys:?}");

@@ -1434,6 +1434,44 @@ probe = "profile-block"
 remedy = "delete the lines between the cigscript markers in the file the link points to"
 
 [[code]]
+code = "E1866"
+title = "a measurement is over its budget"
+meaning = "bench --strict measured something on this machine that is over its budget in bench/bench.toml (#20, #32), so it stopped. Nothing was changed: bench only reads, and it works in a scratch home."
+fix = "`ciginstaller bench`"
+no = "none"
+arises = ["any"]
+tags = ["installer", "ci-likely"]
+since = "0.1.0"
+related = ["E1867"]
+[[code.cause]]
+why = "this is a debug build, or the machine was busy while it measured"
+probe = "none"
+remedy = "`ciginstaller bench --runs 300` on a release build, with nothing else running: the median and the p95 say whether it was noise"
+[[code.cause]]
+why = "the scratch directory is on a slower disk than the real home, or the real home is on one"
+probe = "disk-free"
+remedy = "`ciginstaller bench --scratch <a directory on the same disk as the home>`"
+[[code.cause]]
+why = "a change made the installer slower than its budget"
+probe = "none"
+remedy = "report it at https://github.com/otmof-ops/cig-installer/issues with the output of `ciginstaller bench --json`"
+
+[[code]]
+code = "E1867"
+title = "a bench view is not built yet"
+meaning = "bench was asked for a view that waits on other work: the family view and the suites of every product, cartons against cartons (--carton, --with, --matrix, --product, --only) and --watch depend on otmof-ops/cig-script#179 (the tool) and #30 (the resolver); the window's Bench view depends on #33; reporting a regression goes through #29. All are open. `ciginstaller bench` with no flag measures the installer's own budgets."
+fix = "`ciginstaller bench`"
+no = "none"
+arises = ["any"]
+tags = ["installer"]
+since = "0.1.0"
+related = ["E1866", "E1870"]
+[[code.cause]]
+why = "the flag belongs to the family benchmark, which is not built yet"
+probe = "none"
+remedy = "`ciginstaller bench` measures the installer's own budgets in the meantime"
+
+[[code]]
 code = "E1870"
 title = "usage"
 meaning = "The command line is wrong: an unknown flag, a missing argument or a bad value."

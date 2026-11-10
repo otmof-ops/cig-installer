@@ -114,3 +114,19 @@ Linux, with every build checked first and every change one undoable step.
 - **The release workflow:** a `v*` tag builds ciginstaller and its shim for
   Linux x86_64 and aarch64, with a checksum and a build attestation for each,
   and creates a draft release. Publishing it is a human act.
+
+### Bench and the budgets (#35, #20, #19)
+
+- **`bench`** measures the installer's own budgets on this machine, locally and
+  read-only, and compares them with `bench/bench.toml`: shim dispatch, `check`,
+  the switch (in a scratch home), the sizes, the first lines, and, with
+  `--from <mirror>`, the installs. Each shows its median and p95. `--json` has
+  the reserved shape, extended. `--strict` fails with `E1866` when one is over.
+  The family view, cartons against cartons, `--watch` and the window's Bench view
+  are not built: they wait on otmof-ops/cig-script#179, #30, #33 and #29, and
+  say so with `E1867`.
+- **`bench_after_update`** (off by default): after an update, a short local sample
+  against the last one, with a regression shown once. Nothing is sent anywhere.
+- **Budget tests** for `check`, the switch, a whole carton, five cigo versions on
+  disk, the update check and the binary sizes; the no-telemetry test now covers
+  `update`, `doctor --network`, `repair`, `uninstall` and `self update --check`.

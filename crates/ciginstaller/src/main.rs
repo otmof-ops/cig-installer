@@ -110,6 +110,7 @@ fn dispatch(cli: Cli, ui: Ui) -> i32 {
         Some(Command::History) => ("history", None),
         Some(Command::Shims(_)) => ("shims", None),
         // ---- end of the a4 block ----
+        Some(Command::Bench(_)) => ("bench", None),
     };
     // the exit code a successful command ends with when it is not 0 (`update --check --exit-code`)
     let mut exit_override: Option<i32> = None;
@@ -211,6 +212,7 @@ fn dispatch(cli: Cli, ui: Ui) -> i32 {
             Some(Command::History) => cmd::history::run(&mut cx),
             Some(Command::Shims(c)) => cmd::shims::run(&mut cx, &c.sub),
             // ---- end of the a4 block ----
+            Some(Command::Bench(c)) => cmd::bench::run(&mut cx, c),
             _ => Ok(Outcome::Report(Report::done("nothing to do"))),
         };
         // the first good command of a freshly installed build says it is healthy (SPEC 12.4)
@@ -243,11 +245,30 @@ fn dispatch(cli: Cli, ui: Ui) -> i32 {
         && code == 0
         && !matches!(
             name,
-            "update" | "rollback" | "resolve" | "explain" | "status" | "uninstall" | "doctor"
+            "update"
+                | "rollback"
+                | "resolve"
+                | "explain"
+                | "status"
+                | "uninstall"
+                | "doctor"
+                | "bench"
         )
     {
         if let Some(cx) = &notice_cx {
             flows::notice::maybe_notify(cx);
+        }
+    }
+    // `bench_after_update = on`: a short local sample once an update has switched the machine
+    if ok
+        && code == 0
+        && name == "update"
+        && ui.mode != cigi_ui::Mode::Json
+        && !ui.quiet
+        && !read_only(&cli.command)
+    {
+        if let Some(cx) = &notice_cx {
+            flows::bench::after_update(cx);
         }
     }
     match (code, exit_override) {
@@ -284,6 +305,7 @@ fn read_only(cmd: &Option<Command>) -> bool {
         Some(Command::Doctor { .. }) => true,
         // they write a cache and the directory or file they were given, never the machine's state
         Some(Command::Bundle { .. } | Command::Mirror { .. }) => true,
+        Some(Command::Bench(_)) => true,
         Some(Command::Repair { dry_run, .. })
         | Some(Command::Remove { dry_run, .. })
         | Some(Command::Use { dry_run, .. })

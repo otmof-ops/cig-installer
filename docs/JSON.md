@@ -58,6 +58,6 @@ Keys are stable once released; new keys may be added. Versions are strings; path
 | `config unset <key>` | `{"config":{"channel":"stable"},"key":"channel","value":"stable","previous":"beta","source":"default"}` |
 | `history` | `{"entries":[{"id":"<id>","at":"...","what":"update","from":"0.1.0","to":"0.1.1","ok":true,"txn":"<id>"}]}`, newest first |
 | `explain` | the registry node: `{"code","title","meaning","fix","no","arises","tags","since","related","causes":[...]}` |
-| `bench` | `{"shim_dispatch_ns":240000,"check_ms":0,"switch_ms":0,"shim_bytes":344008,"installer_bytes":0}` |
+| `bench` | `{"shim_dispatch_ns":240000,"check_ms":12.4,"switch_ms":8.1,"shim_bytes":344008,"installer_bytes":6170000,` then, added: `"shim_dispatch_p95_ns","check_p95_ms","switch_p95_ms","disk_five_cigo_ratio","first_line_status_ms","first_line_list_ms","install_pack_dev_ms","install_carton_ms","build":"debug"\|"release","runs":100,"over_budget":0,"budgets":[{"id","what","source","unit","limit","median","p95","runs","status":"ok"\|"over"\|"info"\|"not measured","note"}],"not_measured_by_bench":[{"id","what","limit","unit"}],"not_built":[{"view","blocked_by"}]}`; a figure that was not measured is `null`. The five reserved keys keep their meaning; times are medians. `--strict` with a budget over is an error, `E1866`. |
 
 Progress, prompts and notices are never printed in JSON mode. A question that would be asked takes its safe default (exit 3 when that default was a refusal) and nothing is written to stderr.

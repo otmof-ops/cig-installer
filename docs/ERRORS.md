@@ -768,6 +768,8 @@ the installer: shims, pins, updates, rollbacks, repair, uninstall, and the comma
 | [`E1865`](#e1865-an-uninstall-was-cut-short-after-its-last-step) | an uninstall was cut short after its last step | not one of the four | `ciginstaller gc` |
 | [`E1868`](#e1868-this-is-not-a-home-the-installer-made) | this is not a home the installer made | these are MY ciggies | `ciginstaller explain E1868`, then check CIGSCRIPT_HOME or --home |
 | [`E1869`](#e1869-a-path-the-installer-will-not-follow-or-remove) | a path the installer will not follow or remove | these are MY ciggies | `ciginstaller doctor`, then remove the path named in the message by hand if you mean it |
+| [`E1866`](#e1866-a-measurement-is-over-its-budget) | a measurement is over its budget | not one of the four | `ciginstaller bench` |
+| [`E1867`](#e1867-a-bench-view-is-not-built-yet) | a bench view is not built yet | not one of the four | `ciginstaller bench` |
 | [`E1870`](#e1870-usage) | usage | not one of the four | `ciginstaller --help`, or `ciginstaller <command> --help` |
 | [`E1871`](#e1871-a-question-was-needed-and-there-is-no-tty) | a question was needed and there is no TTY | not one of the four | `ciginstaller <command> --yes`, or `--yes-irreversible` for a step that cannot be undone, if you mean it |
 | [`E1872`](#e1872-platform-not-supported) | platform not supported | don't have any over here | `ciginstaller carton show <version> --verbose` lists the targets |
@@ -1174,6 +1176,40 @@ A path the installer was about to remove or write is a symbolic link where it ke
 2. a shell profile is a link into a dotfiles repository (probe `profile-block`). **Remedy:** delete the lines between the cigscript markers in the file the link points to
 
 Related: [`E1862`](#e1862-a-profile-block-was-edited-and-is-left-alone), [`E1831`](#e1831-installed-file-differs-from-its-receipt).
+
+### E1866 a measurement is over its budget
+
+*usage · since 0.1.0 · arises in any*
+
+**Kind of no:** not one of the four (a mistake in the text, in the arithmetic, or in CigScript; syntax, type or logic error; an internal error).
+
+bench --strict measured something on this machine that is over its budget in bench/bench.toml (#20, #32), so it stopped. Nothing was changed: bench only reads, and it works in a scratch home.
+
+**What to type next:** `ciginstaller bench`
+
+**Known causes**, ranked; the doctor checks them in this order:
+
+1. this is a debug build, or the machine was busy while it measured (no probe; a suggestion, not a finding). **Remedy:** `ciginstaller bench --runs 300` on a release build, with nothing else running: the median and the p95 say whether it was noise
+2. the scratch directory is on a slower disk than the real home, or the real home is on one (probe `disk-free`). **Remedy:** `ciginstaller bench --scratch <a directory on the same disk as the home>`
+3. a change made the installer slower than its budget (no probe; a suggestion, not a finding). **Remedy:** report it at https://github.com/otmof-ops/cig-installer/issues with the output of `ciginstaller bench --json`
+
+Related: [`E1867`](#e1867-a-bench-view-is-not-built-yet).
+
+### E1867 a bench view is not built yet
+
+*usage · since 0.1.0 · arises in any*
+
+**Kind of no:** not one of the four (a mistake in the text, in the arithmetic, or in CigScript; syntax, type or logic error; an internal error).
+
+bench was asked for a view that waits on other work: the family view and the suites of every product, cartons against cartons (--carton, --with, --matrix, --product, --only) and --watch depend on otmof-ops/cig-script#179 (the tool) and #30 (the resolver); the window's Bench view depends on #33; reporting a regression goes through #29. All are open. `ciginstaller bench` with no flag measures the installer's own budgets.
+
+**What to type next:** `ciginstaller bench`
+
+**Known causes**, ranked; the doctor checks them in this order:
+
+1. the flag belongs to the family benchmark, which is not built yet (no probe; a suggestion, not a finding). **Remedy:** `ciginstaller bench` measures the installer's own budgets in the meantime
+
+Related: [`E1866`](#e1866-a-measurement-is-over-its-budget), [`E1870`](#e1870-usage).
 
 ### E1870 usage
 

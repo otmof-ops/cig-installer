@@ -459,6 +459,92 @@ fn a2_no_telemetry() {
     run(&["list"]);
     run(&["which", "cigo"]);
     assert!(!server.requests().is_empty());
+
+    // #19: every other command that can reach a server. `update --check` with a fresh cache
+    // asks nothing; `--refresh` asks for the manifest.
+    run(&["update", "--check"]);
+    server.clear();
+    run(&["update", "--check", "--refresh"]);
+    assert!(
+        server.paths().iter().any(|p| p.contains("manifest-stable")),
+        "{:?}",
+        server.paths()
+    );
+    run(&["update", "--no-trial"]);
+    run(&["doctor", "--network"]);
+    assert!(
+        server.paths().iter().any(|p| p.contains("manifest-stable")),
+        "doctor --network fetches the manifest: {:?}",
+        server.paths()
+    );
+    // repair that has to download: the store object is damaged as well as the file
+    let victim = fx
+        .cigscript()
+        .join("toolchains/cigo/1.17.0/orchestrate.cig");
+    let victim_obj = fx.cigscript().join("toolchains/cigo/1.17.0/bin/cigo");
+    for f in [&victim, &victim_obj] {
+        std::fs::set_permissions(f, std::os::unix::fs::PermissionsExt::from_mode(0o644)).unwrap();
+        std::fs::write(f, b"damaged in place\n").unwrap();
+    }
+    server.clear();
+    run(&["repair"]);
+    assert!(
+        server
+            .paths()
+            .iter()
+            .any(|p| p.contains("cig-orchestrator-v1.17.0")),
+        "repair re-fetched nothing: {:?}",
+        server.paths()
+    );
+    if let Err(v) = server.assert_no_telemetry() {
+        panic!("{}", v.join("\n"));
+    }
+    // uninstall makes no request at all
+    server.clear();
+    run(&["uninstall", "cigo"]);
+    run(&["uninstall", "--all", "--yes-irreversible"]);
+    assert!(
+        server.requests().is_empty(),
+        "uninstall asked a server: {:?}",
+        server.paths()
+    );
+    if let Err(v) = server.assert_no_telemetry() {
+        panic!("{}", v.join("\n"));
+    }
+
+    // `self update --check`: the channel offers a newer installer, the one thing asked is the
+    // manifest, and nothing identifies the machine
+    let mut fx = fixture();
+    fx.product("ciginstaller", "0.1.1");
+    fx.carton("0.1.0", &[("cig", "1.20.0"), ("cigo", "1.16.0")]);
+    fx.carton(
+        "0.1.1",
+        &[
+            ("cig", "1.20.0"),
+            ("cigo", "1.16.0"),
+            ("ciginstaller", "0.1.1"),
+        ],
+    );
+    fx.publish("stable");
+    let server = fx.serve();
+    let run = |args: &[&str]| {
+        let o = fx
+            .cigi_with_mirror(&server.url())
+            .env("CIGI_ALLOW_SINGLE_SOURCE", "true")
+            .arg("--yes")
+            .args(args)
+            .output()
+            .unwrap();
+        ok(&o);
+    };
+    run(&["install", "carton", "--carton", "0.1.0"]);
+    server.clear();
+    run(&["self", "update", "--check"]);
+    assert!(
+        server.paths().iter().all(|p| p.contains("manifest-stable")),
+        "{:?}",
+        server.paths()
+    );
     if let Err(v) = server.assert_no_telemetry() {
         panic!("{}", v.join("\n"));
     }

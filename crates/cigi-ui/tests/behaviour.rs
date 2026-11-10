@@ -702,7 +702,7 @@ fn results_go_to_stdout_and_chatter_to_stderr() {
 
 // ---- the registry -----------------------------------------------------------------------
 
-const SPEC_CODES: [(u32, &str); 71] = [
+const SPEC_CODES: [(u32, &str); 73] = [
     (1800, "combination refused"),
     (1801, "a product needs another"),
     (1802, "a stick does not fit its carton"),
@@ -770,6 +770,8 @@ const SPEC_CODES: [(u32, &str); 71] = [
     ),
     (1864, "a tool's own doctor could not be run"),
     (1865, "an uninstall was cut short after its last step"),
+    (1866, "a measurement is over its budget"),
+    (1867, "a bench view is not built yet"),
     (1868, "this is not a home the installer made"),
     (1869, "a path the installer will not follow or remove"),
     (1870, "usage"),
