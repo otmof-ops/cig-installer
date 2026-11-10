@@ -11,6 +11,21 @@ below is under Unreleased, and the first version will take it as its section.
 Installing, pinning, switching, updating and rolling back the family, on
 Linux, with every build checked first and every change one undoable step.
 
+### Crash reports (#10, #28 part 1)
+
+- **`ciginstaller crash list|show|send|delete|submit`** over cig's own ashtray
+  (`<home>/ashtray`, the same files and fields), so every tool's crash is in
+  one queue. `show` prints exactly what `send` sends; `send` honors `reports`
+  (`never` refuses, also as `CIG_REPORTS=never`) and carries no identifier.
+  With no issues route yet (the relay and token of #28, the courier of #24)
+  the report stays queued and the output says so. E1857.
+- **The installer's own crash** is written to the ashtray in cig's schema with
+  the origin `ciginstaller`; nothing is sent.
+- **`schemas/report.schema.json`** is the allowlist for every product, and the
+  family fingerprint (kind, location, message, product, major version) never
+  includes a path, user name or host. The family's own paths stay readable in
+  titles and bodies.
+
 ### Licenses (#27)
 
 - **`ciginstaller licences [tool] [--text] [--json]`** lists the installer and

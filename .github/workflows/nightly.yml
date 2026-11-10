@@ -1,0 +1,119 @@
+# SPDX-FileCopyrightText: 2026 Jay Taylor (https://github.com/otmof-ops/cig-installer)
+# SPDX-License-Identifier: FSL-1.1-ALv2
+name: nightly
+
+# Assembles the next candidate manifest of a channel, nightly or beta, with
+# `cargo xtask manifest assemble --candidate` and keeps it as a workflow ARTIFACT for review.
+# It is not uploaded to any release and writes none: publishing a candidate manifest to the rolling
+# `manifest` release stays the operator's act, after reading the report in the job log.
+#
+# The carton is numbered X.Y.Z-nightly.N or X.Y.Z-beta.N from the channel's previous manifest, and
+# every product not named below takes its newest published build (prereleases included).
+#
+# Manual only. A `schedule:` trigger needs the maintainer's word (ci.yml keeps private CI lean, with
+# no schedules), so the cron line is left out on purpose: it is Jay's to add.
+on:
+  workflow_dispatch:
+    inputs:
+      candidate:
+        description: "Which candidate channel"
+        required: true
+        type: choice
+        options:
+          - nightly
+          - beta
+        default: nightly
+      base:
+        description: "The release the candidate leads up to, for example 1.2.0"
+        required: true
+      first:
+        description: "No manifest of this channel has been published yet"
+        required: false
+        type: boolean
+        default: false
+      cig:
+        description: "cig version (empty: its newest build)"
+        required: false
+      cigo:
+        description: "cigo version (empty: its newest build)"
+        required: false
+      cigcompile:
+        description: "cigcompile version (empty: its newest build)"
+        required: false
+      installer:
+        description: "ciginstaller version (empty: its newest build)"
+        required: false
+      packs:
+        description: "Packs, one per line: name=tool,tool"
+        required: false
+        type: string
+      notes:
+        description: "Carton notes"
+        required: false
+        default: ""
+
+# read-only: the job reads releases and writes nothing but its own artifact
+permissions:
+  contents: read
+
+concurrency:
+  group: nightly-${{ inputs.candidate }}
+  cancel-in-progress: false
+
+jobs:
+  candidate:
+    name: assemble candidate manifest
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      CARGO_TERM_COLOR: always
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      # inputs reach the shell as data, never as script text
+      IN_CANDIDATE: ${{ inputs.candidate }}
+      IN_BASE: ${{ inputs.base }}
+      IN_FIRST: ${{ inputs.first }}
+      IN_CIG: ${{ inputs.cig }}
+      IN_CIGO: ${{ inputs.cigo }}
+      IN_CIGCOMPILE: ${{ inputs.cigcompile }}
+      IN_INSTALLER: ${{ inputs.installer }}
+      IN_PACKS: ${{ inputs.packs }}
+      IN_NOTES: ${{ inputs.notes }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Install Rust (stable)
+        run: |
+          rustup update stable --no-self-update
+          rustup default stable
+      - name: the channel's current manifest
+        run: |
+          [[ "$IN_CANDIDATE" == "nightly" || "$IN_CANDIDATE" == "beta" ]] || { echo "::error::candidate is nightly or beta"; exit 1; }
+          [[ "$IN_BASE" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "::error::base is major.minor.patch, for example 1.2.0"; exit 1; }
+          mkdir -p previous out
+          if [[ "$IN_FIRST" == "true" ]]; then
+            echo "::notice::first manifest of the $IN_CANDIDATE channel: numbering starts at 1"
+          else
+            # a missing previous manifest is an error, never a guess: the number depends on it
+            gh release download manifest -R "$GITHUB_REPOSITORY" -p "manifest-$IN_CANDIDATE.toml" -D previous \
+              || { echo "::error::the manifest release has no manifest-$IN_CANDIDATE.toml (tick 'first' if this is the channel's first)"; exit 1; }
+            echo "PREVIOUS=previous/manifest-$IN_CANDIDATE.toml" >> "$GITHUB_ENV"
+          fi
+      - name: cargo xtask manifest assemble --candidate
+        run: |
+          args=(--candidate "$IN_CANDIDATE" --base "$IN_BASE" --latest --notes "$IN_NOTES" --out "out/manifest-$IN_CANDIDATE.toml")
+          [[ -n "$IN_CIG" ]]        && args+=(--cig "$IN_CIG")
+          [[ -n "$IN_CIGO" ]]       && args+=(--cigo "$IN_CIGO")
+          [[ -n "$IN_CIGCOMPILE" ]] && args+=(--cigcompile "$IN_CIGCOMPILE")
+          [[ -n "$IN_INSTALLER" ]]  && args+=(--installer "$IN_INSTALLER")
+          [[ -n "${PREVIOUS:-}" ]]  && args+=(--previous "$PREVIOUS")
+          while IFS= read -r pack; do
+            if [[ -n "${pack//[[:space:]]/}" ]]; then args+=(--pack "$pack"); fi
+          done <<< "$IN_PACKS"
+          cargo xtask manifest assemble "${args[@]}" | tee out/report.txt
+          cat "out/manifest-$IN_CANDIDATE.toml.sha256"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: manifest-${{ inputs.candidate }}
+          path: out/*
+          if-no-files-found: error

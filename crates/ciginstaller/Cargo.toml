@@ -24,7 +24,13 @@ cigi-source = { workspace = true }
 toml_edit = "0.22"
 cigi-ui = { path = "../cigi-ui" }
 clap = { version = "4", features = ["derive"] }
+serde = { workspace = true }
 serde_json = { workspace = true }
+# the crash pipeline (#10, #28): the fingerprint, and the one POST of `crash send`
+sha2 = { workspace = true }
+hex = { workspace = true }
+url = { workspace = true }
+ureq = { workspace = true }
 
 [dev-dependencies]
 cigi-testkit = { workspace = true }
@@ -32,6 +38,8 @@ cigi-testkit = { workspace = true }
 cigi-home = { workspace = true, features = ["fault-injection"] }
 tempfile = { workspace = true }
 serde_json = { workspace = true }
+# the fake issues route of a6_crash
+tiny_http = { workspace = true }
 
 [target.'cfg(windows)'.dev-dependencies]
 cigi-sys = { workspace = true }

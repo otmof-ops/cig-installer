@@ -31,6 +31,12 @@ the rest of the family:
   of public metadata with no identifier in it, and `update_check = off` stops
   even that. A test records the requests an install makes and fails if any
   carries an identifier.
+- **A crash report is yours to send.** A crash is written to the local ashtray
+  and nothing leaves until you run `ciginstaller crash send`; `reports = never`
+  refuses even that. What travels is the allowlist in
+  `schemas/report.schema.json`, printed by `crash show` first: your paths are
+  shapes, your user and host names are removed, no file contents or environment
+  values are included. A report that carries one is a security bug.
 
 ## What is verified today
 

@@ -8,6 +8,7 @@ pub mod carton;
 pub mod channel;
 pub mod check;
 pub mod config;
+pub mod crash;
 pub mod doctor;
 pub mod gc;
 pub mod history;

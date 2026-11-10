@@ -1309,6 +1309,32 @@ probe = "installed-cartons"
 remedy = "change the pins with `ciginstaller pin carton <pin>`, or install a carton that has the build"
 
 [[code]]
+code = "E1857"
+title = "a crash report did not leave this machine"
+meaning = "`ciginstaller crash send` (or `crash submit --now`) did not send a report: the `reports` setting is `never`, the issues route is not usable, or the route did not take it. Nothing was lost: the report stays in the ashtray with the reason, and `ciginstaller crash show` still prints exactly what would be sent."
+fix = "`ciginstaller crash show <report>`, then `ciginstaller crash send <report>` once the cause is gone"
+no = "depends"
+arises = ["crash"]
+tags = ["installer", "ci-likely"]
+since = "0.1.0"
+related = ["E1890", "E1870"]
+[[code.cause]]
+why = "`reports` is `never` (`CIG_REPORTS`, `CIGI_REPORTS` or `ciginstaller config set reports never`), so nothing is sent, not even a report you name"
+no = "these-are-mine"
+probe = "none"
+remedy = "`ciginstaller config set reports ask` (and unset `CIG_REPORTS` if it is set), then send the report again"
+[[code.cause]]
+why = "the route named by `CIGI_REPORT_ROUTE` is not an https address (plain http is allowed to a loopback address only), or carries a query string, a fragment or credentials"
+no = "cant-see-any"
+probe = "none"
+remedy = "set it to the route's plain `https://` address"
+[[code.cause]]
+why = "the route could not be reached, or answered with an error or a redirect (a report goes only where it was told to, so a redirect is not followed)"
+no = "depends"
+probe = "none"
+remedy = "check the connection and send again; the report waits in the ashtray and its last error is in `ciginstaller crash list`"
+
+[[code]]
 code = "E1860"
 title = "repair could not restore a file"
 meaning = "A damaged file was not in the store and could not be downloaded again, so it was left as it is."

@@ -195,6 +195,11 @@ pub enum Command {
     /// Measure this machine against the performance budgets; nothing is sent anywhere.
     Bench(BenchCmd),
     // ---- end of the bench block ----
+    // ---- crash (#10, #28) ----
+    /// The family's crash reports, every tool's together: `list`, `show` (exactly what would be
+    /// sent), `send`, `delete`, and `submit` for a tool handing one in.
+    Crash(CrashCmd),
+    // ---- end of the crash block ----
     // ---- health: doctor, repair, uninstall, remove ----
     /// One report on the whole family: shims, PATH, toolchains, state, matrix, manifest, disk,
     /// humidor, transactions. Reads only; each finding ends with the command that fixes it.
@@ -449,3 +454,54 @@ pub enum ShimsSub {
     List,
 }
 // ---- end of the a4 block ----
+
+#[derive(Args)]
+pub struct CrashCmd {
+    #[command(subcommand)]
+    pub sub: Option<CrashSub>,
+}
+
+#[derive(Subcommand)]
+pub enum CrashSub {
+    /// Every report in the ashtray, from every tool: its kind and whether it was filed.
+    List,
+    /// Print a report exactly as it would be sent. Nothing else travels.
+    Show {
+        /// Report id or a unique prefix.
+        id: String,
+    },
+    /// Send a report to the issues route: the one yes for that report. `reports = never`
+    /// (`CIG_REPORTS`, `CIGI_REPORTS`, the setting) refuses; with no route yet the report stays
+    /// queued here and the output says so.
+    Send {
+        /// Report id or a unique prefix.
+        id: Option<String>,
+        /// Every report that is not filed yet.
+        #[arg(long, conflicts_with = "id")]
+        all: bool,
+    },
+    /// Delete a report, or all of them.
+    Delete {
+        /// Report id or a unique prefix.
+        id: Option<String>,
+        /// Every saved report (asks first).
+        #[arg(long, conflicts_with = "id")]
+        all: bool,
+    },
+    /// Hand in a report another tool made (a superset of `cig crash submit`): it is anonymised
+    /// again and joins the ashtray under the same consent.
+    Submit {
+        /// The tool that made it, such as cig-orchestrator.
+        #[arg(long)]
+        origin: String,
+        /// The report, as JSON.
+        #[arg(long, value_name = "FILE")]
+        file: PathBuf,
+        /// Where it goes (owner/name); the origin's repository when omitted.
+        #[arg(long)]
+        repo: Option<String>,
+        /// Send it now, as `send` does.
+        #[arg(long)]
+        now: bool,
+    },
+}
