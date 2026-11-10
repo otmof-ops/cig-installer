@@ -161,7 +161,11 @@ fn a4_repair_without_a_manifest_is_e1860_with_a_fix_that_names_the_tool() {
     // no manifest and no artifact: the cache and the mirror are gone
     std::fs::remove_dir_all(fx.cigscript().join("installer/cache/manifests")).unwrap();
     std::fs::remove_dir_all(&fx.releases).unwrap();
-    let before = Snapshot::take(&fx.user_home).without(&[".cigscript/installer/lock"]);
+    let before = Snapshot::take(&fx.user_home).without(&[
+        ".cigscript/installer/lock",
+        ".cigscript/installer.lock",
+        ".cigscript/installer/lock.pid",
+    ]);
     let o = cigi(&fx, &["--json", "repair", "--tool", "cigo"]);
     assert_eq!(o.status.code(), Some(2), "{}", text(&o));
     assert!(text(&o).contains("E1860"), "{}", text(&o));
@@ -171,7 +175,12 @@ fn a4_repair_without_a_manifest_is_e1860_with_a_fix_that_names_the_tool() {
         text(&o)
     );
     Snapshot::take(&fx.user_home)
-        .without(&[".cigscript/installer/lock", ".cigscript/installer/cache"])
+        .without(&[
+            ".cigscript/installer/lock",
+            ".cigscript/installer.lock",
+            ".cigscript/installer/lock.pid",
+            ".cigscript/installer/cache",
+        ])
         .assert_same(&before.without(&[".cigscript/installer/cache"]));
     // the finding stays, and so does cig, which has nothing wrong
     assert!(tc(&fx, "cig/1.20.0/bin/cig").exists());

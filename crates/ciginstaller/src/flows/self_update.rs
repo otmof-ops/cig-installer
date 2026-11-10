@@ -311,8 +311,13 @@ fn same_bytes(a: &Path, b: &Path) -> bool {
     x.len() == y.len() && matches!((std::fs::read(a), std::fs::read(b)), (Ok(p), Ok(q)) if p == q)
 }
 
-/// Put `from` at `to`, journaled. When Windows refuses the replace because `to` is a running
-/// image, rename `to` into `aside_dir` and place `from` there instead. Returns whether it did.
+/// Put `from` at `to`, journaled. Returns whether the aside was needed.
+///
+/// On current Windows the std rename replaces a running image directly (it uses POSIX rename
+/// semantics, so the loader's hold on the old file does not matter) and the plain journaled
+/// link is all there is: `Ok(false)`. Where that is refused (an older Windows, a file system
+/// without those semantics), the running image is renamed into `aside_dir` and `from` placed
+/// ([`aside_and_place`]): `Ok(true)`.
 ///
 /// The journal saves the old `to` before it tries the replace, so the refused attempt is still
 /// on record: the undo of that record puts the old file back, whether a kill lands before the
@@ -326,26 +331,34 @@ fn replace_or_aside(
     match txn.link(from, to) {
         Ok(()) => Ok(false),
         Err(JournalError::Io { source, .. }) if blocked(&source) => {
-            let name = to.file_name().map(|n| n.to_string_lossy().into_owned());
-            let aside = aside_dir.join(format!(
-                ".aside-{}-{}",
-                txn.id(),
-                name.as_deref().unwrap_or("file")
-            ));
-            let io = |p: &Path, e: std::io::Error| {
-                InstallerError::new("E1835", format!("cannot move {}: {e}", p.display()))
-            };
-            retry_blocked(Duration::from_secs(3), || std::fs::rename(to, &aside))
-                .map_err(|e| io(to, e))?;
-            cigi_home::journal::fault_after("self-update-aside");
-            retry_blocked(Duration::from_secs(3), || {
-                std::fs::hard_link(from, to).or_else(|_| std::fs::copy(from, to).map(|_| ()))
-            })
-            .map_err(|e| io(to, e))?;
+            aside_and_place(txn.id(), from, to, aside_dir)?;
             Ok(true)
         }
         Err(e) => Err(ie(e)),
     }
+}
+
+/// Rename `to` (a running image) to `aside_dir\.aside-<txn>-<name>`, then place `from` at `to`.
+fn aside_and_place(
+    txn_id: &str,
+    from: &Path,
+    to: &Path,
+    aside_dir: &Path,
+) -> Result<(), InstallerError> {
+    let name = to.file_name().map(|n| n.to_string_lossy().into_owned());
+    let aside = aside_dir.join(format!(
+        ".aside-{txn_id}-{}",
+        name.as_deref().unwrap_or("file")
+    ));
+    let io = |p: &Path, e: std::io::Error| {
+        InstallerError::new("E1835", format!("cannot move {}: {e}", p.display()))
+    };
+    retry_blocked(Duration::from_secs(3), || std::fs::rename(to, &aside)).map_err(|e| io(to, e))?;
+    cigi_home::journal::fault_after("self-update-aside");
+    retry_blocked(Duration::from_secs(3), || {
+        std::fs::hard_link(from, to).or_else(|_| std::fs::copy(from, to).map(|_| ()))
+    })
+    .map_err(|e| io(to, e))
 }
 
 fn update_to(

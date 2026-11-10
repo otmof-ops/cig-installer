@@ -48,7 +48,11 @@ fn json(o: &std::process::Output) -> Value {
 
 /// Home listing without the parts that change with every command (the lock's pid).
 fn listing(fx: &Fixture) -> Snapshot {
-    Snapshot::take(&fx.user_home).without(&[".cigscript/installer/lock"])
+    Snapshot::take(&fx.user_home).without(&[
+        ".cigscript/installer/lock",
+        ".cigscript/installer.lock",
+        ".cigscript/installer/lock.pid",
+    ])
 }
 
 fn asides(fx: &Fixture) -> Vec<String> {

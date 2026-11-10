@@ -133,9 +133,12 @@ fn a2_path_block_edited_windows_powershell_block_is_left_alone() {
 #[cfg(windows)]
 mod windows {
     use super::*;
-    use cigi_home::{path::documents_dir, registry_path_add, registry_path_remove, RegistryChange};
+    use cigi_home::{
+        path::{documents_dir, same_entry},
+        registry_path_add, registry_path_remove, RegistryChange, Shell,
+    };
     use cigi_sys::env::{delete_user_path, read_user_path, write_user_path, PathKind, UserPath};
-    use std::path::{Path, PathBuf};
+    use std::path::PathBuf;
     use std::process::Command;
     use std::sync::Mutex;
 
@@ -285,25 +288,66 @@ mod windows {
         ]
     }
 
-    /// Run a PowerShell with the PATH a fresh sign-in would give it: machine then user, as the
-    /// registry holds them now, expanded. Returns its output.
-    fn fresh_ps(exe: &str, extra: &[&str], script: &str) -> Option<String> {
-        let prelude = "$env:Path = [Environment]::GetEnvironmentVariable('Path','Machine') + ';' + [Environment]::GetEnvironmentVariable('Path','User');";
-        let o = Command::new(exe)
-            .args(extra)
-            .args(["-NoProfile", "-Command", &format!("{prelude} {script}")])
-            .output()
-            .ok()?;
-        Some(String::from_utf8_lossy(&o.stdout).trim().to_string())
+    /// What a child PowerShell printed. The child inherits THIS process's environment, so it
+    /// never sees a registry change by itself: every claim below is made by reading the registry
+    /// or the profile in the child, not by hoping the environment was refreshed.
+    struct Ran {
+        out: String,
+        err: String,
     }
 
-    fn assert_resolves(out: &str, fx: &Fixture) {
+    /// Run `script` in a PowerShell. `None` only when the program is not installed.
+    fn ps(exe: &str, script: &str) -> Option<Ran> {
+        let o = Command::new(exe)
+            .args([
+                "-NoLogo",
+                "-NoProfile",
+                "-NonInteractive",
+                "-ExecutionPolicy",
+                "Bypass",
+                "-Command",
+                script,
+            ])
+            .output()
+            .ok()?;
+        Some(Ran {
+            out: String::from_utf8_lossy(&o.stdout).trim().to_string(),
+            err: String::from_utf8_lossy(&o.stderr).trim().to_string(),
+        })
+    }
+
+    /// pwsh 7 may be missing from a machine; Windows PowerShell 5.1 never is.
+    fn shells() -> Vec<(&'static str, Shell)> {
+        let mut v = vec![("powershell", Shell::WindowsPowerShell)];
+        if ps("pwsh", "1").is_some() {
+            v.insert(0, ("pwsh", Shell::PowerShell));
+        }
+        v
+    }
+
+    /// A child reads the user PATH from the registry (what a fresh sign-in starts from): the
+    /// entry is first, and it is a directory holding `cigi.exe`.
+    fn assert_registry_first(exe: &str, fx: &Fixture) {
         let bin = fx.cigscript().join("bin");
+        let r = ps(exe, "[Environment]::GetEnvironmentVariable('Path','User')")
+            .unwrap_or_else(|| panic!("{exe} did not start"));
+        let first = r.out.split(';').next().unwrap_or("").to_string();
         assert!(
-            out.to_lowercase()
-                .starts_with(&bin.display().to_string().to_lowercase()),
-            "cigi resolved to {out:?}, not under {}",
-            bin.display()
+            same_entry(&first, &bin.to_string_lossy()),
+            "{exe}: the user PATH starts with {first:?}, not {} (stderr {:?}; whole {:?})",
+            bin.display(),
+            r.err,
+            r.out
+        );
+        let has = ps(
+            exe,
+            &format!("Test-Path -LiteralPath (Join-Path '{first}' 'cigi.exe')"),
+        )
+        .unwrap();
+        assert_eq!(
+            has.out, "True",
+            "{exe}: no cigi.exe in {first} ({})",
+            has.err
         );
     }
 
@@ -358,16 +402,9 @@ mod windows {
         );
         assert_eq!(state(&fx)["path_registry"]["preexisting"], false);
 
-        // fresh shells resolve cigi from the registry alone
-        let which = "(Get-Command cigi -ErrorAction Stop).Source";
-        if let Some(out) = fresh_ps("pwsh", &[], which) {
-            assert_resolves(&out, &fx);
-        }
-        if let Some(out) = fresh_ps("powershell", &["-ExecutionPolicy", "Bypass"], which) {
-            assert_resolves(&out, &fx);
-        }
-        if let Some(out) = fresh_ps("powershell", &[], "cmd /c where cigi") {
-            assert_resolves(out.lines().next().unwrap_or(""), &fx);
+        // fresh shells start from the registry: read it in each, the entry is first
+        for (exe, _) in shells() {
+            assert_registry_first(exe, &fx);
         }
 
         // uninstall: the registry value is what it was, the profiles are gone
@@ -385,7 +422,10 @@ mod windows {
         }
     }
 
-    /// A profile block alone is enough for a PowerShell that starts with profiles on.
+    /// The profile blocks: each PowerShell loads the profile path the installer writes for the
+    /// real user (asked of the shell itself), and running the block we wrote puts the home's `bin`
+    /// first on PATH. The fixture's profiles are under its own home, not the runner's real
+    /// Documents, so the block is run by dot-sourcing the exact file.
     #[test]
     fn win_profile_blocks_put_cigi_on_the_path_of_a_fresh_powershell() {
         let _g = lock();
@@ -393,31 +433,42 @@ mod windows {
         let mut fx = fixture();
         one_carton(&mut fx);
         ok(&installer(&fx, &["install", "carton", "--carton", "0.1.0"]));
+        let bin = fx.cigscript().join("bin");
+        let real = cigi_home::Home::at(PathBuf::from(r"C:\x\.cigscript"))
+            .with_user_home(PathBuf::from(std::env::var_os("USERPROFILE").unwrap()));
         let [ps7, ps5] = profiles(&fx);
-        let script = |p: &Path| {
-            format!(
-                "$env:Path = 'C:\\Windows\\System32;C:\\Windows'; . '{}'; (Get-Command cigi -ErrorAction Stop).Source",
-                p.display()
+        for (exe, shell) in shells() {
+            // 1. the path pwsh really loads is the one the installer would write for this user
+            let loaded = ps(exe, "$PROFILE.CurrentUserCurrentHost").unwrap();
+            let ours = cigi_home::path_block(shell, &real).0;
+            assert!(
+                same_entry(&loaded.out, &ours.to_string_lossy()),
+                "{exe} loads {:?}, the installer writes {} ({})",
+                loaded.out,
+                ours.display(),
+                loaded.err
+            );
+            // 2. the block in the profile file we wrote puts bin first, from a bare PATH
+            let file = if shell == Shell::PowerShell {
+                &ps7
+            } else {
+                &ps5
+            };
+            let r = ps(
+                exe,
+                &format!(
+                    "$env:Path = 'C:\\Windows\\System32;C:\\Windows'; . '{}'; ($env:Path -split ';')[0]",
+                    file.display()
+                ),
             )
-        };
-        let run = |exe: &str, p: &Path| {
-            Command::new(exe)
-                .args([
-                    "-NoProfile",
-                    "-ExecutionPolicy",
-                    "Bypass",
-                    "-Command",
-                    &script(p),
-                ])
-                .output()
-                .ok()
-                .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
-        };
-        if let Some(out) = run("pwsh", &ps7) {
-            assert_resolves(&out, &fx);
-        }
-        if let Some(out) = run("powershell", &ps5) {
-            assert_resolves(&out, &fx);
+            .unwrap();
+            assert!(
+                same_entry(&r.out, &bin.to_string_lossy()),
+                "{exe}: after the profile PATH starts with {:?}, not {} (stderr {:?})",
+                r.out,
+                bin.display(),
+                r.err
+            );
         }
     }
 

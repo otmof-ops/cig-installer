@@ -129,34 +129,46 @@ mod on_windows {
         p
     }
 
+    /// The premise on a real runner: a running image cannot be written, the replace through the
+    /// journal goes through anyway (POSIX rename semantics), and the old bytes stay recoverable.
     #[test]
-    fn windows_a_running_exe_is_renamed_aside_and_the_new_one_placed() {
+    fn windows_a_running_exe_is_replaced_through_the_journal_and_rolled_back() {
         let (_t, h) = home();
         let lock = h.lock().unwrap();
         let (exe, mut child) = sleeper(&h);
-        // the premise: overwriting a running image is refused, renaming it is not
         assert!(fs::write(&exe, "x").is_err());
+        let old = fs::read(&exe).unwrap();
         let new = fresh(&h);
         let mut txn = Txn::begin(&h, "t", &lock).unwrap();
         let prev = h.installer().join("previous");
-        assert!(replace_or_aside(&mut txn, &new, &exe, &prev).unwrap());
+        // whichever way this Windows goes, the new file is in place afterwards
+        replace_or_aside(&mut txn, &new, &exe, &prev).unwrap();
         assert_eq!(text(&exe).as_deref(), Some("the new build"));
-        assert_eq!(
-            fs::read_dir(&prev)
-                .unwrap()
-                .flatten()
-                .filter(|e| e.file_name().to_string_lossy().starts_with(".aside-"))
-                .count(),
-            1
-        );
-        // the running one is held: a sweep with no patience leaves it, and says so
-        assert_eq!(sweep_aside(&h, Duration::ZERO), 1);
-        txn.commit().unwrap();
+        // a failed self-check: the journal puts the old build back
+        txn.rollback().unwrap();
+        assert_eq!(fs::read(&exe).unwrap(), old);
         child.kill().unwrap();
         child.wait().unwrap();
         assert_eq!(sweep_aside(&h, Duration::from_secs(3)), 0);
     }
 
+    /// The aside branch itself, on a real running image: the rename works, the new file lands.
+    #[test]
+    fn windows_a_running_exe_renamed_aside_gets_the_new_one_placed() {
+        let (_t, h) = home();
+        let (exe, mut child) = sleeper(&h);
+        let new = fresh(&h);
+        let prev = h.installer().join("previous");
+        aside_and_place("t1", &new, &exe, &prev).unwrap();
+        assert_eq!(text(&exe).as_deref(), Some("the new build"));
+        assert!(prev.join(".aside-t1-ciginstaller.exe").is_file());
+        child.kill().unwrap();
+        child.wait().unwrap();
+        assert_eq!(sweep_aside(&h, Duration::from_secs(3)), 0);
+    }
+
+    /// A kill between the aside and the placement: the journal record made before the rename
+    /// brings the old file back, with the new one absent, whichever way the replace went.
     #[test]
     fn windows_a_kill_between_the_aside_and_the_placement_is_undone_by_the_journal() {
         let (_t, h) = home();
@@ -165,30 +177,12 @@ mod on_windows {
         let old = fs::read(&exe).unwrap();
         let new = fresh(&h);
         let mut txn = Txn::begin(&h, "t", &lock).unwrap();
-        // what `replace_or_aside` does up to the fault point: the refused replace is journaled,
-        // then the running image is renamed away and nothing is placed
-        let err = txn.link(&new, &exe).unwrap_err();
-        assert!(matches!(&err, JournalError::Io { source, .. } if blocked(source)));
-        fs::rename(&exe, h.installer().join("previous").join(".aside-t-x")).unwrap();
+        // the journaled attempt; where it succeeded, the replacement is what the kill leaves
+        let _ = txn.link(&new, &exe);
+        // the kill lands with the running image renamed away and nothing placed
+        let _ = fs::rename(&exe, h.installer().join("previous").join(".aside-t-x"));
         assert!(!exe.exists());
         // the replay (rollback is what `recover` runs for a txn whose owner died)
-        txn.rollback().unwrap();
-        assert_eq!(fs::read(&exe).unwrap(), old);
-        child.kill().unwrap();
-        child.wait().unwrap();
-    }
-
-    #[test]
-    fn windows_a_rollback_after_the_swap_puts_the_old_exe_back() {
-        let (_t, h) = home();
-        let lock = h.lock().unwrap();
-        let (exe, mut child) = sleeper(&h);
-        let old = fs::read(&exe).unwrap();
-        let new = fresh(&h);
-        let mut txn = Txn::begin(&h, "t", &lock).unwrap();
-        let prev = h.installer().join("previous");
-        assert!(replace_or_aside(&mut txn, &new, &exe, &prev).unwrap());
-        // a failed self-check: the journal undoes the placement
         txn.rollback().unwrap();
         assert_eq!(fs::read(&exe).unwrap(), old);
         child.kill().unwrap();

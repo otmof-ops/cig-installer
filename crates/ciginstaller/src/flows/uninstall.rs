@@ -523,6 +523,9 @@ fn all(cx: &mut Cx, a: &UninstallArgs) -> Result<Report, InstallerError> {
     } else {
         let _ = discard_aside(&home, &aside);
     }
+    // Windows keeps the lock file beside `installer/`, not in it: it is the installer's, and
+    // nothing holds it now
+    let _ = std::fs::remove_file(home.lock_path());
     // the home itself, when nothing of the user's is in it
     let _ = std::fs::remove_dir(home.root());
 
@@ -554,7 +557,14 @@ fn all(cx: &mut Cx, a: &UninstallArgs) -> Result<Report, InstallerError> {
 /// are not the installer's (`runs/`, `tin/`, `config`, ...), and the parts of `bin/` and
 /// `humidor/` that are not the installer's.
 fn stays(home: &Home) -> Vec<String> {
-    let ours = ["bin", "toolchains", "store", "installer", "humidor"];
+    let ours = [
+        "bin",
+        "toolchains",
+        "store",
+        "installer",
+        "installer.lock",
+        "humidor",
+    ];
     let mut out: Vec<String> = Vec::new();
     if let Ok(rd) = std::fs::read_dir(home.root()) {
         for e in rd.flatten() {

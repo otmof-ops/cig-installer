@@ -9,20 +9,39 @@
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
+/// Copy a file, retrying a sharing or lock violation (32, 33): a scanner may hold a fresh exe.
+fn copy(from: &Path, to: &Path) {
+    for _ in 0..50 {
+        match std::fs::copy(from, to) {
+            Ok(_) => return,
+            Err(e) if matches!(e.raw_os_error(), Some(32 | 33)) => {
+                std::thread::sleep(std::time::Duration::from_millis(100))
+            }
+            Err(e) => panic!("copy {} to {}: {e}", from.display(), to.display()),
+        }
+    }
+    panic!("copy {} to {}: still in use", from.display(), to.display());
+}
+
 /// A home with `bin\<name>.exe` a copy of the shim, and `target` the program the index
 /// names for `cig`: a copy of `cmd.exe`, so arguments and exit codes are real.
 fn setup(shim_name: &str) -> (PathBuf, PathBuf, PathBuf) {
-    let root =
-        std::env::temp_dir().join(format!("cigi-shim-win-{}-{shim_name}", std::process::id()));
+    // tests run in parallel: each gets a home of its own, or one copies over a file another runs
+    static N: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+    let n = N.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+    let root = std::env::temp_dir().join(format!(
+        "cigi-shim-win-{}-{n}-{shim_name}",
+        std::process::id()
+    ));
     let _ = std::fs::remove_dir_all(&root);
     let (bin, inst) = (root.join("bin"), root.join("installer"));
     std::fs::create_dir_all(&bin).unwrap();
     std::fs::create_dir_all(&inst).unwrap();
     let shim = bin.join(shim_name);
-    std::fs::copy(env!("CARGO_BIN_EXE_cigi-shim"), &shim).unwrap();
+    copy(Path::new(env!("CARGO_BIN_EXE_cigi-shim")), &shim);
     let target = root.join("cig-target.exe");
     let sys = std::env::var_os("SystemRoot").map(PathBuf::from).unwrap();
-    std::fs::copy(sys.join("System32").join("cmd.exe"), &target).unwrap();
+    copy(&sys.join("System32").join("cmd.exe"), &target);
     std::fs::write(
         inst.join("shim-index"),
         format!("cigi-index 1\nstick\tcig\t{}\n", target.display()),
@@ -80,7 +99,7 @@ fn windows_shim_passes_an_ntstatus_exit_code_unchanged() {
 #[test]
 fn windows_cigi_exe_runs_the_installer_and_returns_its_code() {
     let (root, shim, target) = setup("cigi.exe");
-    std::fs::copy(&target, root.join("bin").join("ciginstaller.exe")).unwrap();
+    copy(&target, &root.join("bin").join("ciginstaller.exe"));
     let out = run(&root, &shim, &["/c", "exit", "9"]);
     assert_eq!(out.status.code(), Some(9));
 }
@@ -92,7 +111,7 @@ fn windows_cigi_exe_puts_the_previous_installer_back_when_the_new_one_cannot_sta
     std::fs::write(root.join("bin").join("ciginstaller.exe"), b"not an exe").unwrap();
     let prev = root.join("installer").join("previous");
     std::fs::create_dir_all(&prev).unwrap();
-    std::fs::copy(&target, prev.join("ciginstaller.exe")).unwrap();
+    copy(&target, &prev.join("ciginstaller.exe"));
     std::fs::write(root.join("installer").join("pending-check"), "0.1.1\n").unwrap();
     let out = run(&root, &shim, &["/c", "exit", "5"]);
     assert_eq!(

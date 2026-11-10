@@ -94,7 +94,10 @@ pub fn snapshot(root: &Path) -> Vec<String> {
             let p = e.path();
             let rel = p.strip_prefix(base).unwrap().display().to_string();
             // transaction directories legitimately remain after a rollback
-            if rel.starts_with("installer/txn/") || rel == "installer/lock" {
+            if rel.starts_with("installer/txn/")
+                || rel.starts_with("installer/lock")
+                || rel == "installer.lock"
+            {
                 continue;
             }
             let md = fs::symlink_metadata(&p).unwrap();

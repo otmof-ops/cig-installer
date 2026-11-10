@@ -106,8 +106,27 @@ impl Home {
         self.installer().join("shim-index")
     }
 
+    /// The lock file. On Unix `installer/lock`. On Windows `<home>/installer.lock`, outside
+    /// `installer/`: a directory cannot be renamed there while a file inside it is open, and
+    /// `uninstall --all` renames `installer/` aside as its commit point with the lock held.
     pub fn lock_path(&self) -> PathBuf {
-        self.installer().join("lock")
+        if cfg!(windows) {
+            self.root.join("installer.lock")
+        } else {
+            self.installer().join("lock")
+        }
+    }
+
+    /// The file the holder's pid is readable from. On Unix it is the lock file itself. On
+    /// Windows a byte range locked with `LockFileEx` cannot be read through another handle, so
+    /// the pid is kept in `installer/lock.pid`, written and closed (no open handle stays in
+    /// `installer/`).
+    pub fn lock_pid_path(&self) -> PathBuf {
+        if cfg!(windows) {
+            self.installer().join("lock.pid")
+        } else {
+            self.lock_path()
+        }
     }
 
     pub fn txn_root(&self) -> PathBuf {
