@@ -18,6 +18,7 @@ pub mod list;
 pub mod mirror;
 pub mod pin;
 pub mod repair;
+pub mod report;
 pub mod resolve;
 pub mod self_cmd;
 pub mod shims;

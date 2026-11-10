@@ -265,6 +265,8 @@ lists them all.
 | `config list\|get\|set\|unset` | the installer's settings and where each value comes from, such as `channel`, `trust`, `update_check`, `keep_days`, `bench_after_update`, `theme` and `voice` |
 | `licences [tool] [--text]` | the license of the installer and of each build here (an SPDX id, or "not stated"), where its text is, and what was acknowledged at the first install; `--text` prints one license file; the field is the code license (docs are CC-BY-4.0); read-only, nothing is sent anywhere |
 | `history` | the last installs, updates and rollbacks |
+| `crash list\|show\|send\|delete` | every tool's crash reports, in one queue: `show` prints exactly what `send` sends, nothing leaves without `send`, and `reports = never` refuses |
+| `report [<run>]` | the version block and the bundle a bug report needs: `--out FILE` writes it, `--send` files it through the crash route, and `--block --json` is the block a product puts in its own report; otherwise nothing is written or sent |
 | `bench` | measure this machine against the performance budgets (shim dispatch, check, switch, sizes, first lines), locally and read-only, with the median and p95 of each; nothing is sent anywhere |
 | `self update` | update ciginstaller itself |
 | `explain [code]` | what an error code means, why it comes and what fixes it |
@@ -306,6 +308,11 @@ start its tool. A shim otherwise passes the tool's own exit code through.
   ([#28](https://github.com/otmof-ops/cig-installer/issues/28)) and the courier
   ([#24](https://github.com/otmof-ops/cig-installer/issues/24)) are still to
   come, so `crash send` keeps the report queued and says so.
+- **`ciginstaller report` is built; the products' stubs are not.** The version
+  block (the installer, the carton, each tool's build, what the project pins,
+  mismatches flagged) and the bundle behind a bug report work today, for an
+  operation of the installer and, through cig, for a cig run. `cig report` and
+  the other products' reports hand over to it when the family wiring lands.
 - **Not built:** bug filing
   ([#29](https://github.com/otmof-ops/cig-installer/issues/29)), organization
   policy ([#17](https://github.com/otmof-ops/cig-installer/issues/17)), and
@@ -333,6 +340,12 @@ This is a promise, and it is tested:
   [schemas/report.schema.json](schemas/report.schema.json), with your paths as
   shapes and your user and host names removed. It is one plain `POST` with no
   query string, cookie, login or identifier.
+- A report (`ciginstaller report <run> --send`) is the same: it goes only
+  when you type `--send`, through the same route and the same `reports`
+  setting, and it carries the version block, the operation's journal and the
+  trial's differences with your paths as shapes and your names removed.
+  `ciginstaller report <run>` alone writes and sends nothing; `--out FILE`
+  writes it for you to read first.
 - A test records every request an install makes against a local server and
   fails if any carries an identifier, a cookie or a query string. It covers
   `install` and the commands that read; it is being extended to `update`

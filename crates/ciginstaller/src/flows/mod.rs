@@ -22,6 +22,7 @@ pub mod doctor;
 pub mod family;
 pub mod health;
 pub mod repair;
+pub mod report;
 pub mod uninstall;
 // ---- end of the health block ----
 

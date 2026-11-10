@@ -272,6 +272,8 @@ pub fn run(cx: &mut Cx, a: &UpdateArgs) -> Result<Updated, InstallerError> {
         Ok(s) => s,
         Err(e) => return Err(fail(txn, e)),
     };
+    // what the trial found stays with the transaction, for `ciginstaller report`
+    super::report::keep_trial(txn.dir(), &trial_json(&staged.trial));
 
     if a.trial_only {
         abandon(txn)?;

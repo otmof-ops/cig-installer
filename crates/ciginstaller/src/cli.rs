@@ -199,6 +199,11 @@ pub enum Command {
     /// The family's crash reports, every tool's together: `list`, `show` (exactly what would be
     /// sent), `send`, `delete`, and `submit` for a tool handing one in.
     Crash(CrashCmd),
+    /// What a bug report needs in one redacted bundle: the version block (the installer, the
+    /// carton, each tool's build, what the project pins, mismatches flagged), the operation's
+    /// journal and the trial's differences, or cig's own bundle for a cig run. Nothing is
+    /// written or sent until `--out` or `--send` says so.
+    Report(ReportCmd),
     // ---- end of the crash block ----
     // ---- health: doctor, repair, uninstall, remove ----
     /// One report on the whole family: shims, PATH, toolchains, state, matrix, manifest, disk,
@@ -454,6 +459,26 @@ pub enum ShimsSub {
     List,
 }
 // ---- end of the a4 block ----
+
+#[derive(Args)]
+pub struct ReportCmd {
+    /// The run: an operation of this machine (an id from `history`, or its transaction id), or
+    /// a cig run id. The newest operation when omitted.
+    pub run: Option<String>,
+    /// The version block alone; with `--json`, the machine form a tool embeds in its own report.
+    #[arg(long, conflicts_with_all = ["out", "send", "run", "cig"])]
+    pub block: bool,
+    /// The run is a cig run, not an operation of the installer.
+    #[arg(long, requires = "run")]
+    pub cig: bool,
+    /// Write the bundle to this file.
+    #[arg(long, value_name = "FILE", conflicts_with = "send")]
+    pub out: Option<PathBuf>,
+    /// File the bundle through the issues route, as `crash send` does, under the same consent
+    /// (`reports = never` refuses); no identifier travels.
+    #[arg(long)]
+    pub send: bool,
+}
 
 #[derive(Args)]
 pub struct CrashCmd {

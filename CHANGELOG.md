@@ -26,6 +26,30 @@ Linux, with every build checked first and every change one undoable step.
   includes a path, user name or host. The family's own paths stay readable in
   titles and bodies.
 
+### Reports (#11, #3)
+
+- **`ciginstaller report [<run>]`** puts together what a bug report needs, and
+  writes or sends nothing until you say so (`--out FILE`, `--send`).
+  - **The version block**: the installer, the carton and channel, each tool's
+    build (its version, the digest of what was installed, how it was
+    trusted), what the project pins (as versions and file names, never
+    paths), the OS and kernel, the metadata versions, and whether the
+    combination is inside the manifest's guarantees. A combination no carton
+    holds is flagged by name, as in "cigo 1.18.0 with cig 1.20.0: not from the
+    same carton", and so is a build whose `requires` the running builds do
+    not meet or that the manifest yanks.
+  - **The bundle**: the block, the operation's journal (redacted), the trial's
+    differences (`update` now keeps them with its transaction) and the
+    metadata versions it saw. For a cig run, cig's own bundle through
+    `cig report-bundle <run> --json`, or `cig --json report <run>` for a cig
+    that does not have it yet.
+  - **`--block --json`** is the machine form of the block that a product
+    embeds in its own report.
+  - **`--send`** goes through the crash route and the `reports` setting
+    (`never` refuses), as a report of kind `report`, with no identifier.
+  - It works when `state.json` is the broken thing: the block says so.
+  - E1858 when the bundle cannot be built or written.
+
 ### Licenses (#27)
 
 - **`ciginstaller licences [tool] [--text] [--json]`** lists the installer and

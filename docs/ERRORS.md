@@ -779,6 +779,7 @@ the installer: shims, pins, updates, rollbacks, repair, uninstall, and the comma
 | [`E1855`](#e1855-pinned-carton-was-yanked) | pinned carton was yanked | not one of the four | `ciginstaller pin carton <version>` with a carton that is not yanked |
 | [`E1856`](#e1856-fetching-did-not-satisfy-the-pin) | fetching did not satisfy the pin | not one of the four | `ciginstaller carton list` |
 | [`E1857`](#e1857-a-crash-report-did-not-leave-this-machine) | a crash report did not leave this machine | one of the four; the message says which | `ciginstaller crash show <report>`, then `ciginstaller crash send <report>` once the cause is gone |
+| [`E1858`](#e1858-a-report-could-not-be-put-together) | a report could not be put together | one of the four; the message says which | `ciginstaller report --block`, then `ciginstaller report <run> --out <file>` once the cause is gone |
 | [`E1860`](#e1860-repair-could-not-restore-a-file) | repair could not restore a file | not one of the four | `ciginstaller repair --tool <tool>`, online |
 | [`E1861`](#e1861---purge-needs-os-authentication) | --purge needs OS authentication | these are MY ciggies | `ciginstaller uninstall --all` |
 | [`E1862`](#e1862-a-profile-block-was-edited-and-is-left-alone) | a profile block was edited and is left alone | these are MY ciggies | `ciginstaller doctor` |
@@ -1084,6 +1085,24 @@ Related: [`E1801`](#e1801-a-product-needs-another), [`E1842`](#e1842-pinned-cart
 3. the route could not be reached, or answered with an error or a redirect (a report goes only where it was told to, so a redirect is not followed) (no probe; a suggestion, not a finding). **Remedy:** check the connection and send again; the report waits in the ashtray and its last error is in `ciginstaller crash list`
 
 Related: [`E1890`](#e1890-a-bug-in-the-installer), [`E1870`](#e1870-usage).
+
+### E1858 a report could not be put together
+
+*usage · since 0.1.0 · arises in crash*
+
+**Kind of no:** one of the four; the message says which (read the operating-system reason in the message; ENOENT, EACCES, ENOSPC and friends, each mapped in the causes below).
+
+`ciginstaller report` could not build or write the bundle: cig, which alone can read its own run records, did not give a bundle for the run (it could not be run, or it failed), or the file asked for with `--out` could not be written. Nothing was sent and nothing on the machine changed; `ciginstaller report --block` still prints the version block.
+
+**What to type next:** `ciginstaller report --block`, then `ciginstaller report <run> --out <file>` once the cause is gone
+
+**Known causes**, ranked; the doctor checks them in this order:
+
+1. cig is installed but its files differ from its receipt, or it has no readable receipt, so it is not run to build a bundle (no probe; a suggestion, not a finding). **Remedy:** `ciginstaller repair`, then ask for the report again
+2. cig started and did not answer with a bundle (a run record it cannot read, a cig that is too old to build one, or a timeout) (no probe; a suggestion, not a finding). **Remedy:** `ciginstaller report <run> --out <file>` again, or `cig report <run>` by hand until cig has `report-bundle`; `ciginstaller report --block` needs no cig
+3. the file given to `--out` is in a folder that cannot be written (no probe; a suggestion, not a finding). **Remedy:** give `--out` a path you can write
+
+Related: [`E1857`](#e1857-a-crash-report-did-not-leave-this-machine), [`E1870`](#e1870-usage), [`E1831`](#e1831-installed-file-differs-from-its-receipt).
 
 ### E1860 repair could not restore a file
 
