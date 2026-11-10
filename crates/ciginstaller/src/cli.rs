@@ -211,6 +211,13 @@ pub enum Command {
     /// and the answers come from flags. `bug list` and `bug show <n>` are the reports saved here.
     Bug(BugCmd),
     // ---- end of the bug block ----
+    // ---- programs (#30) ----
+    /// The compiled programs on this machine, found by their trailer on `PATH` and in this
+    /// project's folders (never a scan of the disk), the cig each was built for, the cigcompile
+    /// that made it and any advisory that covers that cig. `programs rebuild <name>` rebuilds
+    /// one from its script with the carton's cigcompile. Nothing is sent anywhere.
+    Programs(ProgramsCmd),
+    // ---- end of the programs block ----
     // ---- health: doctor, repair, uninstall, remove ----
     /// One report on the whole family: shims, PATH, toolchains, state, matrix, manifest, disk,
     /// humidor, transactions. Reads only; each finding ends with the command that fixes it.
@@ -614,3 +621,33 @@ pub enum CrashSub {
         now: bool,
     },
 }
+
+// ---- programs (#30) ----
+
+#[derive(Args)]
+pub struct ProgramsCmd {
+    #[command(subcommand)]
+    pub sub: Option<ProgramsSub>,
+    /// Also look in this project folder (and its `bin/`); may be repeated. The folder of the
+    /// project you stand in is always looked in.
+    #[arg(long, value_name = "DIR", global = true)]
+    pub project: Vec<PathBuf>,
+}
+
+#[derive(Subcommand)]
+pub enum ProgramsSub {
+    /// Rebuild a program from its script with the carton's cigcompile on the installed cig, check
+    /// it with `cigcompile verify` and `cigcompile test`, and swap it in as one transaction: the
+    /// old program is replaced only once the new one has passed both.
+    Rebuild {
+        /// The program's name, or its path.
+        target: String,
+        /// The script, when it is not where the program says it was compiled from.
+        #[arg(long, value_name = "FILE")]
+        script: Option<PathBuf>,
+        /// Say what would be rebuilt and replaced; build nothing.
+        #[arg(long)]
+        dry_run: bool,
+    },
+}
+// ---- end of the programs block ----

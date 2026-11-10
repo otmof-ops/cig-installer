@@ -269,6 +269,7 @@ lists them all.
 | `crash status`, `crash test-route` | the queue, the `reports` setting and each route's last success and failure; one dry search per route, to see which can file a report |
 | `bug [<product>]` | writes up what went wrong, asked in the voice with plain beside it (or from flags without a terminal), with the run's bundle, the version matrix, the carton, the OS and the doctor's findings, and shows exactly what would travel first; `--save` keeps it here, `--send` sends it through the crash route, `bug list` and `bug show <n>` are the reports saved here |
 | `report [<run>]` | the version block and the bundle a bug report needs: `--out FILE` writes it, `--send` files it through the crash route, and `--block --json` is the block a product puts in its own report; otherwise nothing is written or sent |
+| `programs [rebuild <name>]` | the compiled programs on this machine, found by their trailer on `PATH` and in the project's folders (never a scan of the disk), the cig each was built for, the cigcompile that made it and any advisory that covers that cig; `rebuild <name>` rebuilds one from its script with the carton's cigcompile on the installed cig, checks it with `cigcompile verify` and `cigcompile test`, and swaps it in as one transaction; nothing is sent anywhere |
 | `bench` | measure this machine against the performance budgets (shim dispatch, check, switch, sizes, first lines), locally and read-only, with the median and p95 of each; nothing is sent anywhere |
 | `self update` | update ciginstaller itself |
 | `explain [code]` | what an error code means, why it comes and what fixes it |
@@ -324,6 +325,14 @@ start its tool. A shim otherwise passes the tool's own exit code through.
   the evidence for a run and the preview. The similarity search, "add mine",
   `bug status` and `bug withdraw`, the evidence for cigo, the guard, CigCompile
   and updates, and the products' own short ways in are not built.
+- **`ciginstaller programs` is built without the signed index
+  ([#30](https://github.com/otmof-ops/cig-installer/issues/30)).** Programs are
+  found on `PATH` and in the project's folders (and `--project`), not by
+  scanning the disk, and their advisories come from the cached manifest. The
+  signed compatibility index and `which --why` wait for signing
+  ([#9](https://github.com/otmof-ops/cig-installer/issues/9)). A program with no
+  script on this machine is listed with its advisory so its author can be told,
+  and cannot be rebuilt here.
 - **Organization policy is half built
   ([#17](https://github.com/otmof-ops/cig-installer/issues/17)).**
   `rollout = N%` stages a new carton to a share of machines, chosen by a hash

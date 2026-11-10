@@ -781,6 +781,7 @@ the installer: shims, pins, updates, rollbacks, repair, uninstall, and the comma
 | [`E1856`](#e1856-fetching-did-not-satisfy-the-pin) | fetching did not satisfy the pin | not one of the four | `ciginstaller carton list` |
 | [`E1857`](#e1857-a-crash-report-did-not-leave-this-machine) | a crash report did not leave this machine | one of the four; the message says which | `ciginstaller crash show <report>`, then `ciginstaller crash send <report>` once the cause is gone |
 | [`E1858`](#e1858-a-report-could-not-be-put-together) | a report could not be put together | one of the four; the message says which | `ciginstaller report --block`, then `ciginstaller report <run> --out <file>` once the cause is gone |
+| [`E1859`](#e1859-a-program-could-not-be-rebuilt) | a program could not be rebuilt | one of the four; the message says which | `ciginstaller programs rebuild <name> --script <the script's path>`, or `ciginstaller doctor` |
 | [`E1860`](#e1860-repair-could-not-restore-a-file) | repair could not restore a file | not one of the four | `ciginstaller repair --tool <tool>`, online |
 | [`E1861`](#e1861---purge-needs-os-authentication) | --purge needs OS authentication | these are MY ciggies | `ciginstaller uninstall --all` |
 | [`E1862`](#e1862-a-profile-block-was-edited-and-is-left-alone) | a profile block was edited and is left alone | these are MY ciggies | `ciginstaller doctor` |
@@ -1124,6 +1125,26 @@ Related: [`E1890`](#e1890-a-bug-in-the-installer), [`E1870`](#e1870-usage).
 4. `ciginstaller bug` could not put the report together: cig did not give the bundle of the run it was asked about (the cause above), or the report could not be saved because the ashtray's folder cannot be written (no probe; a suggestion, not a finding). **Remedy:** `ciginstaller bug --run <id>` again once cig answers (`ciginstaller repair` if its files differ from the receipt), or `ciginstaller bug --product <part>` for a report that is not about a run; make `ashtray/` in the home writable
 
 Related: [`E1857`](#e1857-a-crash-report-did-not-leave-this-machine), [`E1870`](#e1870-usage), [`E1831`](#e1831-installed-file-differs-from-its-receipt).
+
+### E1859 a program could not be rebuilt
+
+*usage · since 0.1.0 · arises in any*
+
+**Kind of no:** one of the four; the message says which (read the operating-system reason in the message; ENOENT, EACCES, ENOSPC and friends, each mapped in the causes below).
+
+`ciginstaller programs rebuild` did not replace the program: its script is not on this machine, the carton's cig or cigcompile is missing or differs from its receipt, the installed cig is itself covered by the advisory, cigcompile's build, `cigcompile verify` or the program's own `cigcompile test` failed, or the file could not be written. The program was not touched: it is replaced only after the rebuilt one has passed both checks, in one transaction that puts the old one back on any failure.
+
+**What to type next:** `ciginstaller programs rebuild <name> --script <the script's path>`, or `ciginstaller doctor`
+
+**Known causes**, ranked; the doctor checks them in this order:
+
+1. the script the program was compiled from is not where its record says, and is not under a known project folder (no probe; a suggestion, not a finding). **Remedy:** `ciginstaller programs rebuild <name> --script <path>`; when it is gone, the advisory (`ciginstaller programs`) names what its author needs to rebuild it with
+2. cig or cigcompile is not installed, or its files differ from its receipt, so it is not run (no probe; a suggestion, not a finding). **Remedy:** `ciginstaller repair`, or `ciginstaller install carton`
+3. the installed cig is covered by the same advisory as the program, so a rebuild on it would not fix it (no probe; a suggestion, not a finding). **Remedy:** `ciginstaller update`, then rebuild
+4. cigcompile's build, `cigcompile verify` or `cigcompile test` failed or ran past its time limit (the message carries what it said) (no probe; a suggestion, not a finding). **Remedy:** read what cigcompile said; `cigcompile test <script>` by hand shows the same difference, and the old program is still in place
+5. the program's file or its folder cannot be written, or the program is setuid or setgid (a program never runs with raised rights, so it is not replaced) (no probe; a suggestion, not a finding). **Remedy:** make the folder writable, or give the person who owns it the rebuilt program: `ciginstaller programs rebuild <name> --dry-run` says what would be built
+
+Related: [`E1805`](#e1805-compiled-program-against-installed-cig), [`E1858`](#e1858-a-report-could-not-be-put-together), [`E1831`](#e1831-installed-file-differs-from-its-receipt), [`E1870`](#e1870-usage).
 
 ### E1860 repair could not restore a file
 

@@ -1397,6 +1397,42 @@ probe = "none"
 remedy = "`ciginstaller bug --run <id>` again once cig answers (`ciginstaller repair` if its files differ from the receipt), or `ciginstaller bug --product <part>` for a report that is not about a run; make `ashtray/` in the home writable"
 
 [[code]]
+code = "E1859"
+title = "a program could not be rebuilt"
+meaning = "`ciginstaller programs rebuild` did not replace the program: its script is not on this machine, the carton's cig or cigcompile is missing or differs from its receipt, the installed cig is itself covered by the advisory, cigcompile's build, `cigcompile verify` or the program's own `cigcompile test` failed, or the file could not be written. The program was not touched: it is replaced only after the rebuilt one has passed both checks, in one transaction that puts the old one back on any failure."
+fix = "`ciginstaller programs rebuild <name> --script <the script's path>`, or `ciginstaller doctor`"
+no = "depends"
+arises = ["any"]
+tags = ["installer"]
+since = "0.1.0"
+related = ["E1805", "E1858", "E1831", "E1870"]
+[[code.cause]]
+why = "the script the program was compiled from is not where its record says, and is not under a known project folder"
+no = "these-are-mine"
+probe = "none"
+remedy = "`ciginstaller programs rebuild <name> --script <path>`; when it is gone, the advisory (`ciginstaller programs`) names what its author needs to rebuild it with"
+[[code.cause]]
+why = "cig or cigcompile is not installed, or its files differ from its receipt, so it is not run"
+no = "these-are-mine"
+probe = "none"
+remedy = "`ciginstaller repair`, or `ciginstaller install carton`"
+[[code.cause]]
+why = "the installed cig is covered by the same advisory as the program, so a rebuild on it would not fix it"
+no = "these-are-mine"
+probe = "none"
+remedy = "`ciginstaller update`, then rebuild"
+[[code.cause]]
+why = "cigcompile's build, `cigcompile verify` or `cigcompile test` failed or ran past its time limit (the message carries what it said)"
+no = "depends"
+probe = "none"
+remedy = "read what cigcompile said; `cigcompile test <script>` by hand shows the same difference, and the old program is still in place"
+[[code.cause]]
+why = "the program's file or its folder cannot be written, or the program is setuid or setgid (a program never runs with raised rights, so it is not replaced)"
+no = "these-are-mine"
+probe = "none"
+remedy = "make the folder writable, or give the person who owns it the rebuilt program: `ciginstaller programs rebuild <name> --dry-run` says what would be built"
+
+[[code]]
 code = "E1860"
 title = "repair could not restore a file"
 meaning = "A damaged file was not in the store and could not be downloaded again, so it was left as it is."

@@ -69,6 +69,19 @@ the rest of the family:
   anonymised again on its way out. `--yes` answers none of the questions, and
   no request is made before a yes.
 
+- **`ciginstaller programs` reads, and sends nothing.** It opens, read-only,
+  regular executable files directly in each absolute `PATH` folder, in the
+  project's folder and its `bin/` and in any folder named with `--project`, and
+  reads the last few KiB of each (and a payload of at most 16 MiB when a trailer
+  is there). It never scans the disk, follows folders down, opens a device or a
+  pipe, runs a program, or makes a request; advisories come from the cached
+  manifest. A damaged or lying trailer is skipped with a note. `programs
+  rebuild` runs cigcompile and cig only from builds that match their receipts,
+  with a time limit and from the home, replaces a program only after
+  `cigcompile verify` and `cigcompile test` pass and the rebuilt file reads back,
+  keeps the old one in the journal until then, and never replaces a setuid or
+  setgid program.
+
 ## What is verified today
 
 Verification today proves **integrity**: the bytes you got are the bytes the

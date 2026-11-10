@@ -149,6 +149,12 @@ pub fn run(cx: &mut Cx) -> Result<Outcome, InstallerError> {
         }
         _ => {}
     }
+    // programs built on a cig that an advisory covers (#30): one line each, read from the cache
+    let program_hits = crate::flows::programs::advisory_hits(cx);
+    for (f, advs) in &program_hits {
+        lines.push(crate::flows::programs::hit_line(cx, f, advs));
+        waiting_next = true;
+    }
 
     if let Some(p) = standing.percent.filter(|p| *p < 100) {
         lines.push(format!(
@@ -203,6 +209,19 @@ pub fn run(cx: &mut Cx) -> Result<Outcome, InstallerError> {
     } else if waiting_next {
         r = r.next("ciginstaller update");
     }
+    // `programs` is there only when one has an advisory: a machine without any reads as before
+    let mut waiting = json!({ "update": update, "advisories": advisories, "yanked": yanked });
+    if !program_hits.is_empty() {
+        waiting["programs"] = json!(program_hits
+            .iter()
+            .map(|(f, advs)| json!({
+                "name": f.program.name,
+                "path": f.path.display().to_string(),
+                "cig": f.program.cig,
+                "advisories": advs.iter().map(|a| a.id.clone()).collect::<Vec<_>>(),
+            }))
+            .collect::<Vec<_>>());
+    }
     let trust_json: serde_json::Map<String, Value> =
         trust.iter().map(|(k, v)| (k.clone(), json!(v))).collect();
     Ok(r.data(json!({
@@ -212,7 +231,7 @@ pub fn run(cx: &mut Cx) -> Result<Outcome, InstallerError> {
         "rollout": rollout,
         "tools": tools,
         "trust": trust_json,
-        "waiting": { "update": update, "advisories": advisories, "yanked": yanked },
+        "waiting": waiting,
     }))
     .into())
 }

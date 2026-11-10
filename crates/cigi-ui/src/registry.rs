@@ -222,6 +222,7 @@ pub fn area(code: &str) -> &'static str {
         Some(1849..=1856) => "update",
         Some(1857) => "crash",
         Some(1858) => "report",
+        Some(1859) => "programs",
         Some(1860..=1862) => "repair",
         Some(1829 | 1863 | 1865 | 1868) => "uninstall",
         Some(1869) => "path",

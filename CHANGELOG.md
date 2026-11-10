@@ -11,6 +11,25 @@ below is under Unreleased, and the first version will take it as its section.
 Installing, pinning, switching, updating and rolling back the family, on
 Linux, with every build checked first and every change one undoable step.
 
+### Compiled programs (#30, the unblocked part)
+
+- **`ciginstaller programs [--project DIR] [--json]`** lists the compiled programs
+  on the machine: name, where, the cig it was built for, the cigcompile that made
+  it, and any advisory of the cached manifest that covers that cig, with its
+  severity and fixed-in version. They are found by their trailer (the layout cig
+  documents, read by `cig-compat` with no dependency on cig) on `PATH` and in the
+  project's folders and their `bin/`; the disk is never scanned. A damaged
+  trailer is skipped with a note.
+- **`ciginstaller programs rebuild <name>`** rebuilds a program from its script
+  with the carton's cigcompile (run only from a build that matches its receipt,
+  with a time limit) on the installed cig, checks it with `cigcompile verify` and
+  `cigcompile test`, and swaps it in as one transaction; the old program stays
+  until the new one has passed. With no script on the machine it says so and
+  names the advisory. `--dry-run` builds nothing. E1859.
+- **`status` and `doctor`** say once per program when it is built on a cig an
+  advisory covers; `status --json` carries `waiting.programs` only then.
+- Still blocked: the signed compatibility index ([#9](https://github.com/otmof-ops/cig-installer/issues/9)).
+
 ### Crash reports (#10, #28 part 1)
 
 - **`ciginstaller crash list|show|send|delete|submit`** over cig's own ashtray
