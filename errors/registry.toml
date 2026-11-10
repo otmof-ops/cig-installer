@@ -1,5 +1,5 @@
 # SPDX-FileCopyrightText: 2026 Jay Taylor (https://github.com/otmof-ops/cig-installer)
-# SPDX-License-Identifier: Apache-2.0
+# SPDX-License-Identifier: FSL-1.1-ALv2
 #
 # The ciginstaller error-code registry (E1800-E1899, SPEC section 11.3), in the schema of
 # cig's own registry (cig-script errors/registry.toml): `[[range]]`, `[[no]]`, `[[probe]]`
@@ -39,6 +39,13 @@ to = "E1879"
 family = "installer"
 kind = "usage"
 meaning = "the installer: shims, pins, updates, rollbacks, repair, uninstall, and the command line"
+
+[[range]]
+from = "E1880"
+to = "E1889"
+family = "installer"
+kind = "runtime"
+meaning = "reserved for CIG.OS work not built yet: Secure Boot (#23) takes E1880-E1883, the courier (#24) E1884-E1888"
 
 [[range]]
 from = "E1890"
