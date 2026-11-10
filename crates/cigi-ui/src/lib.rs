@@ -1,5 +1,5 @@
 // SPDX-FileCopyrightText: 2026 Jay Taylor (https://github.com/otmof-ops/cig-installer)
-// SPDX-License-Identifier: Apache-2.0
+// SPDX-License-Identifier: FSL-1.1-ALv2
 
 //! `cigi-ui`: the output grammar, palette, tables, progress, prompts, `--json` and the error
 //! registry of ciginstaller (SPEC sections 2.4 and 11, issue #32). The only crate that prints.

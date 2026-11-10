@@ -1,5 +1,5 @@
 // SPDX-FileCopyrightText: 2026 Jay Taylor (https://github.com/otmof-ops/cig-installer)
-// SPDX-License-Identifier: Apache-2.0
+// SPDX-License-Identifier: FSL-1.1-ALv2
 //! `self update` (SPEC 12.4): fetch and admit the manifest's `ciginstaller` build, store its two
 //! files, keep the running binary as `installer/previous/ciginstaller`, swap the new one in by
 //! rename, re-link the shims to the new `cigi-shim`, start the new binary once as

@@ -1,5 +1,5 @@
 // SPDX-FileCopyrightText: 2026 Jay Taylor (https://github.com/otmof-ops/cig-installer)
-// SPDX-License-Identifier: Apache-2.0
+// SPDX-License-Identifier: FSL-1.1-ALv2
 //! The `.sha256` sidecar: `<hex>  <name>` as `sha256sum` writes it. Like cig's
 //! `update::verify_sha256`, the first whitespace-separated token is the digest, lowercased.
 //! Unlike cig's, the token must really be 64 hex digits: a sidecar that is an HTML error page

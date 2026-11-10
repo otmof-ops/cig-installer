@@ -1,5 +1,5 @@
 // SPDX-FileCopyrightText: 2026 Jay Taylor (https://github.com/otmof-ops/cig-installer)
-// SPDX-License-Identifier: Apache-2.0
+// SPDX-License-Identifier: FSL-1.1-ALv2
 //! `update` (SPEC 12.2): check, choose, plan, fetch only what changed, materialize it beside the
 //! old, trial it on the project, then switch (state, `state.previous`, the index flip), as one
 //! transaction. Everything before the switch leaves the machine as it was.

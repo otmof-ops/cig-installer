@@ -1,5 +1,5 @@
 // SPDX-FileCopyrightText: 2026 Jay Taylor (https://github.com/otmof-ops/cig-installer)
-// SPDX-License-Identifier: Apache-2.0
+// SPDX-License-Identifier: FSL-1.1-ALv2
 //! `a3_self_update` (SPEC 14.3): the fixture ships an installer 0.1.1 (a fake that supports
 //! `__selfcheck`); the swap is atomic; a 0.1.1 whose self-check fails leaves the old binary back
 //! with E1853; a kill at every journal point leaves a working `bin/ciginstaller`.

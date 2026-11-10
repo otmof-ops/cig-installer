@@ -1,5 +1,5 @@
 // SPDX-FileCopyrightText: 2026 Jay Taylor (https://github.com/otmof-ops/cig-installer)
-// SPDX-License-Identifier: Apache-2.0
+// SPDX-License-Identifier: FSL-1.1-ALv2
 //! `channel` and `install --channel` (SPEC 10; issue #3): the new channel's manifest is fetched
 //! and checked before the setting changes, and nothing is installed by a switch.
 

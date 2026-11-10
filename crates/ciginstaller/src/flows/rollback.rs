@@ -1,5 +1,5 @@
 // SPDX-FileCopyrightText: 2026 Jay Taylor (https://github.com/otmof-ops/cig-installer)
-// SPDX-License-Identifier: Apache-2.0
+// SPDX-License-Identifier: FSL-1.1-ALv2
 //! `rollback [tool]` (SPEC 12.3): back to the previous carton, or one tool's build in it. It is a
 //! switch: lock, recover, verify the toolchains it goes to (repairing from the store, else
 //! `E1831`), new state, shims, the index flip.

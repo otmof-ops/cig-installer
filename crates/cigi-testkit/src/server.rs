@@ -1,5 +1,5 @@
 // SPDX-FileCopyrightText: 2026 Jay Taylor (https://github.com/otmof-ops/cig-installer)
-// SPDX-License-Identifier: Apache-2.0
+// SPDX-License-Identifier: FSL-1.1-ALv2
 //! The fixture server: `tiny_http` on `127.0.0.1:0` over a `releases/` directory, recording every
 //! request. Rules per path make it misbehave on purpose (redirect, stalled body, a status); a body that ends early needs `ShortBodyServer`.
 

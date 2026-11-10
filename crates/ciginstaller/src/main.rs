@@ -1,5 +1,5 @@
 // SPDX-FileCopyrightText: 2026 Jay Taylor (https://github.com/otmof-ops/cig-installer)
-// SPDX-License-Identifier: Apache-2.0
+// SPDX-License-Identifier: FSL-1.1-ALv2
 //! `ciginstaller` (also `cigi`): installs, pins, updates, repairs and removes the CigScript
 //! family. The commands arrive phase by phase (docs/decisions/0001-architecture.md); this
 //! build has the error pages.

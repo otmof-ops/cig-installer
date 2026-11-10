@@ -1,5 +1,5 @@
 // SPDX-FileCopyrightText: 2026 Jay Taylor (https://github.com/otmof-ops/cig-installer)
-// SPDX-License-Identifier: Apache-2.0
+// SPDX-License-Identifier: FSL-1.1-ALv2
 //! `a3_shim_perf` (SPEC 14.2, 14.3): the shim's own time from process start to `exec`, measured by
 //! `CIGI_SHIM_TIMING=1`, against an installed fixture home. The budget is 1 ms on a release build;
 //! this runs on the debug build a test gets, so it asserts with headroom (5 ms) and reports the

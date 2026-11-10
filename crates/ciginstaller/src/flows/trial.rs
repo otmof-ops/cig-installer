@@ -1,5 +1,5 @@
 // SPDX-FileCopyrightText: 2026 Jay Taylor (https://github.com/otmof-ops/cig-installer)
-// SPDX-License-Identifier: Apache-2.0
+// SPDX-License-Identifier: FSL-1.1-ALv2
 //! The trial (SPEC 12.9): before an update switches, run the changed tools' dry runs on the
 //! project in scope, old build and new build side by side, and say what plans differently.
 //!

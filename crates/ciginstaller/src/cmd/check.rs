@@ -1,5 +1,5 @@
 // SPDX-FileCopyrightText: 2026 Jay Taylor (https://github.com/otmof-ops/cig-installer)
-// SPDX-License-Identifier: Apache-2.0
+// SPDX-License-Identifier: FSL-1.1-ALv2
 //! `check [--carton <v>] [--project <dir>]` (#4): the marry-up matrix of `cig-compat`, for this
 //! machine's combination, for one carton, and for the pins of the project at hand. Each finding
 //! goes through the grammar with its code and its fixes; `--json` carries all of them. Any

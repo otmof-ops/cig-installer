@@ -1,5 +1,5 @@
 // SPDX-FileCopyrightText: 2026 Jay Taylor (https://github.com/otmof-ops/cig-installer)
-// SPDX-License-Identifier: Apache-2.0
+// SPDX-License-Identifier: FSL-1.1-ALv2
 
 //! `golden_output_per_screen`: each screen in dark, light, 16-colour, no-colour, plain and
 //! JSON, compared byte for byte with `tests/golden/<screen>.<variant>.txt`. Escape bytes

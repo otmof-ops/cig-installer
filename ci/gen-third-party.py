@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # SPDX-FileCopyrightText: 2026 Jay Taylor (https://github.com/otmof-ops/cig-installer)
-# SPDX-License-Identifier: Apache-2.0
+# SPDX-License-Identifier: FSL-1.1-ALv2
 """Regenerate THIRD-PARTY-NOTICES.md.
 
 Same layout as CigScript's scripts/gen-third-party.py, but the rows come from `cargo metadata`

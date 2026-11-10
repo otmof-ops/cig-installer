@@ -1,5 +1,5 @@
 // SPDX-FileCopyrightText: 2026 Jay Taylor (https://github.com/otmof-ops/cig-installer)
-// SPDX-License-Identifier: Apache-2.0
+// SPDX-License-Identifier: FSL-1.1-ALv2
 //! Time as this crate needs it: parse an RFC 3339 stamp, compare with now.
 //!
 //! Section 1 says time is written by `cigi-home` only. This crate only needs to *read* the

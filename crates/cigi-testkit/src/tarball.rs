@@ -1,5 +1,5 @@
 // SPDX-FileCopyrightText: 2026 Jay Taylor (https://github.com/otmof-ops/cig-installer)
-// SPDX-License-Identifier: Apache-2.0
+// SPDX-License-Identifier: FSL-1.1-ALv2
 //! Deterministic tar.gz building in memory (mtime 0, uid/gid 0, sorted by the caller), and
 //! deliberately hostile archives for `unpack_tar_gz` tests.
 

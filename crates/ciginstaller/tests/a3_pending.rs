@@ -1,5 +1,5 @@
 // SPDX-FileCopyrightText: 2026 Jay Taylor (https://github.com/otmof-ops/cig-installer)
-// SPDX-License-Identifier: Apache-2.0
+// SPDX-License-Identifier: FSL-1.1-ALv2
 //! The deletes that follow a commit (a rollback that undoes an update, `gc`): recorded in the
 //! change's own transaction, never seen by a shim (the index stops naming them first), finished by
 //! the next `gc` after a crash between the commit and the deletes, and cleared once done.

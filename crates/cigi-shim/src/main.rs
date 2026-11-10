@@ -1,5 +1,5 @@
 // SPDX-FileCopyrightText: 2026 Jay Taylor (https://github.com/otmof-ops/cig-installer)
-// SPDX-License-Identifier: Apache-2.0
+// SPDX-License-Identifier: FSL-1.1-ALv2
 
 //! The shim (SPEC section 9). Std only; reads one generated text file; never writes.
 //! `bin/cig`, `bin/cigo`, ... are copies of this binary. It picks the build a project

@@ -1,5 +1,5 @@
 // SPDX-FileCopyrightText: 2026 Jay Taylor (https://github.com/otmof-ops/cig-installer)
-// SPDX-License-Identifier: Apache-2.0
+// SPDX-License-Identifier: FSL-1.1-ALv2
 //! Dev-only test support (section 14.1): fixture products with real sha256 sidecars, a mirror
 //! directory of releases, a loopback server that records every request, scratch homes, and
 //! directory snapshots for "the home is exactly as it was" assertions.

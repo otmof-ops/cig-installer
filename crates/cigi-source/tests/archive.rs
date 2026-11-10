@@ -1,5 +1,5 @@
 // SPDX-FileCopyrightText: 2026 Jay Taylor (https://github.com/otmof-ops/cig-installer)
-// SPDX-License-Identifier: Apache-2.0
+// SPDX-License-Identifier: FSL-1.1-ALv2
 //! `unpack_tar_gz`: the refusals of section 14.2 and the happy path.
 
 use cigi_source::{unpack_tar_gz, ArchiveError};
