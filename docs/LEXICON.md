@@ -18,7 +18,7 @@ docs, the manual's name is given beside them.
 | **channel** | the line of cartons you follow: `stable`, `beta` or `nightly`. | release channel |
 | **burn** | one change to the machine, made through the journal: it says what will change before it happens, and a failed or interrupted one rolls back to exactly the previous state. Every install and update is a burn. "Nothing real happens unless you burn." | a transaction |
 | **unburn** | undo a burn: `cig unburn <run>`. | roll back a transaction |
-| **humidor** | the shared store, under `~/.cigscript/`, that holds every tool's versions, so two builds shared between cartons are kept once. It began as cig's own store and is now the family's. | the content-addressed store |
+| **humidor** | today, the mirror of cig builds under `~/.cigscript/humidor/` that cig itself reads; the installer keeps it in step with the cig it installs. #1 proposes making the humidor the shared store for every tool's versions; that is not decided (ADR decisions D1 and D2), and the installer's own store is `store/`. | cig's build mirror |
 | **shim** | the tiny dispatcher in `~/.cigscript/bin/` (`cig`, `cigo`, ...) that finds the build the project's carton pins, or the machine's carton, and runs it. | launcher |
 | **pin** | a project's choice of carton (`carton 1.1` in `.cig-carton`) or of one tool's version (`ciginstaller pin cigo 1.3`). Old per-tool pins still work. | version constraint |
 | **preset** | how careful the guard is: `chill`, `balanced`, `strict` or `paranoid`. Asked once at install and recorded in the `preset` setting. | security profile |

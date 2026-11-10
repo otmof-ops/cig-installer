@@ -336,11 +336,16 @@ fn a4_update_says_what_is_new() {
 
 /// The published manifest with one advisory appended and its sidecar made to match.
 fn advise(fx: &Fixture) {
+    advise_as(fx, "security");
+}
+
+fn advise_as(fx: &Fixture, severity: &str) {
     let path = fx.releases.join("manifest-stable.toml");
     let mut t = std::fs::read_to_string(&path).expect("manifest");
     t.push_str(
-        "\n[[advisory]]\nid = \"CIGI-2026-0001\"\naffects = [ \"carton <0.2.0\" ]\nfixed_in = \"0.2.0\"\n\
-         severity = \"security\"\nsummary = \"a box apply could skip a file\"\n",
+        &"\n[[advisory]]\nid = \"CIGI-2026-0001\"\naffects = [ \"carton <0.2.0\" ]\nfixed_in = \"0.2.0\"\n\
+         severity = \"SEV\"\nsummary = \"a box apply could skip a file\"\n"
+            .replace("SEV", severity),
     );
     std::fs::write(&path, &t).expect("write manifest");
     std::fs::write(
@@ -375,16 +380,176 @@ fn a4_an_advisory_is_shown_with_its_severity_once_and_check_still_lists_it() {
         state(&fx)
     );
 
-    // the next install on the same version does not repeat it
+    // the next install on the same version does not repeat it in full, but a security
+    // advisory is never silenced: one line says it still applies
     let o = cigi(
         &fx,
         &["install", "stick", "cigo", "--carton", "0.1.0", "--no-path"],
     );
     ok(&o);
     assert!(!text(&o).contains("CIGI-2026-0001"), "{}", text(&o));
+    assert!(
+        text(&o).contains("1 security advisory applies: ciginstaller check"),
+        "{}",
+        text(&o)
+    );
 
     // `check` is the whole matrix and never consults the memory
     let o = cigi(&fx, &["check"]);
     ok(&o);
     assert!(text(&o).contains("CIGI-2026-0001"), "{}", text(&o));
+}
+
+fn two_cartons() -> Fixture {
+    let mut fx = fixture();
+    fx.carton("0.1.0", &[("cig", "1.20.0"), ("cigo", "1.16.0")]);
+    fx.carton("0.2.0", &[("cig", "1.20.1"), ("cigo", "1.16.0")]);
+    fx.publish("stable");
+    fx
+}
+
+#[test]
+fn a4_an_advisory_is_not_marked_seen_when_nobody_saw_it() {
+    for flags in [["--quiet"], ["--json"]] {
+        let fx = two_cartons();
+        advise(&fx);
+        let mut args = flags.to_vec();
+        args.extend(["install", "stick", "cig", "--carton", "0.1.0", "--no-path"]);
+        ok(&cigi(&fx, &args));
+        assert!(
+            state(&fx).get("advisories_seen").is_none(),
+            "{flags:?} showed nothing, so nothing is remembered: {}",
+            state(&fx)
+        );
+        // the next ordinary install still shows it in full
+        let o = cigi(
+            &fx,
+            &["install", "stick", "cigo", "--carton", "0.1.0", "--no-path"],
+        );
+        ok(&o);
+        assert!(
+            text(&o).contains("CIGI-2026-0001"),
+            "{flags:?}: {}",
+            text(&o)
+        );
+    }
+}
+
+#[test]
+fn a4_a_bug_advisory_is_shown_once_and_then_stays_quiet() {
+    let fx = two_cartons();
+    advise_as(&fx, "bug");
+    let o = cigi(
+        &fx,
+        &["install", "stick", "cig", "--carton", "0.1.0", "--no-path"],
+    );
+    ok(&o);
+    assert!(text(&o).contains("CIGI-2026-0001"), "{}", text(&o));
+    let o = cigi(
+        &fx,
+        &["install", "stick", "cigo", "--carton", "0.1.0", "--no-path"],
+    );
+    ok(&o);
+    assert!(!text(&o).contains("CIGI-2026-0001"), "{}", text(&o));
+    assert!(
+        !text(&o).contains("advisor"),
+        "no reminder for a bug: {}",
+        text(&o)
+    );
+}
+
+#[test]
+fn a4_e1801_names_pin_carton_for_a_tool_with_no_pin_file() {
+    let mut fx = fixture();
+    fx.product("cigcompile", "0.3.0").requires("cig", ">=1.8");
+    fx.carton("1.0.0", &[("cig", "1.7.2"), ("cigcompile", "0.2.0")]);
+    fx.carton("1.1.2", &[("cig", "1.8.0"), ("cigcompile", "0.3.0")]);
+    fx.publish("stable");
+    ok(&cigi(
+        &fx,
+        &["install", "carton", "--carton", "1.0.0", "--no-path"],
+    ));
+    let o = cigi(
+        &fx,
+        &["install", "stick", "cigcompile", "--carton", "1.1.2"],
+    );
+    assert_eq!(o.status.code(), Some(2), "{}", text(&o));
+    let t = text(&o);
+    assert!(t.contains("E1801"), "{t}");
+    assert!(t.contains("ciginstaller pin carton 1.0"), "{t}");
+    assert!(!t.contains("pin cigcompile"), "{t}");
+    // and what it says to type really works
+    ok(&bare(&fx, &fx.project, &["pin", "carton", "1.0"]));
+}
+
+#[test]
+fn a4_pin_help_lists_every_tool_with_a_pin_file() {
+    let fx = simple();
+    let o = bare(&fx, &fx.project, &["pin", "--help"]);
+    let t = text(&o);
+    for want in ["carton", "cig", "cigo", "cigar"] {
+        assert!(t.contains(want), "`{want}` in {t}");
+    }
+}
+
+#[test]
+fn a4_the_preset_question_and_config_say_it_is_not_enforced() {
+    let fx = simple();
+    let (code, t) = on_tty(&fx, "install --no-path", "3sn");
+    assert_eq!(code, 0, "{t}");
+    assert!(t.contains("cig-orchestrator#66"), "in the question: {t}");
+    assert!(t.contains("nothing enforces the preset"), "{t}");
+    let o = bare(&fx, &fx.project, &["config", "get", "preset"]);
+    ok(&o);
+    assert!(
+        text(&o).contains("nothing enforces the preset"),
+        "{}",
+        text(&o)
+    );
+    let o = bare(&fx, &fx.project, &["--json", "config", "list"]);
+    ok(&o);
+    let j = json_of(&o);
+    let preset = j["data"]["settings"]
+        .as_array()
+        .and_then(|a| a.iter().find(|s| s["key"] == "preset"))
+        .expect("preset setting");
+    assert!(
+        preset["note"].as_str().is_some_and(|n| n.contains("#66")),
+        "{preset}"
+    );
+}
+
+#[test]
+fn a4_install_keeps_the_config_it_finds_when_it_records_a_preset() {
+    let fx = simple();
+    let o = cigi(&fx, &["config", "set", "keep_days", "30"]);
+    ok(&o);
+    ok(&cigi(
+        &fx,
+        &["install", "carton", "--preset", "strict", "--no-path"],
+    ));
+    let cfg = config(&fx);
+    assert!(
+        cfg.contains("preset = strict") && cfg.contains("keep_days = 30"),
+        "{cfg}"
+    );
+}
+
+#[test]
+fn a4_update_links_each_changed_build_to_its_release() {
+    let mut fx = simple();
+    ok(&cigi(&fx, &["install", "carton", "--no-path"]));
+    fx.carton("0.2.0", &[("cig", "1.21.0"), ("cigo", "1.16.0")]);
+    fx.publish("stable");
+    let o = cigi(&fx, &["--json", "update", "--check", "--refresh"]);
+    ok(&o);
+    let links = json_of(&o)["data"]["links"].clone();
+    let links = links.as_array().expect("links");
+    assert!(
+        links.iter().any(|l| l
+            .as_str()
+            .is_some_and(|l| l.starts_with("cig 1.21.0: https://github.com/")
+                && l.contains("/releases/tag/"))),
+        "{links:?}"
+    );
 }

@@ -58,6 +58,7 @@ fn setting(cfg: &Config, k: &KeySpec) -> Value {
         "default": k.default,
         "allowed": k.values,
         "range": Config::numeric_range(k.key),
+        "note": (k.key == "preset").then_some(super::install::PRESET_NOTE),
     })
 }
 
@@ -95,6 +96,7 @@ fn list(cx: &mut Cx) -> Result<Outcome, InstallerError> {
     for l in details(&cx.ui, &table) {
         r = r.detail(l);
     }
+    r = r.detail(format!("preset: {}", super::install::PRESET_NOTE));
     Ok(r.next("ciginstaller config set <setting> <value>")
         .data(json!({ "config": config, "settings": settings }))
         .into())
@@ -110,6 +112,9 @@ fn get(cx: &mut Cx, key: &str) -> Result<Outcome, InstallerError> {
         "file" => "from the config file".to_string(),
         _ => "the default; nothing sets it".to_string(),
     });
+    if key == "preset" {
+        r = r.detail(super::install::PRESET_NOTE);
+    }
     Ok(r.data(json!({
         "config": { key: value },
         "key": key,

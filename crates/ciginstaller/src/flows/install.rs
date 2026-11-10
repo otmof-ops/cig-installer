@@ -404,20 +404,29 @@ pub fn run_locked(cx: &mut Cx, a: &InstallArgs) -> Result<Report, InstallerError
         _ => Origin::Carton(cv.clone()),
     };
     let mut warnings: Vec<String> = Vec::new();
-    // a security advisory is shown once per version (#4, #12); the memory is written with the
-    // install's own state save, so a dry run or a failed install leaves it alone
+    // an advisory is shown in full once per version (#4, #12) and a security one is reminded of
+    // every time after; the memory is written with the install's own state save, so a dry run or
+    // a failed install leaves it alone
     let mut newly_shown: Vec<cig_compat::Finding> = Vec::new();
+    let mut reminded = 0usize;
     for f in check(&m, &Combination { items, origin }, &cx.host) {
         if f.severity == Severity::Refuse {
             return Err(finding_error(&f));
         }
         if crate::advisories::is_advisory(&f) {
-            if crate::advisories::seen(&cx.state, &f) && !a.dry_run {
-                continue;
+            match crate::advisories::triage(&m, &cx.state, &f, a.dry_run) {
+                crate::advisories::Triage::Skip => continue,
+                crate::advisories::Triage::Remind => {
+                    reminded += 1;
+                    continue;
+                }
+                crate::advisories::Triage::Show => newly_shown.push(f.clone()),
             }
-            newly_shown.push(f.clone());
         }
         warnings.push(crate::advisories::line(&f));
+    }
+    if reminded > 0 {
+        warnings.push(crate::advisories::reminder(reminded));
     }
 
     let todo: Vec<(String, Version)> = want
@@ -490,7 +499,9 @@ pub fn run_locked(cx: &mut Cx, a: &InstallArgs) -> Result<Report, InstallerError
         add_path = cx.ui.ask(&q).is_yes(&q);
     }
 
-    crate::advisories::mark(&mut cx.state, &newly_shown.iter().collect::<Vec<_>>());
+    if crate::advisories::visible(&cx.ui) {
+        crate::advisories::mark(&mut cx.state, &newly_shown.iter().collect::<Vec<_>>());
+    }
     let mut txn = cx.begin(&format!("install {what_text}"))?;
     let applied = apply(
         cx,
@@ -711,6 +722,11 @@ fn apply(cx: &mut Cx, txn: &mut Txn, p: &Plan<'_>) -> Result<Applied, InstallerE
     let (exe_obj, shim_obj) = bootstrap(cx, txn)?;
 
     // 2b. the install's own settings, inside the same transaction (a rollback undoes them)
+    // the file is read again here, under the lock: what this edits is the file as it is now,
+    // not the copy read when the command started
+    if p.args.preset.is_some() || p.args.reports.is_some() {
+        cx.cfg.reread(&cx.home).map_err(ie)?;
+    }
     for (key, value) in [("preset", &p.args.preset), ("reports", &p.args.reports)] {
         if let Some(v) = value {
             cx.cfg.set_in(txn, key, v).map_err(ie)?;

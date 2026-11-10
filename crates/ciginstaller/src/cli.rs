@@ -78,7 +78,8 @@ pub enum Command {
     },
     /// Write a project pin file.
     Pin {
-        /// `carton` (`.cig-carton`) or `cig` (`.cig-version`).
+        /// `carton` (`.cig-carton`), `cig` (`.cig-version`), `cigo` (`.cigo-version`) or `cigar`
+        /// (`.cigar-version`).
         tool: String,
         /// A pin: `0.1`, `0.1.2` or `>=0.1.2`.
         pin: String,

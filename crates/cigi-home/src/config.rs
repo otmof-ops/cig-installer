@@ -106,6 +106,16 @@ impl Config {
         Ok(Config::from_text(&text, &|k| std::env::var(k).ok()))
     }
 
+    /// Read the file again, keeping this run's overrides (`set_for_run`) and the environment.
+    /// For a writer that now holds the lock: the text it edits must be the file as it is now,
+    /// not as it was when the command started.
+    pub fn reread(&mut self, home: &Home) -> Result<(), StateError> {
+        let fresh = Config::load(home)?;
+        self.text = fresh.text;
+        self.values = fresh.values;
+        Ok(())
+    }
+
     /// Parse config text with an explicit environment (tests).
     pub fn from_text(text: &str, env: &dyn Fn(&str) -> Option<String>) -> Config {
         let mut values = BTreeMap::new();
@@ -298,6 +308,27 @@ mod tests {
 
     fn no_env(_: &str) -> Option<String> {
         None
+    }
+
+    #[test]
+    fn reread_takes_the_file_as_it_is_now_and_keeps_this_runs_flags() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let home = Home::at(tmp.path().join("h"));
+        home.ensure_layout().expect("layout");
+        std::fs::write(
+            home.config_path(),
+            "# mine
+",
+        )
+        .expect("write");
+        let mut c = Config::load(&home).expect("load");
+        c.set_for_run("channel", "beta").expect("flag");
+        // another writer edits the file after this one read it
+        std::fs::write(home.config_path(), "# mine\nmirror = \"file:///m\"\n").expect("write");
+        assert_eq!(c.get("mirror"), "");
+        c.reread(&home).expect("reread");
+        assert_eq!(c.get("mirror"), "file:///m");
+        assert_eq!(c.get("channel"), "beta", "the run's own flag survives");
     }
 
     #[test]

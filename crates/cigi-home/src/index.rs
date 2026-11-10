@@ -18,9 +18,14 @@ use crate::toolchain;
 /// First line of the file.
 pub const INDEX_HEADER: &str = "cigi-index 1";
 
-/// Pin files that send the shim to the slow path (the list can grow without
-/// a new shim).
-pub const LEGACY_PIN_FILES: &[&str] = &[".cig-version", ".cigar-version", ".cigo-version"];
+/// Pin files that send the shim to the slow path (the list can grow without a new shim): the
+/// per-tool pin files, from the one list in `cig_compat::PER_TOOL_PIN_FILES`.
+pub fn legacy_pin_files() -> Vec<String> {
+    cig_compat::PER_TOOL_PIN_FILES
+        .iter()
+        .map(|(f, _)| f.to_string())
+        .collect()
+}
 
 /// The content of `shim-index`, structured.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -44,7 +49,7 @@ impl Default for ShimIndex {
             machine: None,
             cartons: BTreeMap::new(),
             sticks: BTreeMap::new(),
-            legacy_pin_files: LEGACY_PIN_FILES.iter().map(|s| s.to_string()).collect(),
+            legacy_pin_files: legacy_pin_files(),
             yanked: BTreeSet::new(),
         }
     }
@@ -359,6 +364,16 @@ carton-minor\t0.2\t0.2.0
 carton-major\t0\t0.2.0
 legacy-pin-files\t.cig-version\t.cigar-version\t.cigo-version
 ";
+
+    #[test]
+    fn the_shim_index_names_the_one_list_of_per_tool_pin_files() {
+        let names: Vec<&str> = cig_compat::PER_TOOL_PIN_FILES
+            .iter()
+            .map(|(f, _)| *f)
+            .collect();
+        assert_eq!(legacy_pin_files(), names);
+        assert_eq!(sample().legacy_pin_files, names);
+    }
 
     #[test]
     fn render_golden() {

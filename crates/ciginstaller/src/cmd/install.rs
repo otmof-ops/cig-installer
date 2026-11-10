@@ -13,6 +13,9 @@ use crate::cx::{Cx, ManifestMode};
 use crate::errors::ie;
 use crate::flows::install::{self, InstallArgs, What};
 
+/// Said wherever a preset is asked for or shown: choosing one protects nothing yet.
+pub const PRESET_NOTE: &str = "recorded only: nothing enforces the preset until cig-orchestrator#66 lands, so choosing paranoid does not turn protection on yet";
+
 /// The four presets of cig-orchestrator#66, mildest first.
 pub const PRESETS: [&str; 4] = ["chill", "balanced", "strict", "paranoid"];
 
@@ -50,6 +53,24 @@ fn menu(cx: &Cx, text: &str, names: &[String], lines: &[String], default: usize)
     cx.ui.ask(&q).index
 }
 
+/// The products of a carton a person can install: everything but the installer itself. A carton
+/// with none is a manifest fault, said as a usage error with a way out, never indexed into.
+fn installable_tools(c: &cig_compat::Carton) -> Result<Vec<String>, InstallerError> {
+    let tools: Vec<String> = c
+        .products
+        .keys()
+        .filter(|t| t.as_str() != "ciginstaller")
+        .cloned()
+        .collect();
+    if tools.is_empty() {
+        return Err(usage(
+            format!("carton {} holds no product to install", c.version),
+            "ciginstaller install carton --carton <another version>  # see `ciginstaller carton list`",
+        ));
+    }
+    Ok(tools)
+}
+
 /// #5's first question. Asked only at a terminal; the caller has already refused the other case.
 fn ask_what(cx: &mut Cx) -> Result<What, InstallerError> {
     let m: Manifest = cx.manifest(ManifestMode::Fresh)?.clone();
@@ -72,16 +93,13 @@ fn ask_what(cx: &mut Cx) -> Result<What, InstallerError> {
         ),
     ];
     let kinds: Vec<String> = ["stick", "pack", "carton"].map(String::from).to_vec();
-    let tools: Vec<String> = latest
-        .products
-        .keys()
-        .filter(|t| t.as_str() != "ciginstaller")
-        .cloned()
-        .collect();
+    let tools = installable_tools(latest)?;
     match menu(cx, "what are you after?", &kinds, &lines, 2) {
         0 => {
             let i = menu(cx, "which product?", &tools, &[], 0);
-            Ok(What::Stick(tools[i.min(tools.len() - 1)].clone()))
+            Ok(What::Stick(
+                tools[i.min(tools.len().saturating_sub(1))].clone(),
+            ))
         }
         1 => {
             let mut names: Vec<String> = latest.packs.keys().cloned().collect();
@@ -112,7 +130,8 @@ fn ask_what(cx: &mut Cx) -> Result<What, InstallerError> {
 /// The security preset question (cig-orchestrator#66's four). `None` leaves the setting alone.
 fn ask_preset(cx: &Cx) -> Option<String> {
     let mut q = Question::yes_no("how careful should the guard be?", true)
-        .summary("the security preset; change it any time with `ciginstaller config set preset`");
+        .summary("the security preset; change it any time with `ciginstaller config set preset`")
+        .detail(PRESET_NOTE);
     q.choices = PRESETS
         .iter()
         .map(|p| Choice::new(p.chars().next().unwrap_or('b'), p))
@@ -236,4 +255,36 @@ pub fn no_such_channel(name: &str) -> InstallerError {
         .with_hint("the channels are stable, beta and nightly")
         .with_fix("ciginstaller channel stable")
         .with_exit(EXIT_REFUSED)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use cig_compat::{Carton, CartonVersion, Version};
+    use std::collections::BTreeMap;
+
+    fn carton(products: &[(&str, &str)]) -> Carton {
+        Carton {
+            version: CartonVersion::parse("0.1.0").expect("version"),
+            released: String::new(),
+            notes: String::new(),
+            tested: Vec::new(),
+            products: products
+                .iter()
+                .map(|(t, v)| (t.to_string(), Version::parse(v).expect("version")))
+                .collect::<BTreeMap<_, _>>(),
+            packs: BTreeMap::new(),
+            advisory: None,
+        }
+    }
+
+    #[test]
+    fn a_carton_with_only_the_installer_is_a_usage_error_not_a_panic() {
+        let e = installable_tools(&carton(&[("ciginstaller", "0.1.0")])).unwrap_err();
+        assert_eq!(e.code, "E1870");
+        assert_eq!(e.exit, EXIT_USAGE);
+        assert!(e.fix.is_some_and(|f| f.contains("carton list")));
+        let ok = installable_tools(&carton(&[("ciginstaller", "0.1.0"), ("cig", "1.2.0")]));
+        assert_eq!(ok.expect("one tool"), vec!["cig".to_string()]);
+    }
 }

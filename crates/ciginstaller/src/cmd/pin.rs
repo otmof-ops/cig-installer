@@ -20,12 +20,9 @@ use crate::cx::Cx;
 use crate::errors::ie;
 use crate::project::project_root;
 
-/// The per-tool pin file `pin <tool>` writes (the same list `project::LEGACY_FILES` reads).
+/// The per-tool pin file `pin <tool>` writes: the same list the resolver reads.
 fn per_tool_file(tool: &str) -> Option<&'static str> {
-    crate::project::LEGACY_FILES
-        .iter()
-        .find(|(_, t)| *t == tool)
-        .map(|(n, _)| *n)
+    cig_compat::pin_file_of(tool)
 }
 
 fn usage(msg: String, fix: &str) -> InstallerError {

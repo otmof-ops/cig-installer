@@ -193,6 +193,11 @@ pub fn run(cx: &mut Cx, a: &UpdateArgs) -> Result<Updated, InstallerError> {
     let plan_lines: Vec<String> = changes.iter().map(change_line).collect();
     let newer = tv > cur;
     let fresh = whats_new(&target, &changes);
+    let links = whats_new_links(
+        &m,
+        &changes,
+        &format!("{}-{}", cx.target.os, cx.target.arch),
+    );
 
     if a.check {
         let mut r = if newer {
@@ -207,6 +212,9 @@ pub fn run(cx: &mut Cx, a: &UpdateArgs) -> Result<Updated, InstallerError> {
         };
         if newer {
             r = r.detail(fresh.clone());
+            for l in &links {
+                r = r.detail(l.clone());
+            }
         }
         for l in &plan_lines {
             r = r.detail(l.clone());
@@ -216,7 +224,7 @@ pub fn run(cx: &mut Cx, a: &UpdateArgs) -> Result<Updated, InstallerError> {
         }
         let r = r.data(json!({
             "current": cur.to_string(), "target": tv.to_string(), "newer": newer,
-            "changes": plan_lines, "check": true, "whats_new": fresh,
+            "changes": plan_lines, "check": true, "whats_new": fresh, "links": links,
         }));
         return Ok(Updated {
             report: r,
@@ -254,7 +262,9 @@ pub fn run(cx: &mut Cx, a: &UpdateArgs) -> Result<Updated, InstallerError> {
     // fetch and verify only what is not here, outside the transaction
     let fetched = fetch_builds(cx, &m, &todo)?;
 
-    crate::advisories::mark(&mut cx.state, &shown.iter().collect::<Vec<_>>());
+    if crate::advisories::visible(&cx.ui) {
+        crate::advisories::mark(&mut cx.state, &shown.iter().collect::<Vec<_>>());
+    }
     let mut txn = cx.begin(&format!("update carton {cur} to {tv}"))?;
     let txn_id = txn.id().to_string();
     let staged = stage(cx, &mut txn, &m, &target, &cur, &changes, &fetched, a);
@@ -320,6 +330,9 @@ pub fn run(cx: &mut Cx, a: &UpdateArgs) -> Result<Updated, InstallerError> {
 
     // report, with the rollback hint
     let mut r = Report::done(format!("updated carton {cur} to {tv}")).detail(fresh.clone());
+    for l in &links {
+        r = r.detail(l.clone());
+    }
     for l in &plan_lines {
         r = r.detail(l.clone());
     }
@@ -355,7 +368,7 @@ pub fn run(cx: &mut Cx, a: &UpdateArgs) -> Result<Updated, InstallerError> {
         .next("ciginstaller rollback");
     done(r.data(json!({
         "from": cur.to_string(), "to": tv.to_string(), "txn": txn_id,
-        "changes": plan_lines, "whats_new": fresh,
+        "changes": plan_lines, "whats_new": fresh, "links": links,
         "fetched": fetched.iter().map(|f| json!({"tool": f.tool, "version": f.version.to_string()})).collect::<Vec<_>>(),
         "trial": trial_json(&staged.trial),
     })))
@@ -471,8 +484,32 @@ fn changes_of(m: &Manifest, cur: &Version, target: &Carton, state: &State) -> Ve
         .collect()
 }
 
-/// #7's "what's new" line: `fresh carton: 1.2.0 - sealed smoke log (cig), rehearse (cigo)`. The
-/// words are the carton's own `notes`; a carton with none says which builds changed instead.
+/// #7's links, as far as the manifest allows. The manifest has no per-tool changelog field, so the
+/// closest honest form is each changed build's release page, built from the tool's own `repo` and
+/// `tag` template (`https://github.com/<repo>/releases/tag/<tag>`).
+fn whats_new_links(m: &Manifest, changes: &[ToolChange], host: &str) -> Vec<String> {
+    changes
+        .iter()
+        .filter_map(|c| {
+            let to = c.to.as_ref()?;
+            let def = m.tool(&c.tool)?;
+            let target = if def.targets.iter().any(|t| t == "any") {
+                "any"
+            } else {
+                host
+            };
+            let names = def.names(to, target).ok()?;
+            Some(format!(
+                "{} {to}: https://github.com/{}/releases/tag/{}",
+                c.tool, def.repo, names.tag
+            ))
+        })
+        .collect()
+}
+
+/// #7's "what's new" line, in its words, dash included: `fresh carton: 1.2.0 (em dash) sealed
+/// smoke log (cig), rehearse (cigo)`. The words are the carton's own `notes`; a carton with none
+/// says which builds changed instead.
 fn whats_new(target: &Carton, changes: &[ToolChange]) -> String {
     let notes = target.notes.trim();
     let body = if notes.is_empty() {
@@ -515,6 +552,7 @@ fn plan_checks(
 ) -> Result<(Vec<String>, Vec<cig_compat::Finding>), InstallerError> {
     let mut warnings = Vec::new();
     let mut shown: Vec<cig_compat::Finding> = Vec::new();
+    let mut reminded = 0usize;
     for (t, v) in want {
         if m.is_product_yanked(t, v) {
             return Err(refused(
@@ -543,12 +581,19 @@ fn plan_checks(
             return Err(finding_error(&f));
         }
         if crate::advisories::is_advisory(&f) {
-            if crate::advisories::seen(&cx.state, &f) && !read_only {
-                continue;
+            match crate::advisories::triage(m, &cx.state, &f, read_only) {
+                crate::advisories::Triage::Skip => continue,
+                crate::advisories::Triage::Remind => {
+                    reminded += 1;
+                    continue;
+                }
+                crate::advisories::Triage::Show => shown.push(f.clone()),
             }
-            shown.push(f.clone());
         }
         warnings.push(format!("warning {}", crate::advisories::line(&f)));
+    }
+    if reminded > 0 {
+        warnings.push(format!("warning {}", crate::advisories::reminder(reminded)));
     }
     for c in changes.iter().filter(|c| c.kind() == ChangeKind::Removed) {
         warnings.push(format!(
