@@ -13,6 +13,12 @@ pub mod update;
 // ---- end of the update lifecycle block ----
 pub mod self_update;
 pub mod use_carton;
+// ---- health: doctor, repair, uninstall ----
+pub mod doctor;
+pub mod health;
+pub mod repair;
+pub mod uninstall;
+// ---- end of the health block ----
 
 use std::path::PathBuf;
 

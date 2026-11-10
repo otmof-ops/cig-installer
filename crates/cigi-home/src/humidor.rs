@@ -128,6 +128,28 @@ pub fn mirror_humidor(
     cig: &Version,
     binary: &Path,
 ) -> Result<HumidorMirror, HumidorError> {
+    mirror_inner(txn, home, cig, binary, false)
+}
+
+/// `repair`: as [`mirror_humidor`] for a version whose receipt says it was mirrored, so a link
+/// left standing without its index entry is not mistaken for someone else's binary. An entry
+/// that is not ours is still left alone.
+pub fn remirror_humidor(
+    txn: &mut Txn,
+    home: &Home,
+    cig: &Version,
+    binary: &Path,
+) -> Result<HumidorMirror, HumidorError> {
+    mirror_inner(txn, home, cig, binary, true)
+}
+
+fn mirror_inner(
+    txn: &mut Txn,
+    home: &Home,
+    cig: &Version,
+    binary: &Path,
+    ours_if_unlisted: bool,
+) -> Result<HumidorMirror, HumidorError> {
     let ver = cig.to_string();
     let dir = home.humidor().join(&ver);
     let target = dir.join(binary_name());
@@ -139,7 +161,7 @@ pub fn mirror_humidor(
         .map(|e| e.get("source").and_then(|s| s.as_str()) == Some(SOURCE));
     let outcome = match (existing, ours) {
         (Some(_), Some(false)) => HumidorMirror::Skipped,
-        (None, _) if util::exists_any(&target) => HumidorMirror::Skipped,
+        (None, _) if util::exists_any(&target) && !ours_if_unlisted => HumidorMirror::Skipped,
         _ => HumidorMirror::Mirrored,
     };
     let receipt = toolchain::read_receipt(home, "cig", cig).ok();
@@ -212,4 +234,44 @@ pub fn remove_humidor_mirror(
     index.entries.remove(i);
     write_index(txn, home, &index)?;
     Ok(true)
+}
+
+/// Remove every mirror this installer made: each `humidor/<ver>/` and its index entry, for
+/// `uninstall --all`. Entries that are not ours stay, and so do the index and the directory when
+/// anything else is in them. An index left with no entry and no other key is deleted, and the
+/// `humidor/` directory with it when it is empty. Returns the versions removed.
+pub fn remove_all_humidor_mirrors(txn: &mut Txn, home: &Home) -> Result<Vec<String>, HumidorError> {
+    let mut index = load_index(home)?;
+    let mut gone = Vec::new();
+    let mut keep = Vec::new();
+    for e in std::mem::take(&mut index.entries) {
+        let ours = e.get("source").and_then(|s| s.as_str()) == Some(SOURCE);
+        let ver = e
+            .get("version")
+            .and_then(|v| v.as_str())
+            .map(str::to_string);
+        match (ours, ver) {
+            (true, Some(v)) if !v.contains(['/', '\\']) && !v.contains("..") && !v.is_empty() => {
+                txn.delete(&home.humidor().join(&v))?;
+                gone.push(v);
+            }
+            _ => keep.push(e),
+        }
+    }
+    if gone.is_empty() {
+        return Ok(gone);
+    }
+    index.entries = keep;
+    if index.entries.is_empty() && index.rest.is_empty() {
+        txn.delete(&index_path(home))?;
+        let empty = std::fs::read_dir(home.humidor())
+            .map(|mut r| r.next().is_none())
+            .unwrap_or(false);
+        if empty {
+            txn.delete(&home.humidor())?;
+        }
+    } else {
+        write_index(txn, home, &index)?;
+    }
+    Ok(gone)
 }

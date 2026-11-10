@@ -145,6 +145,53 @@ pub enum Command {
     /// The shims in `bin/`: `sync` rebuilds them and the index from state, `list` shows them.
     Shims(ShimsCmd),
     // ---- end of the a4 block ----
+    // ---- health: doctor, repair, uninstall, remove ----
+    /// One report on the whole family: shims, PATH, toolchains, state, matrix, manifest, disk,
+    /// humidor, transactions. Reads only; each finding ends with the command that fixes it.
+    Doctor {
+        /// Also fetch the manifest now (the only thing that uses the network).
+        #[arg(long)]
+        network: bool,
+        /// Print the tools' own doctors, as they answer, under their headings.
+        #[arg(long)]
+        tools: bool,
+    },
+    /// Check every installed file against its receipt and put back what is damaged, from the
+    /// store or a fresh verified download; regenerate the shims and the index.
+    Repair {
+        /// Only this tool.
+        #[arg(long, value_name = "TOOL")]
+        tool: Option<String>,
+        /// Say what would be done; change nothing.
+        #[arg(long)]
+        dry_run: bool,
+    },
+    /// Remove one tool, or everything the installer added to this machine (`--all`); your data stays.
+    Uninstall {
+        /// The tool to remove.
+        tool: Option<String>,
+        /// Remove everything the family added: shims, toolchains, store, humidor entries, PATH
+        /// blocks, and last `installer/`.
+        #[arg(long)]
+        all: bool,
+        /// Also remove your data. Refused in this build.
+        #[arg(long)]
+        purge: bool,
+        /// Keep the journal of `--all` beside the home instead of deleting it.
+        #[arg(long)]
+        keep_journal: bool,
+        /// Say what would be removed; change nothing.
+        #[arg(long)]
+        dry_run: bool,
+    },
+    /// Remove one installed carton and the builds nothing else uses.
+    Remove {
+        carton: String,
+        /// Say what would be removed; change nothing.
+        #[arg(long)]
+        dry_run: bool,
+    },
+    // ---- end of the health block ----
     #[command(name = "__selfcheck", hide = true)]
     SelfCheck,
     #[command(name = "__resolve", hide = true)]

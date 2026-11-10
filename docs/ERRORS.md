@@ -669,6 +669,9 @@ the installer: shims, pins, updates, rollbacks, repair, uninstall, and the comma
 | [`E1860`](#e1860-repair-could-not-restore-a-file) | repair could not restore a file | not one of the four | `ciginstaller repair --tool <tool>`, online |
 | [`E1861`](#e1861---purge-needs-os-authentication) | --purge needs OS authentication | these are MY ciggies | `ciginstaller uninstall --all` |
 | [`E1862`](#e1862-a-profile-block-was-edited-and-is-left-alone) | a profile block was edited and is left alone | these are MY ciggies | `ciginstaller doctor` |
+| [`E1863`](#e1863-nothing-installed-by-that-name-to-repair-uninstall-or-remove) | nothing installed by that name to repair, uninstall or remove | don't have any over here | `ciginstaller list` |
+| [`E1864`](#e1864-a-tools-own-doctor-could-not-be-run) | a tool's own doctor could not be run | not one of the four | `ciginstaller doctor --tools`, once the tool runs |
+| [`E1865`](#e1865-an-uninstall-was-cut-short-after-its-last-step) | an uninstall was cut short after its last step | not one of the four | `ciginstaller uninstall --all` |
 | [`E1870`](#e1870-usage) | usage | not one of the four | `ciginstaller --help`, or `ciginstaller <command> --help` |
 | [`E1871`](#e1871-a-question-was-needed-and-there-is-no-tty) | a question was needed and there is no TTY | not one of the four | `ciginstaller <command> --yes`, if you mean it |
 | [`E1872`](#e1872-platform-not-supported) | platform not supported | don't have any over here | `ciginstaller carton show <version> --verbose` lists the targets |
@@ -774,7 +777,7 @@ The block the installer adds to your shell profile is gone or changed, so the sh
 
 **Known causes**, ranked; the doctor checks them in this order:
 
-1. the profile was replaced or the block deleted (probe `profile-block`). **Remedy:** add it back: `ciginstaller install carton`, which adds the block only where it is missing
+1. the profile was replaced or the block deleted (probe `profile-block`). **Remedy:** `ciginstaller repair` puts it back when you agreed to it at install; after `--no-path` there was never one
 2. the block was edited by hand (probe `profile-block`). **Remedy:** leave it as it is, or delete the block and run `ciginstaller doctor`
 
 Related: [`E1862`](#e1862-a-profile-block-was-edited-and-is-left-alone), [`E1844`](#e1844-shim-misnamed-or-shadowed).
@@ -991,6 +994,56 @@ The block in a shell profile no longer matches what the installer wrote, so it i
 1. you edited the marked block (probe `profile-block`). **Remedy:** edit the profile yourself: delete the lines between the ciginstaller markers
 
 Related: [`E1845`](#e1845-path-block-missing-or-hand-edited).
+
+### E1863 nothing installed by that name to repair, uninstall or remove
+
+*usage · since 0.1.0 · arises in any*
+
+**Kind of no:** don't have any over here (nobody's: right place, right you, nothing there; 404 from the server's side; an empty result).
+
+The tool or carton named is not installed, or removing it would take away the carton this machine runs or the one rollback returns to.
+
+**What to type next:** `ciginstaller list`
+
+**Known causes**, ranked; the doctor checks them in this order:
+
+1. the name is misspelled, or the tool or carton was already removed (probe `installed-cartons`). **Remedy:** `ciginstaller list` shows what is installed
+2. the carton is the machine's own, or the one `rollback` returns to (probe `previous-carton`). **Remedy:** `ciginstaller use <another carton>`, then remove this one
+
+Related: [`E1861`](#e1861---purge-needs-os-authentication), [`E1860`](#e1860-repair-could-not-restore-a-file).
+
+### E1864 a tool's own doctor could not be run
+
+*usage · since 0.1.0 · arises in doctor*
+
+**Kind of no:** not one of the four (a mistake in the text, in the arithmetic, or in CigScript; syntax, type or logic error; an internal error).
+
+doctor --tools started the installed tool's own doctor and it did not start, or did not finish in time, so its words are not in the report.
+
+**What to type next:** `ciginstaller doctor --tools`, once the tool runs
+
+**Known causes**, ranked; the doctor checks them in this order:
+
+1. the tool's file is damaged (probe `receipt-verify`). **Remedy:** `ciginstaller repair` restores it from the store or a fresh download
+2. the tool's doctor is waiting for something and did not finish in 60 seconds (no probe; a suggestion, not a finding). **Remedy:** run the tool's own doctor by hand to see what it waits for
+
+Related: [`E1831`](#e1831-installed-file-differs-from-its-receipt).
+
+### E1865 an uninstall was cut short after its last step
+
+*usage · since 0.1.0 · arises in doctor*
+
+**Kind of no:** not one of the four (a mistake in the text, in the arithmetic, or in CigScript; syntax, type or logic error; an internal error).
+
+uninstall --all had already moved installer/ aside, which is its commit point, when it stopped, so everything is removed and only its journal is left beside the home.
+
+**What to type next:** `ciginstaller uninstall --all`
+
+**Known causes**, ranked; the doctor checks them in this order:
+
+1. the process was killed or the machine lost power between the move and the delete of the journal (no probe; a suggestion, not a finding). **Remedy:** `ciginstaller uninstall --all` finds the journal beside the home and deletes it
+
+Related: [`E1861`](#e1861---purge-needs-os-authentication), [`E1832`](#e1832-an-interrupted-change-was-recovered).
 
 ### E1870 usage
 

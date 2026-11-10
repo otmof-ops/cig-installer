@@ -841,6 +841,15 @@ fn apply(cx: &mut Cx, txn: &mut Txn, p: &Plan<'_>) -> Result<Applied, InstallerE
         None
     };
 
+    // what the user chose about PATH, so `doctor` and `repair` can tell a block that went missing
+    // from one that was never asked for (`--no-path`)
+    if matches!(path, Some(PathChange::Added | PathChange::AlreadyPresent)) {
+        state.extra.insert(
+            "path_block".to_string(),
+            json!({ "shell": format!("{:?}", p.shell).to_lowercase() }),
+        );
+    }
+
     // 6. state, flip
     save_and_flip(txn, &home, &state, super::yanked_in(p.m))?;
     Ok(Applied { path, profile })

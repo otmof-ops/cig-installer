@@ -693,7 +693,7 @@ fn results_go_to_stdout_and_chatter_to_stderr() {
 
 // ---- the registry -----------------------------------------------------------------------
 
-const SPEC_CODES: [(u32, &str); 61] = [
+const SPEC_CODES: [(u32, &str); 64] = [
     (1800, "combination refused"),
     (1801, "a product needs another"),
     (1802, "a stick does not fit its carton"),
@@ -750,6 +750,12 @@ const SPEC_CODES: [(u32, &str); 61] = [
     (1860, "repair could not restore a file"),
     (1861, "--purge needs OS authentication"),
     (1862, "a profile block was edited and is left alone"),
+    (
+        1863,
+        "nothing installed by that name to repair, uninstall or remove",
+    ),
+    (1864, "a tool's own doctor could not be run"),
+    (1865, "an uninstall was cut short after its last step"),
     (1870, "usage"),
     (1871, "a question was needed and there is no TTY"),
     (1872, "platform not supported"),

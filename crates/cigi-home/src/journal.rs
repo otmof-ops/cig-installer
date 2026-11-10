@@ -1125,6 +1125,16 @@ fn undo_one(
     }
 }
 
+/// A directory tree with no file in it (what `ensure_layout` leaves).
+fn only_empty_dirs(p: &Path) -> bool {
+    match fs::read_dir(p) {
+        Ok(rd) => rd.flatten().all(|e| {
+            e.file_type().is_ok_and(|t| t.is_dir() && !t.is_symlink()) && only_empty_dirs(&e.path())
+        }),
+        Err(_) => false,
+    }
+}
+
 fn undo_delete(txn_dir: &Path, path: &Path, before: &Before) -> Result<(), String> {
     match before {
         Before::File {
@@ -1139,6 +1149,11 @@ fn undo_delete(txn_dir: &Path, path: &Path, before: &Before) -> Result<(), Strin
         }
         Before::Dir { saved: Some(s) } => {
             let abs = txn_dir.join(s);
+            // `ensure_layout` runs before `recover` and makes an empty directory where a whole
+            // one was moved aside (`uninstall --all`): an empty one is not what was deleted
+            if path.is_dir() && abs.is_dir() && only_empty_dirs(path) {
+                fs::remove_dir_all(path).map_err(|e| format!("{}: {e}", path.display()))?;
+            }
             if util::exists_any(path) {
                 Ok(())
             } else if abs.is_dir() {

@@ -983,7 +983,7 @@ related = ["E1862", "E1844"]
 why = "the profile was replaced or the block deleted"
 no = "cant-see-any"
 probe = "profile-block"
-remedy = "add it back: `ciginstaller install carton`, which adds the block only where it is missing"
+remedy = "`ciginstaller repair` puts it back when you agreed to it at install; after `--no-path` there was never one"
 [[code.cause]]
 why = "the block was edited by hand"
 probe = "profile-block"
@@ -1215,6 +1215,59 @@ why = "you edited the marked block"
 no = "these-are-mine"
 probe = "profile-block"
 remedy = "edit the profile yourself: delete the lines between the ciginstaller markers"
+
+[[code]]
+code = "E1863"
+title = "nothing installed by that name to repair, uninstall or remove"
+meaning = "The tool or carton named is not installed, or removing it would take away the carton this machine runs or the one rollback returns to."
+fix = "`ciginstaller list`"
+no = "dont-have-any"
+arises = ["any"]
+tags = ["installer"]
+since = "0.1.0"
+related = ["E1861", "E1860"]
+[[code.cause]]
+why = "the name is misspelled, or the tool or carton was already removed"
+probe = "installed-cartons"
+remedy = "`ciginstaller list` shows what is installed"
+[[code.cause]]
+why = "the carton is the machine's own, or the one `rollback` returns to"
+probe = "previous-carton"
+remedy = "`ciginstaller use <another carton>`, then remove this one"
+
+[[code]]
+code = "E1864"
+title = "a tool's own doctor could not be run"
+meaning = "doctor --tools started the installed tool's own doctor and it did not start, or did not finish in time, so its words are not in the report."
+fix = "`ciginstaller doctor --tools`, once the tool runs"
+no = "none"
+arises = ["doctor"]
+tags = ["installer"]
+since = "0.1.0"
+related = ["E1831"]
+[[code.cause]]
+why = "the tool's file is damaged"
+probe = "receipt-verify"
+remedy = "`ciginstaller repair` restores it from the store or a fresh download"
+[[code.cause]]
+why = "the tool's doctor is waiting for something and did not finish in 60 seconds"
+probe = "none"
+remedy = "run the tool's own doctor by hand to see what it waits for"
+
+[[code]]
+code = "E1865"
+title = "an uninstall was cut short after its last step"
+meaning = "uninstall --all had already moved installer/ aside, which is its commit point, when it stopped, so everything is removed and only its journal is left beside the home."
+fix = "`ciginstaller uninstall --all`"
+no = "none"
+arises = ["doctor"]
+tags = ["installer"]
+since = "0.1.0"
+related = ["E1861", "E1832"]
+[[code.cause]]
+why = "the process was killed or the machine lost power between the move and the delete of the journal"
+probe = "none"
+remedy = "`ciginstaller uninstall --all` finds the journal beside the home and deletes it"
 
 [[code]]
 code = "E1870"

@@ -93,6 +93,12 @@ fn dispatch(cli: Cli, ui: Ui) -> i32 {
         Some(Command::Update(_)) => ("update", None),
         Some(Command::Rollback { .. }) => ("rollback", None),
         // ---- end of the update lifecycle block ----
+        // ---- health ----
+        Some(Command::Doctor { .. }) => ("doctor", None),
+        Some(Command::Repair { .. }) => ("repair", None),
+        Some(Command::Uninstall { .. }) => ("uninstall", None),
+        Some(Command::Remove { .. }) => ("remove", None),
+        // ---- end of the health block ----
         Some(Command::SelfCmd(_)) => ("self", None),
         Some(Command::Gc { .. }) => ("gc", None),
         Some(Command::Check { project, .. }) => ("check", project.clone()),
@@ -157,6 +163,29 @@ fn dispatch(cli: Cli, ui: Ui) -> i32 {
                 sub: SelfSub::Update { check },
             })) => cmd::self_cmd::update(&mut cx, *check),
             Some(Command::Gc { dry_run, keep_days }) => cmd::gc::run(&mut cx, *dry_run, *keep_days),
+            // ---- health ----
+            Some(Command::Doctor { network, tools }) => cmd::doctor::run(&mut cx, *network, *tools),
+            Some(Command::Repair { tool, dry_run }) => {
+                cmd::repair::run(&mut cx, tool.as_deref(), *dry_run)
+            }
+            Some(Command::Uninstall {
+                tool,
+                all,
+                purge,
+                keep_journal,
+                dry_run,
+            }) => cmd::uninstall::run(
+                &mut cx,
+                tool.as_deref(),
+                *all,
+                *purge,
+                *keep_journal,
+                *dry_run,
+            ),
+            Some(Command::Remove { carton, dry_run }) => {
+                cmd::uninstall::remove(&mut cx, carton, *dry_run)
+            }
+            // ---- end of the health block ----
             Some(Command::Check { carton, .. }) => cmd::check::run(&mut cx, carton.as_deref()),
             Some(Command::SelfCheck) => cmd::self_cmd::selfcheck(&mut cx),
             // ---- status, settings, history, shims (a4) ----
@@ -174,6 +203,7 @@ fn dispatch(cli: Cli, ui: Ui) -> i32 {
                 Some(Command::Resolve { .. } | Command::SelfCheck)
             )
             && !read_only(&cli.command)
+            && !matches!(cli.command, Some(Command::Uninstall { .. }))
         {
             flows::self_update::mark_healthy(&cx);
         }
@@ -196,7 +226,7 @@ fn dispatch(cli: Cli, ui: Ui) -> i32 {
         && code == 0
         && !matches!(
             name,
-            "update" | "rollback" | "resolve" | "explain" | "status"
+            "update" | "rollback" | "resolve" | "explain" | "status" | "uninstall" | "doctor"
         )
     {
         if let Some(cx) = &notice_cx {
@@ -234,7 +264,10 @@ fn read_only(cmd: &Option<Command>) -> bool {
     match cmd {
         Some(Command::Update(c)) => c.check || c.dry_run || c.trial_only,
         Some(Command::Install(c)) => c.dry_run,
-        Some(Command::Use { dry_run, .. })
+        Some(Command::Doctor { .. }) => true,
+        Some(Command::Repair { dry_run, .. })
+        | Some(Command::Remove { dry_run, .. })
+        | Some(Command::Use { dry_run, .. })
         | Some(Command::Rollback { dry_run, .. })
         | Some(Command::Gc { dry_run, .. }) => *dry_run,
         Some(Command::SelfCmd(SelfCmd {
