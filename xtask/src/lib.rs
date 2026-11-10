@@ -7,4 +7,5 @@ pub mod errors_doc;
 pub mod fixture_mirror;
 pub mod gh;
 pub mod pins;
+pub mod prune;
 pub mod tokens;

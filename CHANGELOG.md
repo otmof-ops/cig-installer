@@ -61,6 +61,22 @@ Linux, with every build checked first and every change one undoable step.
   in the ashtray: high severity after a rollback, medium after an update.
   Nothing is sent.
 
+### Release prune and the archive index (#26)
+
+- **`cargo xtask release prune --dry-run`** lists, per product, which
+  releases stay (the three newest, and every version a carton or a `--pin`
+  names, with who pins it) and which would move to the archive, with a reason
+  for each. Moving them (`--yes`) waits for the signed index (#9) and refuses
+  for now.
+- **`archive/index.json`** (format 1), read by `cig-compat`: where each
+  archived version's tag and assets went, with their digests. A manifest names
+  it with `[archive] index = "https://..."`.
+- **Downloads fall back to the archive**: when a build's release is gone from
+  the product's repository, the installer reads the index the manifest names
+  and downloads the archived copy, still at the digest the manifest pins. An
+  index that lists other bytes for a build is refused (E1825), and the index
+  is only read when the release is gone.
+
 ### Licenses (#27)
 
 - **`ciginstaller licences [tool] [--text] [--json]`** lists the installer and

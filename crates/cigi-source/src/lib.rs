@@ -29,7 +29,7 @@ pub use fetch::{
     get_artifact, get_artifact_for, get_manifest, get_manifest_with, stage_artifact,
     sweep_downloads, ManifestOpts, StagedArtifact,
 };
-pub use location::{Location, ManifestPart};
+pub use location::{archived_locations, locate_with_index, Located, Location, ManifestPart};
 pub use progress::{NoProgress, Progress};
 pub use source::{
     source_from_config, try_source_from_config, FetchInfo, GithubSource, MirrorSource, Source,

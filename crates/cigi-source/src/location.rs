@@ -2,6 +2,11 @@
 // SPDX-License-Identifier: FSL-1.1-ALv2
 //! What a `Source` is asked for. A location names a thing; the source decides where it lives.
 
+use crate::error::FetchError;
+use crate::fetch::artifact_locations;
+use crate::source::Source;
+use cig_compat::{ArchiveIndex, Artifact};
+
 /// Which of the three files of a published manifest.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ManifestPart {
@@ -78,5 +83,102 @@ pub fn is_plain_repo(s: &str) -> bool {
     match s.split_once('/') {
         Some((a, b)) => is_plain_segment(a) && is_plain_segment(b),
         None => false,
+    }
+}
+
+/// A sidecar is one line; the probe never reads more.
+const PROBE_BYTES: usize = 4096;
+
+/// Where an archived build lives: the asset and its sidecar, as explicit URLs of the archive
+/// release. `Ok(None)` when the index does not list this build. The pinned bytes win: an index that
+/// lists other bytes for the pinned asset is refused, so an archived asset is accepted only at the
+/// digest the manifest pins, exactly as before.
+pub fn archived_locations(
+    art: &Artifact,
+    index: &ArchiveIndex,
+) -> Result<Option<(Location, Location)>, FetchError> {
+    let Some(entry) = index.find(&art.tool, &art.version) else {
+        return Ok(None);
+    };
+    let Some(asset) = entry.asset(&art.asset) else {
+        return Ok(None);
+    };
+    if asset.sha256 != art.sha256 {
+        return Err(FetchError::Refused {
+            url: asset.url.clone(),
+            why: format!(
+                "the archive index lists other bytes for {} than the manifest pins",
+                art.asset
+            ),
+        });
+    }
+    let base = asset
+        .url
+        .rsplit_once('/')
+        .map(|(b, _)| b)
+        .unwrap_or_default();
+    Ok(Some((
+        Location::Url {
+            url: asset.url.clone(),
+        },
+        Location::Url {
+            url: format!("{base}/{}", art.sidecar),
+        },
+    )))
+}
+
+/// Where a build is downloaded from (#26), and its sidecar's text when it has one.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Located {
+    pub asset: Location,
+    pub sidecar: Location,
+    /// The sidecar as read on the way; `None` when there is no sidecar at that location.
+    pub sidecar_text: Option<String>,
+}
+
+fn read_sidecar(src: &dyn Source, loc: &Location) -> Result<Option<String>, FetchError> {
+    match src.fetch_text(loc, PROBE_BYTES) {
+        Ok(t) => Ok(Some(t)),
+        Err(e) if e.is_not_found() => Ok(None),
+        Err(e) => Err(e),
+    }
+}
+
+/// The asset and sidecar locations for `art`: the product's repository first, then the archive
+/// index. The repository is asked by its sidecar (a few bytes, and the read is kept); only a 404
+/// there loads the index, through `index`, and any other answer keeps the repository so its error
+/// surfaces where it always did. With no index, or a build the index does not list, the answer is
+/// the repository's.
+pub fn locate_with_index(
+    src: &dyn Source,
+    art: &Artifact,
+    index: impl FnOnce() -> Result<Option<ArchiveIndex>, FetchError>,
+) -> Result<Located, FetchError> {
+    let (asset, sidecar) = artifact_locations(art);
+    if let Some(text) = read_sidecar(src, &sidecar)? {
+        return Ok(Located {
+            asset,
+            sidecar,
+            sidecar_text: Some(text),
+        });
+    }
+    let archived = match index()? {
+        Some(index) => archived_locations(art, &index)?,
+        None => None,
+    };
+    match archived {
+        Some((asset, sidecar)) => {
+            let sidecar_text = read_sidecar(src, &sidecar)?;
+            Ok(Located {
+                asset,
+                sidecar,
+                sidecar_text,
+            })
+        }
+        None => Ok(Located {
+            asset,
+            sidecar,
+            sidecar_text: None,
+        }),
     }
 }
