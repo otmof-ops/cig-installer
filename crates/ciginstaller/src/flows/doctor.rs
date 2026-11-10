@@ -156,12 +156,61 @@ pub fn findings(cx: &mut Cx, a: &DoctorArgs) -> Vec<Item> {
     freshness(cx, &mut v);
     disk(cx, &mut v);
     humidor_item(cx, &mut v);
+    reports_items(cx, &mut v);
     v.push(note(
         "not in this build",
-        "the guard's checks, the ashtray's queue and consent, and the guard's kernel features are not checked",
-        "this build of ciginstaller has none of them, so there is nothing to look at",
+        "the guard's checks and the guard's kernel features are not checked",
+        "this build of ciginstaller has neither, so there is nothing to look at",
     ));
     v
+}
+
+/// The ashtray's queue, the consent setting and each report route's last success and last
+/// failure (#13, #28 section 4). Reads two small files; asks nobody anything.
+fn reports_items(cx: &Cx, v: &mut Vec<Item>) {
+    let root = cx.home.root();
+    let (consent, _) = crate::crash::consent(&cx.cfg);
+    let consent = match consent {
+        crate::crash::Consent::Ask => "ask",
+        crate::crash::Consent::Always => "always",
+        crate::crash::Consent::Never => "never",
+    };
+    let Ok(l) = crate::crash::list(&root) else {
+        return;
+    };
+    let queued = l.reports.iter().filter(|r| !r.filed()).count();
+    let failing = l
+        .reports
+        .iter()
+        .filter(|r| !r.filed() && r.queue.last_error.is_some())
+        .count();
+    let found =
+        format!("{queued} report(s) queued, {failing} with a failed attempt; reports = {consent}");
+    let because = "the ashtray's reports and the `reports` setting";
+    v.push(if failing > 0 {
+        act("reports", found, because)
+            .fix("ciginstaller crash test-route")
+            .code("E1857")
+    } else if queued > 0 {
+        note("reports", found, because).fix("ciginstaller crash status")
+    } else {
+        ok("reports", found, because)
+    });
+    for (route, log) in crate::crash::health::load(&root) {
+        v.push(note(
+            "reports",
+            format!(
+                "route {route}: last success {}, last failure {}{}",
+                log.last_success.as_deref().unwrap_or("never"),
+                log.last_failure.as_deref().unwrap_or("never"),
+                log.last_error
+                    .as_deref()
+                    .map(|e| format!(" ({})", crate::crash::truncate(e, 100)))
+                    .unwrap_or_default()
+            ),
+            "ashtray/.routes.json, written by `crash send` and `crash test-route`",
+        ));
+    }
 }
 
 fn leftovers(cx: &Cx, v: &mut Vec<Item>) {

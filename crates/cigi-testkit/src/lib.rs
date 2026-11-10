@@ -19,6 +19,7 @@ mod recorder;
 mod server;
 mod snapshot;
 mod tarball;
+mod tracker;
 
 pub use fixture::{binary_path, output_retrying, Fixture, ManifestPaths, PublishOpts};
 pub use products::{asset_name, host_target, ProductBuilder};
@@ -27,6 +28,7 @@ pub use recorder::{check_no_telemetry, Recorded};
 pub use server::{FixtureServer, Rule, ShortBodyServer};
 pub use snapshot::{Entry, Snapshot};
 pub use tarball::{evil, TarGz};
+pub use tracker::{Endpoint, FakeTracker, Fault, TrackerIssue, TrackerRequest};
 
 /// Unwrap-with-a-message for harness code: panics (loudly, with context) instead of `unwrap`.
 pub(crate) fn must<T, E: std::fmt::Display>(r: Result<T, E>, what: &str) -> T {

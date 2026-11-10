@@ -391,6 +391,9 @@ impl Fixture {
             // a test build leaves the runner's own registry PATH alone (a test that is about the
             // registry removes this)
             .env("CIGI_NO_REGISTRY_PATH", "1")
+            // no report route may run unless a test names it: a `gh` on the runner's PATH or a
+            // token in its login must never file a real issue (a6_routes sets what it needs)
+            .env("CIGI_ROUTES", "none")
             .env("PATH", path);
     }
 }

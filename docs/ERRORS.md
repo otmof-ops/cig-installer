@@ -1092,7 +1092,7 @@ Related: [`E1801`](#e1801-a-product-needs-another), [`E1842`](#e1842-pinned-cart
 
 **Kind of no:** one of the four; the message says which (read the operating-system reason in the message; ENOENT, EACCES, ENOSPC and friends, each mapped in the causes below).
 
-`ciginstaller crash send` (or `crash submit --now`) did not send a report: the `reports` setting is `never`, the issues route is not usable, or the route did not take it. Nothing was lost: the report stays in the ashtray with the reason, and `ciginstaller crash show` still prints exactly what would be sent.
+`ciginstaller crash send` (or `crash submit --now`) did not send a report: the `reports` setting is `never`, no route can file it, or the route did not take it. `crash test-route` answers with this code when no route can file a report. Nothing was lost: the report stays in the ashtray with the reason, and `ciginstaller crash show` still prints exactly what would be sent.
 
 **What to type next:** `ciginstaller crash show <report>`, then `ciginstaller crash send <report>` once the cause is gone
 
@@ -1101,6 +1101,8 @@ Related: [`E1801`](#e1801-a-product-needs-another), [`E1842`](#e1842-pinned-cart
 1. `reports` is `never` (`CIG_REPORTS`, `CIGI_REPORTS` or `ciginstaller config set reports never`), so nothing is sent, not even a report you name (no probe; a suggestion, not a finding). **Remedy:** `ciginstaller config set reports ask` (and unset `CIG_REPORTS` if it is set), then send the report again
 2. the route named by `CIGI_REPORT_ROUTE` is not an https address (plain http is allowed to a loopback address only), or carries a query string, a fragment or credentials (no probe; a suggestion, not a finding). **Remedy:** set it to the route's plain `https://` address
 3. the route could not be reached, or answered with an error or a redirect (a report goes only where it was told to, so a redirect is not followed) (no probe; a suggestion, not a finding). **Remedy:** check the connection and send again; the report waits in the ashtray and its last error is in `ciginstaller crash list`
+4. no route could file it: `gh` is missing or not logged in, `CIG_GITHUB_TOKEN` is unset or refused, the token lacks the issues scope, GitHub answered 422 to the search, or a rate limit is in force (the next try is recorded) (no probe; a suggestion, not a finding). **Remedy:** `ciginstaller crash test-route` names each route's reason with GitHub's own error text; fix the route you use (`gh auth login`, or a token with the issues scope), or file it by hand with `ciginstaller crash send <report> --via link`
+5. the network is down, DNS is failing, or GitHub redirected to another host (the token is never sent to another host) (no probe; a suggestion, not a finding). **Remedy:** check the connection and send again; the report waits in the ashtray, and `ciginstaller crash send <report> --via file --out <file>` writes it out to file from another machine
 
 Related: [`E1890`](#e1890-a-bug-in-the-installer), [`E1870`](#e1870-usage).
 

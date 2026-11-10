@@ -10,7 +10,7 @@
   "properties": {
     "id": { "type": "string", "pattern": "^[A-Za-z0-9_-]{1,64}$", "description": "UTC second plus the first six characters of the fingerprint" },
     "fingerprint": { "type": "string", "pattern": "^[0-9a-f]{8}$", "description": "kind, location and message with numbers removed, plus the product and its major version; never a path, user name or host" },
-    "kind": { "enum": ["crash", "internal", "tripwire", "report"] },
+    "kind": { "enum": ["crash", "internal", "tripwire", "differential", "update", "report"] },
     "origin": { "type": "string", "pattern": "^[A-Za-z0-9_-]{1,40}$", "description": "the product that saw it, such as ciginstaller" },
     "version": { "type": "string", "maxLength": 40, "description": "the origin's version" },
     "os": { "type": "string", "maxLength": 40 },

@@ -1332,7 +1332,7 @@ remedy = "change the pins with `ciginstaller pin carton <pin>`, or install a car
 [[code]]
 code = "E1857"
 title = "a crash report did not leave this machine"
-meaning = "`ciginstaller crash send` (or `crash submit --now`) did not send a report: the `reports` setting is `never`, the issues route is not usable, or the route did not take it. Nothing was lost: the report stays in the ashtray with the reason, and `ciginstaller crash show` still prints exactly what would be sent."
+meaning = "`ciginstaller crash send` (or `crash submit --now`) did not send a report: the `reports` setting is `never`, no route can file it, or the route did not take it. `crash test-route` answers with this code when no route can file a report. Nothing was lost: the report stays in the ashtray with the reason, and `ciginstaller crash show` still prints exactly what would be sent."
 fix = "`ciginstaller crash show <report>`, then `ciginstaller crash send <report>` once the cause is gone"
 no = "depends"
 arises = ["crash"]
@@ -1354,6 +1354,16 @@ why = "the route could not be reached, or answered with an error or a redirect (
 no = "depends"
 probe = "none"
 remedy = "check the connection and send again; the report waits in the ashtray and its last error is in `ciginstaller crash list`"
+[[code.cause]]
+why = "no route could file it: `gh` is missing or not logged in, `CIG_GITHUB_TOKEN` is unset or refused, the token lacks the issues scope, GitHub answered 422 to the search, or a rate limit is in force (the next try is recorded)"
+no = "depends"
+probe = "none"
+remedy = "`ciginstaller crash test-route` names each route's reason with GitHub's own error text; fix the route you use (`gh auth login`, or a token with the issues scope), or file it by hand with `ciginstaller crash send <report> --via link`"
+[[code.cause]]
+why = "the network is down, DNS is failing, or GitHub redirected to another host (the token is never sent to another host)"
+no = "cant-see-any"
+probe = "none"
+remedy = "check the connection and send again; the report waits in the ashtray, and `ciginstaller crash send <report> --via file --out <file>` writes it out to file from another machine"
 
 [[code]]
 code = "E1858"

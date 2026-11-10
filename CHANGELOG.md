@@ -26,6 +26,29 @@ Linux, with every build checked first and every change one undoable step.
   includes a path, user name or host. The family's own paths stay readable in
   titles and bodies.
 
+### Issue routes, blame and the machine block (#28 steps 2 and 4)
+
+- **Routes that prove themselves.** `crash send` files a report through `gh`
+  (your login) or the API with `CIG_GITHUB_TOKEN`, searching the blamed
+  repository first so a known fault joins its issue and a lost response never
+  files it twice. With neither, `--via link` gives a prefilled issue and
+  `--via file --out FILE` writes it out. GitHub's own error text is shown,
+  never hidden. The relay and a scoped token wait for the courier (#24).
+- **`crash test-route`** makes one dry search per route. **`crash status`**
+  shows the queue, the `reports` setting and each route's last success and
+  failure, and `doctor` shows the same.
+- **Blame routing**: a report is filed in the repository of the product at
+  fault (the top frame that names one, then the error code's range, then the
+  origin), with a line in the origin's issue; a moved issue is followed.
+- **The `cig-report v1` block** ends every issue body: fingerprint, kind,
+  blame, version matrix, repro and its verification, and the first bad carton
+  when known; labels name the kind, area, regression and severity.
+- **A fake tracker** in `cigi-testkit` speaks GitHub's issue and search API,
+  with 422s, 403s, rate limits and redirects, and every route is tested
+  against it.
+- The report schema accepts the kinds `differential` and `update`, and
+  `crash show` and `crash list` name the blamed repository as the target.
+
 ### Reports (#11, #3)
 
 - **`ciginstaller report [<run>]`** puts together what a bug report needs, and

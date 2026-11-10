@@ -170,6 +170,7 @@ Variants: `dark` (truecolor, `COLORFGBG=15;0`), `light` (truecolor, `COLORFGBG=0
 | `ciginstaller which --why` | `which`, `which-why` | the resolver's table, then the answer |
 | `ciginstaller doctor` | `doctor`, `finding` | findings grouped by product, each "I think this, because I checked that", ending with its fix command |
 | `ciginstaller crash list` and `show` | `crash-list`, `crash-show` | the queue as a table; `show` prints exactly what travels, in boxes |
+| `ciginstaller crash test-route` and `status` | none yet | one line per route (the route, its state, why), then the queue with each report's target and last error, ending with the next step |
 | `ciginstaller report` | none yet | the version block as lines (the installer and carton, one line per tool with its build, the project's pins, the guarantee), then one `flagged:` line per mismatch; the headline is the action glyph when anything is flagged and the done glyph when not |
 | `ciginstaller bug` | none yet (a terminal test) | the numbered questions in the voice with plain beside them, the marked-span questions, the sectioned preview, then the send question; the result is the saved id (or the issue link once the route files one) |
 | `ciginstaller carton list` | `carton-list` | cartons as a table with what changed |

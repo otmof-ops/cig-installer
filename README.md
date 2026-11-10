@@ -266,6 +266,7 @@ lists them all.
 | `licences [tool] [--text]` | the license of the installer and of each build here (an SPDX id, or "not stated"), where its text is, and what was acknowledged at the first install; `--text` prints one license file; the field is the code license (docs are CC-BY-4.0); read-only, nothing is sent anywhere |
 | `history` | the last installs, updates and rollbacks |
 | `crash list\|show\|send\|delete` | every tool's crash reports, in one queue: `show` prints exactly what `send` sends, nothing leaves without `send`, and `reports = never` refuses |
+| `crash status`, `crash test-route` | the queue, the `reports` setting and each route's last success and failure; one dry search per route, to see which can file a report |
 | `bug` | writes up what went wrong, asked in the voice with plain beside it (or from flags without a terminal), with the run's bundle, the version matrix, the carton, the OS and the doctor's findings, and shows exactly what would travel first; `--save` keeps it here, `--send` sends it through the crash route, `bug list` and `bug show <n>` are the reports saved here |
 | `report [<run>]` | the version block and the bundle a bug report needs: `--out FILE` writes it, `--send` files it through the crash route, and `--block --json` is the block a product puts in its own report; otherwise nothing is written or sent |
 | `bench` | measure this machine against the performance budgets (shim dispatch, check, switch, sizes, first lines), locally and read-only, with the median and p95 of each; nothing is sent anywhere |
@@ -303,12 +304,16 @@ start its tool. A shim otherwise passes the tool's own exit code through.
   undo.
 - **The first carton holds `cig`, `cigo` and `cigcompile`.** CigarScript joins
   it when it has a release.
-- **Crash reports are half built.** `ciginstaller crash list|show|send|delete|submit`
-  work over cig's ashtray, and a crash in the installer lands there. There is
-  no issues route to send to yet: the relay and token
-  ([#28](https://github.com/otmof-ops/cig-installer/issues/28)) and the courier
+- **Crash reports file through `gh` or your token, not yet the courier.**
+  `ciginstaller crash list|show|send|delete|submit` work over cig's ashtray,
+  and a crash in the installer lands there. `crash send` files a report in the
+  repository of the product at fault, through `gh` with your login or the API
+  with `CIG_GITHUB_TOKEN`, searching first so a known fault joins its issue.
+  Without either it hands you a prefilled issue link or writes the report to
+  a file (`--via link`, `--via file --out FILE`). `CIGI_ROUTES` can turn
+  routes off. The relay that needs no login, a scoped token and the courier
   ([#24](https://github.com/otmof-ops/cig-installer/issues/24)) are still to
-  come, so `crash send` keeps the report queued and says so.
+  come.
 - **`ciginstaller report` is built; the products' stubs are not.** The version
   block (the installer, the carton, each tool's build, what the project pins,
   mismatches flagged) and the bundle behind a bug report work today, for an
@@ -352,8 +357,11 @@ This is a promise, and it is tested:
   and never when `reports` is `never` (`CIG_REPORTS=never` counts too).
   `crash show` prints exactly what would be sent: the fields of
   [schemas/report.schema.json](schemas/report.schema.json), with your paths as
-  shapes and your user and host names removed. It is one plain `POST` with no
-  query string, cookie, login or identifier.
+  shapes and your user and host names removed. Through `gh` or
+  `CIG_GITHUB_TOKEN` the issue is filed under your own GitHub login, after a
+  search that carries only the report's fingerprint and the repository;
+  through `CIGI_REPORT_ROUTE` it is one plain `POST` with no query string,
+  cookie, login or identifier.
 - A report (`ciginstaller report <run> --send`) is the same: it goes only
   when you type `--send`, through the same route and the same `reports`
   setting, and it carries the version block, the operation's journal and the

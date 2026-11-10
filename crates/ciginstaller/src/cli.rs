@@ -568,7 +568,23 @@ pub enum CrashSub {
         /// Every report that is not filed yet.
         #[arg(long, conflicts_with = "id")]
         all: bool,
+        /// Use only this route: `gh`, `api`, `link` (print the prefilled issue link; nothing is
+        /// requested) or `file` (export, with `--out`). Without it: `gh`, then `api`, tried in order.
+        #[arg(long, value_name = "ROUTE")]
+        via: Option<String>,
+        /// Where `--via file` writes the export (never overwrites).
+        #[arg(long, value_name = "FILE", requires = "via")]
+        out: Option<PathBuf>,
     },
+    /// Try each route with a dry request (a search, issues only; nothing is filed) and say which
+    /// can file a report now, one line per route. `reports = never` probes nothing.
+    TestRoute {
+        /// The repository to search (owner/name); the installer's own when omitted.
+        #[arg(long, value_name = "OWNER/NAME")]
+        repo: Option<String>,
+    },
+    /// The queue: what is waiting to leave, why, and each route's last success and failure.
+    Status,
     /// Delete a report, or all of them.
     Delete {
         /// Report id or a unique prefix.

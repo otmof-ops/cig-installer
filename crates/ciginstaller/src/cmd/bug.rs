@@ -169,7 +169,7 @@ fn list(env: &crash_cmd::Env) -> Result<Report, InstallerError> {
         .map(|(i, r)| {
             json!({
                 "n": i + 1, "id": r.id, "part": part_of_saved(r), "state": r.state(),
-                "title": r.headline(), "target": r.target(),
+                "title": r.headline(), "target": crash_cmd::target_of(&env.root, r),
                 "issue": r.issue.as_ref().map(|x| x.url.clone()),
                 "sections": sections_of(r),
             })
@@ -230,7 +230,7 @@ fn show(env: &crash_cmd::Env, n: &str) -> Result<Report, InstallerError> {
     }
     Ok(rep
         .next(format!("ciginstaller crash send {}", r.id))
-        .data(json!({ "id": r.id, "state": r.state(), "target": r.target(), "report": v })))
+        .data(json!({ "id": r.id, "state": r.state(), "target": crash_cmd::target_of(&env.root, r), "report": v })))
 }
 
 // ----- the conversation --------------------------------------------------------------------

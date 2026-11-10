@@ -41,6 +41,15 @@ the rest of the family:
   `schemas/report.schema.json`, printed by `crash show` first: your paths are
   shapes, your user and host names are removed, no file contents or environment
   values are included. A report that carries one is a security bug.
+- **A route files only where it should.** The API route sends
+  `CIG_GITHUB_TOKEN` only to the host of `CIGI_GITHUB_API` (default
+  `api.github.com`; https, or plain http to a loopback address for tests) and
+  follows a redirect only to the same origin, for a `GET`. `gh` runs with its
+  prompts off, under its own login, and is stopped after 45 seconds. Every
+  issue body, search and machine block is rendered from the allowlisted view
+  that `crash show` prints, and a search carries only the fingerprint and the
+  repository. `CIGI_ROUTES` can only turn routes off, and nothing is requested
+  under `reports = never`, `crash test-route` included.
 - **A bug-report bundle is yours to read and send.** `ciginstaller report` writes
   and sends nothing on its own. `--out FILE` writes a bundle (mode 0600) and
   `--send` files it through the same route and the same `reports` setting as a
