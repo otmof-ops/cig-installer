@@ -7,11 +7,15 @@
 
 #![forbid(unsafe_code)]
 
+pub mod archive;
 pub mod check;
 pub mod manifest;
 mod time;
 pub mod versions;
 
+pub use archive::{
+    prune_plan, ArchiveAsset, ArchiveEntry, ArchiveIndex, ArchiveRef, ArchiveTag, PlanRow,
+};
 pub use check::*;
 pub use manifest::*;
 pub use time::rfc3339_to_epoch;

@@ -1186,6 +1186,27 @@ probe = "pin-file"
 remedy = "edit the carton line by hand, or pin without --file"
 
 [[code]]
+code = "E1849"
+title = "a promise of the last update or rollback did not hold"
+meaning = "After an update or a rollback the installer read its work back from disk and found a mismatch: a shim that does not resolve to the carton's build, a shim-index that differs from state.json, or (after a rollback) a toolchain that differs from its receipt. The work is done and nothing was undone. A report of kind tripwire is saved in the ashtray; nothing was sent."
+fix = "`ciginstaller repair`, then `ciginstaller crash show <report>`"
+no = "none"
+arises = ["update"]
+tags = ["installer"]
+since = "0.1.0"
+related = ["E1831", "E1857"]
+
+[[code.cause]]
+why = "the shim-index or a shim was changed after the switch, by hand or by another program"
+probe = "receipt-verify"
+remedy = "`ciginstaller repair` rewrites the index and the shims from state.json"
+
+[[code.cause]]
+why = "a toolchain file differs from its receipt after a rollback"
+probe = "receipt-verify"
+remedy = "`ciginstaller repair` restores it from the store; a rollback that trips is high severity, so keep the report"
+
+[[code]]
 code = "E1850"
 title = "downgrade refused"
 meaning = "The carton you asked for is older than the one installed. Downgrades need to be asked for."
@@ -1333,6 +1354,32 @@ why = "the route could not be reached, or answered with an error or a redirect (
 no = "depends"
 probe = "none"
 remedy = "check the connection and send again; the report waits in the ashtray and its last error is in `ciginstaller crash list`"
+
+[[code]]
+code = "E1858"
+title = "a report could not be put together"
+meaning = "`ciginstaller report` could not build or write the bundle: cig, which alone can read its own run records, did not give a bundle for the run (it could not be run, or it failed), or the file asked for with `--out` could not be written. Nothing was sent and nothing on the machine changed; `ciginstaller report --block` still prints the version block."
+fix = "`ciginstaller report --block`, then `ciginstaller report <run> --out <file>` once the cause is gone"
+no = "depends"
+arises = ["crash"]
+tags = ["installer"]
+since = "0.1.0"
+related = ["E1857", "E1870", "E1831"]
+[[code.cause]]
+why = "cig is installed but its files differ from its receipt, or it has no readable receipt, so it is not run to build a bundle"
+no = "these-are-mine"
+probe = "none"
+remedy = "`ciginstaller repair`, then ask for the report again"
+[[code.cause]]
+why = "cig started and did not answer with a bundle (a run record it cannot read, a cig that is too old to build one, or a timeout)"
+no = "depends"
+probe = "none"
+remedy = "`ciginstaller report <run> --out <file>` again, or `cig report <run>` by hand until cig has `report-bundle`; `ciginstaller report --block` needs no cig"
+[[code.cause]]
+why = "the file given to `--out` is in a folder that cannot be written"
+no = "these-are-mine"
+probe = "none"
+remedy = "give `--out` a path you can write"
 
 [[code]]
 code = "E1860"

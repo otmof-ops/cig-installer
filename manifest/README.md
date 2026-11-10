@@ -43,3 +43,13 @@ A semver range does not match a prerelease unless it names one, so a candidate h
 `.github/workflows/nightly.yml` does the same by hand-started run and keeps the manifest as an artifact for review. It publishes nothing. Tick `first` for a channel that has no manifest yet. It has no schedule: adding one is the maintainer's decision.
 
 `tested = []` for every candidate until the family's integration suites run against a carton's exact builds.
+
+## Pruning old releases
+
+`cargo xtask release prune` plans the cleanup of [#26](https://github.com/otmof-ops/cig-installer/issues/26). Each product keeps its three newest releases (`--keep`) and every version that is pinned, by a carton of `--manifest` or by `--pin <tool>=<version>:<who>`; the rest would move to the archive. It prints the plan with the reason for each version, and changes nothing:
+
+```sh
+cargo xtask release prune --manifest manifest-stable.toml --pin cig=1.6.2:cig-orchestrator
+```
+
+Archiving for real (`--yes`) is refused until the archive index can be written and signed (#9). The index is `archive/index.json` (format 1, read by `cig-compat`), and a manifest names it with `[archive] index = "https://..."`. The installer reads it only when a build's release is gone, and accepts the archived copy only at the digest the manifest pins.

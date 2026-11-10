@@ -272,6 +272,8 @@ pub fn run(cx: &mut Cx, a: &UpdateArgs) -> Result<Updated, InstallerError> {
         Ok(s) => s,
         Err(e) => return Err(fail(txn, e)),
     };
+    // what the trial found stays with the transaction, for `ciginstaller report`
+    super::report::keep_trial(txn.dir(), &trial_json(&staged.trial));
 
     if a.trial_only {
         abandon(txn)?;
@@ -380,13 +382,19 @@ pub fn run(cx: &mut Cx, a: &UpdateArgs) -> Result<Updated, InstallerError> {
             "carton {cur} stays installed until the next update, so you can go back"
         ))
         .next("ciginstaller rollback");
-    done(r.data(json!({
+    let r = r.data(json!({
         "from": cur.to_string(), "to": tv.to_string(), "txn": txn_id,
         "changes": plan_lines, "whats_new": fresh, "links": links,
         "announced": announced,
         "fetched": fetched.iter().map(|f| json!({"tool": f.tool, "version": f.version.to_string()})).collect::<Vec<_>>(),
         "trial": trial_json(&staged.trial),
-    })))
+    }));
+    // the promises of an update, read back from disk
+    done(super::tripwire::finish(
+        &cx.home,
+        super::tripwire::Wire::AfterUpdate,
+        r,
+    ))
 }
 
 /// Roll the transaction back and give the error back (with `E1833` when the undo fell short).

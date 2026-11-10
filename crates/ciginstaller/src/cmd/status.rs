@@ -196,7 +196,7 @@ fn newest_over(m: &Manifest, mine: &Version, channel: &str) -> Option<Version> {
 
 /// What runs on the machine carton's own terms: its tools, a rolled-back tool's older build, and
 /// any other stick for a tool the carton lacks.
-fn effective_tools(cx: &Cx) -> BTreeMap<String, String> {
+pub(crate) fn effective_tools(cx: &Cx) -> BTreeMap<String, String> {
     let s = &cx.state;
     let mut t: BTreeMap<String, String> = s
         .machine_carton
@@ -213,7 +213,7 @@ fn effective_tools(cx: &Cx) -> BTreeMap<String, String> {
 }
 
 /// The family's order first (cig, cigo, cigcompile, cigar), then any other tool by name.
-fn ordered(t: &BTreeMap<String, String>) -> Vec<(String, String)> {
+pub(crate) fn ordered(t: &BTreeMap<String, String>) -> Vec<(String, String)> {
     let mut out: Vec<(String, String)> = cigi_shim::TOOLS
         .iter()
         .filter_map(|n| t.get(*n).map(|v| (n.to_string(), v.clone())))

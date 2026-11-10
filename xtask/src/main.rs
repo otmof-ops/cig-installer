@@ -20,6 +20,8 @@ usage:
         (the carton is numbered X.Y.Z-beta.N or X.Y.Z-nightly.N, N one past the previous
         manifest's; the channel is the candidate's; a nightly implies --latest)
   cargo xtask pins <manifest.toml>
+  cargo xtask release prune [--keep 3] [--product <tool>] [--manifest <file>] [--pin <tool>=<v>:<who>]...
+        (prints the plan of #26, a dry run; --yes is blocked until the index is signed)
   cargo xtask errors-doc
   cargo xtask fixture-mirror <dir>
   cargo xtask tokens [--check]";
@@ -59,6 +61,7 @@ fn main() {
         .as_slice()
     {
         ["manifest", "assemble", rest @ ..] => assemble_cmd(rest),
+        ["release", "prune", rest @ ..] => prune_cmd(rest),
         ["pins", manifest] => pins_cmd(Path::new(manifest)),
         ["errors-doc"] => errors_doc_cmd(),
         ["fixture-mirror", dir] => fixture_mirror_cmd(Path::new(dir)),
@@ -221,4 +224,55 @@ fn errors_doc_cmd() {
     let text = xtask::errors_doc::render(cigi_ui::registry::registry());
     std::fs::write(&dest, text).unwrap_or_else(|e| fail(&format!("{}: {e}", dest.display())));
     println!("wrote docs/ERRORS.md from errors/registry.toml");
+}
+
+/// The plan of #26 for every product (or `--product`): a dry run, nothing else.
+fn prune_cmd(rest: &[&str]) {
+    use xtask::prune::{self, Options};
+    let (mut keep, mut product, mut manifest) = (3usize, None, None::<PathBuf>);
+    let mut pins: BTreeMap<(String, Version), Vec<String>> = BTreeMap::new();
+    let mut it = rest.iter();
+    while let Some(flag) = it.next() {
+        let mut value = || {
+            it.next()
+                .map(|s| s.to_string())
+                .unwrap_or_else(|| usage(&format!("{flag} needs a value")))
+        };
+        match *flag {
+            "--keep" => {
+                keep = value()
+                    .parse()
+                    .unwrap_or_else(|_| usage("--keep takes a number"))
+            }
+            "--product" => product = Some(value()),
+            "--manifest" => manifest = Some(PathBuf::from(value())),
+            "--pin" => {
+                let (key, who) = prune::parse_pin(&value()).unwrap_or_else(|e| usage(&e));
+                pins.entry(key).or_default().push(who);
+            }
+            "--dry-run" => {}
+            "--yes" => fail(prune::YES_BLOCKED),
+            "--help" | "-h" => {
+                println!("{}", prune::HELP);
+                return;
+            }
+            other => usage(&format!("unknown flag {other}")),
+        }
+    }
+    if let Some(path) = manifest {
+        let m = Manifest::from_str(&read(&path))
+            .unwrap_or_else(|e| fail(&format!("{}: {e}", path.display())));
+        for (key, who) in prune::pins_from_manifest(&m) {
+            pins.entry(key).or_default().extend(who);
+        }
+    }
+    let tools =
+        prune::tools_of(&read(&root().join("manifest/tools.toml"))).unwrap_or_else(|e| fail(&e));
+    let opts = Options {
+        keep,
+        product,
+        pins,
+    };
+    let plans = prune::plan(&xtask::gh::Gh, &tools, &opts).unwrap_or_else(|e| fail(&e));
+    print!("{}", prune::render(&plans, keep));
 }

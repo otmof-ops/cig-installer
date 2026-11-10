@@ -4,6 +4,7 @@
 //! The carton manifest (section 6 of the build contract): parse, validate,
 //! render, query, diff. The only I/O-free entry point is [`Manifest::from_str`].
 
+use crate::archive::ArchiveRef;
 use crate::time::rfc3339_to_epoch;
 use crate::versions::{CartonVersion, Pin, Version};
 use std::collections::BTreeMap;
@@ -387,6 +388,8 @@ pub struct Manifest {
     pub products: BTreeMap<(String, Version), ProductReq>,
     pub yanked: Vec<Yank>,
     pub advisories: Vec<Advisory>,
+    /// `[archive]`: where the signed archive index is published, when the manifest names one.
+    pub archive: Option<ArchiveRef>,
     /// Unknown top-level keys, kept (never fatal inside the same `format`).
     pub extra: Table,
 }
@@ -1055,7 +1058,16 @@ impl Manifest {
             "product",
             "yanked",
             "advisory",
+            "archive",
         ];
+        let archive = match root.get("archive") {
+            None => None,
+            Some(v) => {
+                let t = as_table(v, "archive")?;
+                let index = req_str(t, "index", "archive")?;
+                Some(ArchiveRef::parse(&index).or_else(|e| err(format!("archive.index: {e}")))?)
+            }
+        };
         let extra = root
             .iter()
             .filter(|(k, _)| !known.contains(&k.as_str()))
@@ -1073,6 +1085,7 @@ impl Manifest {
             products,
             yanked,
             advisories,
+            archive,
             extra,
         })
     }
@@ -1301,6 +1314,11 @@ impl Manifest {
                 })
                 .collect();
             root.insert("advisory".into(), Value::Array(list));
+        }
+        if let Some(a) = &self.archive {
+            let mut t = Table::new();
+            t.insert("index".into(), Value::String(a.index.clone()));
+            root.insert("archive".into(), Value::Table(t));
         }
         toml::to_string(&root).unwrap_or_default()
     }

@@ -10,16 +10,18 @@
 use crate::archive::unpack_tar_gz;
 use crate::clock;
 use crate::error::{FetchError, TrustError};
-use crate::location::{is_plain_segment, Location, ManifestPart};
+use crate::location::{is_plain_segment, locate_with_index, Location, ManifestPart};
 use crate::progress::Progress;
 use crate::source::Source;
 use crate::trust::{Admitted, SeenState, Trust, Verified};
-use cig_compat::{Artifact, Layout, Manifest, Target, Version};
+use cig_compat::{ArchiveIndex, Artifact, Layout, Manifest, Target, Version};
 use cigi_home::{Home, StagedFile};
 use std::path::{Path, PathBuf};
 
 const MAX_MANIFEST_BYTES: usize = 1024 * 1024;
 const MAX_SIDECAR_BYTES: usize = 4096;
+/// The archive index is read whole; `ArchiveIndex::from_json` refuses more than this.
+const MAX_ARCHIVE_INDEX_BYTES: usize = 16 * 1024 * 1024;
 const MAX_ATTESTATION_BYTES: usize = 1024 * 1024;
 
 fn io_err(path: &Path) -> impl FnOnce(std::io::Error) -> FetchError + '_ {
@@ -300,6 +302,22 @@ pub fn artifact_locations(art: &Artifact) -> (Location, Location) {
     (mk(&art.asset), mk(&art.sidecar))
 }
 
+/// The archive index a manifest names (#26), fetched and parsed; `None` when it names none.
+/// The index only says where an archived build went: the build is still admitted at the digest
+/// the manifest pins, so an index can move a download but never change the bytes accepted.
+fn archive_index(src: &dyn Source, m: &Manifest) -> Result<Option<ArchiveIndex>, FetchError> {
+    let Some(archive) = &m.archive else {
+        return Ok(None);
+    };
+    let loc = Location::Url {
+        url: archive.index.clone(),
+    };
+    let body = src.fetch_text(&loc, MAX_ARCHIVE_INDEX_BYTES)?;
+    ArchiveIndex::from_json(&body)
+        .map(Some)
+        .map_err(|e| TrustError::Malformed(e.to_string()).into())
+}
+
 pub fn get_artifact(
     src: &dyn Source,
     trust: &dyn Trust,
@@ -346,13 +364,9 @@ pub fn get_artifact_for(
         crate::digest::random_suffix()
     ));
     let mut guard = Cleanup(Some(partial.clone()));
-    let (asset_loc, sidecar_loc) = artifact_locations(&art);
-    let sidecar = match src.fetch_text(&sidecar_loc, MAX_SIDECAR_BYTES) {
-        Ok(t) => Some(t),
-        Err(e) if e.is_not_found() => None,
-        Err(e) => return Err(e),
-    };
-    src.fetch(&asset_loc, &partial, p)?;
+    let located = locate_with_index(src, &art, || archive_index(src, m))?;
+    let sidecar = located.sidecar_text;
+    src.fetch(&located.asset, &partial, p)?;
     let verified = trust
         .admit_artifact(&art, sidecar.as_deref(), &partial)?
         .with_independent(src.independent());

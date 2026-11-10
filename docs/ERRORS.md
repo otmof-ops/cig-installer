@@ -771,6 +771,7 @@ the installer: shims, pins, updates, rollbacks, repair, uninstall, and the comma
 | [`E1846`](#e1846-pin-target-is-a-link-or-not-a-regular-file) | pin target is a link or not a regular file | these are MY ciggies | `ls -l` the file, remove or move it yourself, then run `ciginstaller pin carton <pin>` again |
 | [`E1847`](#e1847-another-pin-file-in-this-directory-would-outrank-the-one-being-written) | another pin file in this directory would outrank the one being written | these are MY ciggies | `ciginstaller pin carton <pin>` writes .cig-carton, which outranks the others |
 | [`E1848`](#e1848-the-edited-pin-file-would-not-read-back) | the edited pin file would not read back | these are MY ciggies | `ciginstaller pin carton <pin>` writes a fresh .cig-carton instead |
+| [`E1849`](#e1849-a-promise-of-the-last-update-or-rollback-did-not-hold) | a promise of the last update or rollback did not hold | not one of the four | `ciginstaller repair`, then `ciginstaller crash show <report>` |
 | [`E1850`](#e1850-downgrade-refused) | downgrade refused | these are MY ciggies | `ciginstaller update --to <carton> --allow-downgrade` |
 | [`E1851`](#e1851-trial-found-differences-and-was-declined) | trial found differences and was declined | these are MY ciggies | `ciginstaller update --trial-only` |
 | [`E1852`](#e1852-nothing-to-roll-back-to) | nothing to roll back to | don't have any over here | `ciginstaller list` |
@@ -779,6 +780,7 @@ the installer: shims, pins, updates, rollbacks, repair, uninstall, and the comma
 | [`E1855`](#e1855-pinned-carton-was-yanked) | pinned carton was yanked | not one of the four | `ciginstaller pin carton <version>` with a carton that is not yanked |
 | [`E1856`](#e1856-fetching-did-not-satisfy-the-pin) | fetching did not satisfy the pin | not one of the four | `ciginstaller carton list` |
 | [`E1857`](#e1857-a-crash-report-did-not-leave-this-machine) | a crash report did not leave this machine | one of the four; the message says which | `ciginstaller crash show <report>`, then `ciginstaller crash send <report>` once the cause is gone |
+| [`E1858`](#e1858-a-report-could-not-be-put-together) | a report could not be put together | one of the four; the message says which | `ciginstaller report --block`, then `ciginstaller report <run> --out <file>` once the cause is gone |
 | [`E1860`](#e1860-repair-could-not-restore-a-file) | repair could not restore a file | not one of the four | `ciginstaller repair --tool <tool>`, online |
 | [`E1861`](#e1861---purge-needs-os-authentication) | --purge needs OS authentication | these are MY ciggies | `ciginstaller uninstall --all` |
 | [`E1862`](#e1862-a-profile-block-was-edited-and-is-left-alone) | a profile block was edited and is left alone | these are MY ciggies | `ciginstaller doctor` |
@@ -952,6 +954,23 @@ The installer edits a pin file in place and checks the result the way the shim r
 
 Related: [`E1841`](#e1841-pin-file-unreadable), [`E1846`](#e1846-pin-target-is-a-link-or-not-a-regular-file).
 
+### E1849 a promise of the last update or rollback did not hold
+
+*usage · since 0.1.0 · arises in update*
+
+**Kind of no:** not one of the four (a mistake in the text, in the arithmetic, or in CigScript; syntax, type or logic error; an internal error).
+
+After an update or a rollback the installer read its work back from disk and found a mismatch: a shim that does not resolve to the carton's build, a shim-index that differs from state.json, or (after a rollback) a toolchain that differs from its receipt. The work is done and nothing was undone. A report of kind tripwire is saved in the ashtray; nothing was sent.
+
+**What to type next:** `ciginstaller repair`, then `ciginstaller crash show <report>`
+
+**Known causes**, ranked; the doctor checks them in this order:
+
+1. the shim-index or a shim was changed after the switch, by hand or by another program (probe `receipt-verify`). **Remedy:** `ciginstaller repair` rewrites the index and the shims from state.json
+2. a toolchain file differs from its receipt after a rollback (probe `receipt-verify`). **Remedy:** `ciginstaller repair` restores it from the store; a rollback that trips is high severity, so keep the report
+
+Related: [`E1831`](#e1831-installed-file-differs-from-its-receipt), [`E1857`](#e1857-a-crash-report-did-not-leave-this-machine).
+
 ### E1850 downgrade refused
 
 *usage · since 0.1.0 · arises in update*
@@ -1084,6 +1103,24 @@ Related: [`E1801`](#e1801-a-product-needs-another), [`E1842`](#e1842-pinned-cart
 3. the route could not be reached, or answered with an error or a redirect (a report goes only where it was told to, so a redirect is not followed) (no probe; a suggestion, not a finding). **Remedy:** check the connection and send again; the report waits in the ashtray and its last error is in `ciginstaller crash list`
 
 Related: [`E1890`](#e1890-a-bug-in-the-installer), [`E1870`](#e1870-usage).
+
+### E1858 a report could not be put together
+
+*usage · since 0.1.0 · arises in crash*
+
+**Kind of no:** one of the four; the message says which (read the operating-system reason in the message; ENOENT, EACCES, ENOSPC and friends, each mapped in the causes below).
+
+`ciginstaller report` could not build or write the bundle: cig, which alone can read its own run records, did not give a bundle for the run (it could not be run, or it failed), or the file asked for with `--out` could not be written. Nothing was sent and nothing on the machine changed; `ciginstaller report --block` still prints the version block.
+
+**What to type next:** `ciginstaller report --block`, then `ciginstaller report <run> --out <file>` once the cause is gone
+
+**Known causes**, ranked; the doctor checks them in this order:
+
+1. cig is installed but its files differ from its receipt, or it has no readable receipt, so it is not run to build a bundle (no probe; a suggestion, not a finding). **Remedy:** `ciginstaller repair`, then ask for the report again
+2. cig started and did not answer with a bundle (a run record it cannot read, a cig that is too old to build one, or a timeout) (no probe; a suggestion, not a finding). **Remedy:** `ciginstaller report <run> --out <file>` again, or `cig report <run>` by hand until cig has `report-bundle`; `ciginstaller report --block` needs no cig
+3. the file given to `--out` is in a folder that cannot be written (no probe; a suggestion, not a finding). **Remedy:** give `--out` a path you can write
+
+Related: [`E1857`](#e1857-a-crash-report-did-not-leave-this-machine), [`E1870`](#e1870-usage), [`E1831`](#e1831-installed-file-differs-from-its-receipt).
 
 ### E1860 repair could not restore a file
 

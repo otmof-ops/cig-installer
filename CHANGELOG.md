@@ -26,6 +26,57 @@ Linux, with every build checked first and every change one undoable step.
   includes a path, user name or host. The family's own paths stay readable in
   titles and bodies.
 
+### Reports (#11, #3)
+
+- **`ciginstaller report [<run>]`** puts together what a bug report needs, and
+  writes or sends nothing until you say so (`--out FILE`, `--send`).
+  - **The version block**: the installer, the carton and channel, each tool's
+    build (its version, the digest of what was installed, how it was
+    trusted), what the project pins (as versions and file names, never
+    paths), the OS and kernel, the metadata versions, and whether the
+    combination is inside the manifest's guarantees. A combination no carton
+    holds is flagged by name, as in "cigo 1.18.0 with cig 1.20.0: not from the
+    same carton", and so is a build whose `requires` the running builds do
+    not meet or that the manifest yanks.
+  - **The bundle**: the block, the operation's journal (redacted), the trial's
+    differences (`update` now keeps them with its transaction) and the
+    metadata versions it saw. For a cig run, cig's own bundle through
+    `cig report-bundle <run> --json`, or `cig --json report <run>` for a cig
+    that does not have it yet.
+  - **`--block --json`** is the machine form of the block that a product
+    embeds in its own report.
+  - **`--send`** goes through the crash route and the `reports` setting
+    (`never` refuses), as a report of kind `report`, with no identifier.
+  - It works when `state.json` is the broken thing: the block says so.
+  - E1858 when the bundle cannot be built or written.
+
+### Tripwires (#28, the installer's row)
+
+- **After an update or a rollback the installer reads its work back from
+  disk**: the shim-index against `state.json`, every shim against the carton's
+  build, and after a rollback every toolchain against its receipt. A mismatch
+  keeps the work (nothing is undone and the exit stays 0), prints
+  `warning E1849` with the next step (`ciginstaller repair`, then
+  `ciginstaller crash show <report>`), and saves a report of kind `tripwire`
+  in the ashtray: high severity after a rollback, medium after an update.
+  Nothing is sent.
+
+### Release prune and the archive index (#26)
+
+- **`cargo xtask release prune --dry-run`** lists, per product, which
+  releases stay (the three newest, and every version a carton or a `--pin`
+  names, with who pins it) and which would move to the archive, with a reason
+  for each. Moving them (`--yes`) waits for the signed index (#9) and refuses
+  for now.
+- **`archive/index.json`** (format 1), read by `cig-compat`: where each
+  archived version's tag and assets went, with their digests. A manifest names
+  it with `[archive] index = "https://..."`.
+- **Downloads fall back to the archive**: when a build's release is gone from
+  the product's repository, the installer reads the index the manifest names
+  and downloads the archived copy, still at the digest the manifest pins. An
+  index that lists other bytes for a build is refused (E1825), and the index
+  is only read when the release is gone.
+
 ### Licenses (#27)
 
 - **`ciginstaller licences [tool] [--text] [--json]`** lists the installer and

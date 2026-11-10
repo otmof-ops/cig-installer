@@ -507,6 +507,7 @@ dependencies = [
  "cigscript",
  "proptest",
  "semver",
+ "serde_json",
  "toml",
 ]
 

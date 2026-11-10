@@ -37,6 +37,14 @@ the rest of the family:
   `schemas/report.schema.json`, printed by `crash show` first: your paths are
   shapes, your user and host names are removed, no file contents or environment
   values are included. A report that carries one is a security bug.
+- **A bug-report bundle is yours to read and send.** `ciginstaller report` writes
+  and sends nothing on its own. `--out FILE` writes a bundle (mode 0600) and
+  `--send` files it through the same route and the same `reports` setting as a
+  crash. Every string in it is anonymised once, before either, so the file you
+  read is what is sent; it holds versions, the operation's journal and the
+  trial's differences, never file contents, environment values, user or host
+  names. cig builds its own bundle for a cig run, and the installer runs it
+  only from a build whose files match their receipt.
 
 ## What is verified today
 

@@ -23,13 +23,15 @@ use crate::cli::{CrashCmd, CrashSub};
 use crate::crash::{self, anon, route, Consent, Found, Kind, Report as Saved, Source};
 use crate::errors::ie;
 
-struct Env<'a> {
-    ui: &'a Ui,
-    root: PathBuf,
-    cfg: Config,
+pub struct Env<'a> {
+    pub ui: &'a Ui,
+    pub root: PathBuf,
+    pub cfg: Config,
 }
 
-pub fn run(ui: &Ui, home_flag: Option<&PathBuf>, cmd: &CrashCmd) -> Result<Report, InstallerError> {
+/// The home and the config, and nothing else: no installer state, so it works when that is
+/// the problem. `report --send` goes through the same door.
+pub fn open_env<'a>(ui: &'a Ui, home_flag: Option<&PathBuf>) -> Result<Env<'a>, InstallerError> {
     let over = home_flag.map(|h| h.clone().into_os_string());
     let home = Home::discover_with(&|k| match (k, &over) {
         ("CIGSCRIPT_HOME", Some(h)) => Some(h.clone()),
@@ -37,11 +39,15 @@ pub fn run(ui: &Ui, home_flag: Option<&PathBuf>, cmd: &CrashCmd) -> Result<Repor
     })
     .map_err(ie)?;
     let cfg = Config::load(&home).map_err(ie)?;
-    let env = Env {
+    Ok(Env {
         ui,
         root: home.root(),
         cfg,
-    };
+    })
+}
+
+pub fn run(ui: &Ui, home_flag: Option<&PathBuf>, cmd: &CrashCmd) -> Result<Report, InstallerError> {
+    let env = open_env(ui, home_flag)?;
     match cmd.sub.as_ref().unwrap_or(&CrashSub::List) {
         CrashSub::List => list(&env),
         CrashSub::Show { id } => show(&env, id),
@@ -208,7 +214,7 @@ fn show(env: &Env, id: &str) -> Result<Report, InstallerError> {
 
 // ----- send -------------------------------------------------------------------------------
 
-fn never_error(env: &Env, r: Option<&Saved>) -> InstallerError {
+pub fn never_error(env: &Env, r: Option<&Saved>) -> InstallerError {
     let fix = if std::env::var_os("CIG_REPORTS").is_some() {
         "unset CIG_REPORTS (or set it to ask), then `ciginstaller crash send` again"
     } else {
@@ -309,7 +315,7 @@ fn no_route_report(env: &Env, ids: &[String]) -> Report {
     .data(json!({ "sent": [], "queued": ids, "route": { "configured": false } }))
 }
 
-fn send(env: &Env, id: Option<&str>, all: bool) -> Result<Report, InstallerError> {
+pub fn send(env: &Env, id: Option<&str>, all: bool) -> Result<Report, InstallerError> {
     let mut targets: Vec<Saved> = match (id, all) {
         (Some(id), _) => vec![find(env, id)?],
         (None, true) => {

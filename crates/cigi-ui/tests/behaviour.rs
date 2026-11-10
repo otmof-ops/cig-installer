@@ -702,7 +702,7 @@ fn results_go_to_stdout_and_chatter_to_stderr() {
 
 // ---- the registry -----------------------------------------------------------------------
 
-const SPEC_CODES: [(u32, &str); 79] = [
+const SPEC_CODES: [(u32, &str); 81] = [
     (1800, "combination refused"),
     (1801, "a product needs another"),
     (1802, "a stick does not fit its carton"),
@@ -758,6 +758,10 @@ const SPEC_CODES: [(u32, &str); 79] = [
         "another pin file in this directory would outrank the one being written",
     ),
     (1848, "the edited pin file would not read back"),
+    (
+        1849,
+        "a promise of the last update or rollback did not hold",
+    ),
     (1850, "downgrade refused"),
     (1851, "trial found differences and was declined"),
     (1852, "nothing to roll back to"),
@@ -766,6 +770,7 @@ const SPEC_CODES: [(u32, &str); 79] = [
     (1855, "pinned carton was yanked"),
     (1856, "fetching did not satisfy the pin"),
     (1857, "a crash report did not leave this machine"),
+    (1858, "a report could not be put together"),
     (1860, "repair could not restore a file"),
     (1861, "--purge needs OS authentication"),
     (1862, "a profile block was edited and is left alone"),
