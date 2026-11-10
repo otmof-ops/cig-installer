@@ -252,8 +252,8 @@ remedy = "`ciginstaller check --project <dir>`, then `ciginstaller pin carton <p
 [[code]]
 code = "E1801"
 title = "a product needs another"
-meaning = "One product in the combination needs a version of another that is not there, for example cigo needs a cig at or above its minimum."
-fix = "`ciginstaller carton list`, then `ciginstaller carton <version>` for one that holds both"
+meaning = "One product in the combination needs a version of another that is not there, for example cigo needs a cig at or above its minimum. A hard requirement leads with \"these two don't smoke together.\" and refuses, with the fix as one command; a soft one only warns."
+fix = "`ciginstaller update` to the carton where they match, or keep the older tool for this project: `ciginstaller pin <tool> <version>`, for example `ciginstaller pin cigo 1.3`"
 no = "these-are-mine"
 arises = ["any"]
 tags = ["installer", "ci-likely"]
@@ -263,7 +263,7 @@ related = ["E1800"]
 why = "the project pins a cig older than the cigo in the carton accepts"
 no = "these-are-mine"
 probe = "project-pins"
-remedy = "`ciginstaller check`, then pin a carton whose cig satisfies it: `ciginstaller pin carton <pin>`"
+remedy = "`ciginstaller check`, then keep the tool that fits this project (`ciginstaller pin cigo 1.3`) or move to a carton where they match (`ciginstaller update`)"
 [[code.cause]]
 why = "a stick replaced one product with a build the others do not accept"
 probe = "installed-cartons"
@@ -983,7 +983,7 @@ related = ["E1862", "E1844"]
 why = "the profile was replaced or the block deleted"
 no = "cant-see-any"
 probe = "profile-block"
-remedy = "add it back: `ciginstaller install carton`, which adds the block only where it is missing"
+remedy = "`ciginstaller repair` puts it back when you agreed to it at install; after `--no-path` there was never one"
 [[code.cause]]
 why = "the block was edited by hand"
 probe = "profile-block"
@@ -1217,6 +1217,99 @@ probe = "profile-block"
 remedy = "edit the profile yourself: delete the lines between the ciginstaller markers"
 
 [[code]]
+code = "E1863"
+title = "nothing installed by that name to repair, uninstall or remove"
+meaning = "The tool or carton named is not installed, or removing it would take away the carton this machine runs or the one rollback returns to."
+fix = "`ciginstaller list`"
+no = "dont-have-any"
+arises = ["any"]
+tags = ["installer"]
+since = "0.1.0"
+related = ["E1861", "E1860"]
+[[code.cause]]
+why = "the name is misspelled, or the tool or carton was already removed"
+probe = "installed-cartons"
+remedy = "`ciginstaller list` shows what is installed"
+[[code.cause]]
+why = "the carton is the machine's own, or the one `rollback` returns to"
+probe = "previous-carton"
+remedy = "`ciginstaller use <another carton>`, then remove this one"
+
+[[code]]
+code = "E1864"
+title = "a tool's own doctor could not be run"
+meaning = "doctor --tools started the installed tool's own doctor and it did not start, or did not finish in time, so its words are not in the report."
+fix = "`ciginstaller doctor --tools`, once the tool runs"
+no = "none"
+arises = ["doctor"]
+tags = ["installer"]
+since = "0.1.0"
+related = ["E1831"]
+[[code.cause]]
+why = "the tool's file is damaged"
+probe = "receipt-verify"
+remedy = "`ciginstaller repair` restores it from the store or a fresh download"
+[[code.cause]]
+why = "the tool's doctor is waiting for something and did not finish in 60 seconds"
+probe = "none"
+remedy = "run the tool's own doctor by hand to see what it waits for"
+
+[[code]]
+code = "E1865"
+title = "an uninstall was cut short after its last step"
+meaning = "uninstall --all had already moved installer/ aside, which is its commit point, when it stopped, so everything is removed and only its journal is left beside the home."
+fix = "`ciginstaller gc`"
+no = "none"
+arises = ["doctor"]
+tags = ["installer"]
+since = "0.1.0"
+related = ["E1861", "E1832"]
+[[code.cause]]
+why = "the process was killed or the machine lost power between the move and the delete of the journal"
+probe = "none"
+remedy = "`ciginstaller gc` finds the journal beside the home and deletes it"
+
+[[code]]
+code = "E1868"
+title = "this is not a home the installer made"
+meaning = "uninstall --all found no installer state of its own in this home (installer/state.json is missing or is not the installer's), so it removed nothing: a directory that only has an installer/ in it is not the installer's to empty."
+fix = "`ciginstaller explain E1868`, then check CIGSCRIPT_HOME or --home"
+no = "these-are-mine"
+arises = ["any"]
+tags = ["installer", "irreversible-involved"]
+since = "0.1.0"
+related = ["E1861", "E1863"]
+[[code.cause]]
+why = "CIGSCRIPT_HOME or --home points at a directory that is not ~/.cigscript"
+no = "these-are-mine"
+probe = "state-dir-writable"
+remedy = "point it at the home you installed into, or unset it"
+[[code.cause]]
+why = "an install never finished, so there is no state.json yet"
+probe = "installed-cartons"
+remedy = "`ciginstaller install carton` finishes it, then uninstall"
+
+[[code]]
+code = "E1869"
+title = "a path the installer will not follow or remove"
+meaning = "A path the installer was about to remove or write is a symbolic link where it keeps a directory, a link it cannot journal, or lies outside the place it may touch, so it stopped and left the path alone."
+fix = "`ciginstaller doctor`, then remove the path named in the message by hand if you mean it"
+no = "these-are-mine"
+arises = ["any"]
+tags = ["installer"]
+since = "0.1.0"
+related = ["E1862", "E1831"]
+[[code.cause]]
+why = "something replaced a directory of the installer's with a link"
+no = "these-are-mine"
+probe = "path-exists"
+remedy = "remove the link by hand, then run `ciginstaller repair`"
+[[code.cause]]
+why = "a shell profile is a link into a dotfiles repository"
+probe = "profile-block"
+remedy = "delete the lines between the cigscript markers in the file the link points to"
+
+[[code]]
 code = "E1870"
 title = "usage"
 meaning = "The command line is wrong: an unknown flag, a missing argument or a bad value."
@@ -1235,7 +1328,7 @@ remedy = "`ciginstaller <command> --help` shows the flags"
 code = "E1871"
 title = "a question was needed and there is no TTY"
 meaning = "The command needs an answer and there is no terminal to ask on, so the safe default was taken, which was no."
-fix = "`ciginstaller <command> --yes`, if you mean it"
+fix = "`ciginstaller <command> --yes`, or `--yes-irreversible` for a step that cannot be undone, if you mean it"
 no = "none"
 arises = ["any"]
 tags = ["installer", "ci-likely"]
@@ -1278,6 +1371,46 @@ why = "--offline is set, or offline = true in the config"
 no = "these-are-mine"
 probe = "config-offline"
 remedy = "run the command without --offline, or fetch first and keep working offline"
+
+[[code]]
+code = "E1874"
+title = "there is nothing to build the shims from"
+meaning = "`ciginstaller shims sync` rebuilds every shim from what is installed, and nothing is installed, or the installer's own toolchain has no shim program to link them to. No shim was changed."
+fix = "`ciginstaller install carton`"
+no = "dont-have-any"
+arises = ["any"]
+tags = ["installer"]
+since = "0.1.0"
+related = ["E1831", "E1840"]
+[[code.cause]]
+why = "no carton or tool is installed on this machine"
+no = "dont-have-any"
+probe = "none"
+remedy = "`ciginstaller install carton` installs one and makes its shims"
+[[code.cause]]
+why = "the installer's own toolchain is damaged and has no shim program"
+probe = "none"
+remedy = "`ciginstaller repair` restores it from the store"
+
+[[code]]
+code = "E1875"
+title = "the setting is not in the file"
+meaning = "`ciginstaller config unset` removes a setting's line from the config file, and the file has no line for it. The value in force comes from the environment or the default, which `config get` names."
+fix = "`ciginstaller config get <key>`"
+no = "dont-have-any"
+arises = ["any"]
+tags = ["installer"]
+since = "0.1.0"
+related = ["E1870"]
+[[code.cause]]
+why = "the setting was never set with `config set`, or was already unset"
+no = "dont-have-any"
+probe = "none"
+remedy = "nothing to undo: `ciginstaller config` lists every setting and where its value comes from"
+[[code.cause]]
+why = "the value comes from a CIGI_<KEY> environment variable, not the file"
+probe = "none"
+remedy = "unset the variable in your shell"
 
 [[code]]
 code = "E1890"

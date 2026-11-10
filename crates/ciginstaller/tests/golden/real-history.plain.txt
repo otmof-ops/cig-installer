@@ -1,0 +1,8 @@
+--- exit 0 ---
+--- stdout ---
+ok: 2 operation(s), newest first
+  id                       when                   what      from    to      ok
+  <id>   <time>   update    0.1.0   0.1.1   yes
+  <id>   <time>   install   -       0.1.0   yes
+  next: ciginstaller rollback
+--- stderr ---

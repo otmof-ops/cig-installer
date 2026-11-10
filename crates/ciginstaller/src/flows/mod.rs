@@ -13,6 +13,12 @@ pub mod update;
 // ---- end of the update lifecycle block ----
 pub mod self_update;
 pub mod use_carton;
+// ---- health: doctor, repair, uninstall ----
+pub mod doctor;
+pub mod health;
+pub mod repair;
+pub mod uninstall;
+// ---- end of the health block ----
 
 use std::path::PathBuf;
 
@@ -30,11 +36,17 @@ pub fn present(home: &Home, tool: &str, v: &Version) -> bool {
 /// The file a shim should run for a tool build, from its receipt.
 pub fn tool_exe(home: &Home, tool: &str, v: &Version) -> Option<PathBuf> {
     let r = read_receipt(home, tool, v).ok()?;
-    let mut p = home.toolchain(tool, v);
-    for part in r.shim_target(tool).split('/') {
+    let target = r.shim_target(tool);
+    // the path comes from a file on disk: it must stay inside its toolchain
+    if !cigi_home::toolchain::safe_rel(&target) {
+        return None;
+    }
+    let dir = home.toolchain(tool, v);
+    let mut p = dir.clone();
+    for part in target.split('/') {
         p.push(part);
     }
-    Some(p)
+    p.starts_with(&dir).then_some(p)
 }
 
 /// The last steps of every flow that changes what runs: `state.json`, then the `shim-index` flip.

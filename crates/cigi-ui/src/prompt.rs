@@ -5,11 +5,16 @@
 //! prompt). Without a terminal nothing is asked: the safe default is taken, one line says
 //! so, and the answer tells the caller to exit 3 when that default was a refusal.
 //!
-//! The answer is read as a line (type the letter, then enter). A true single keypress needs
-//! raw terminal mode, which needs `unsafe` or a terminal crate; not built (see the report).
-//! Passwords and OS authentication never go through here: they go to the OS.
+//! On a terminal one keypress answers, with no enter (see `detect::read_key`: terminal modes
+//! are set and restored by a trapped `sh` script, so there is no `unsafe` and a Ctrl-C leaves
+//! the terminal as it was). Off a terminal the answer is a line from the input. Raw mode is
+//! never used anywhere but on a terminal. Passwords and OS authentication never go through
+//! here: they go to the OS.
 
+use crate::catalogue as cat;
+use crate::detect::{self, Key};
 use crate::error::EXIT_USAGE;
+use crate::grammar::Icon;
 use crate::tokens::Role;
 use crate::ui::{Mode, Stream, Ui};
 
@@ -96,6 +101,19 @@ impl Question {
     }
 }
 
+/// What one read from the keyboard came to.
+enum Reply {
+    Eof,
+    Ignore,
+    Enter,
+    Text(String),
+}
+
+fn is_key(c: &Choice, typed: &str) -> bool {
+    let mut chars = typed.chars();
+    chars.next() == Some(c.key.to_ascii_lowercase()) && chars.next().is_none()
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum How {
     /// The user typed a key.
@@ -104,8 +122,11 @@ pub enum How {
     Enter,
     /// `--yes` (or `--yes-irreversible`) answered.
     Flag,
-    /// No terminal (or no input left): the safe default was taken.
+    /// No terminal: the safe default was taken, and one line said so.
     NoTty,
+    /// Three answers that were not options, or the input ended: nothing was taken, and the
+    /// caller must stop without changing anything and exit 3.
+    Aborted,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -117,12 +138,17 @@ pub struct Answer {
 }
 
 impl Answer {
-    /// `Some(3)` when no question could be asked and the default was a refusal (SPEC 11.2).
+    /// `Some(3)` when no question could be asked and the default was a refusal, or when the
+    /// questions went unanswered (SPEC 11.2).
     pub fn exit_code(&self) -> Option<i32> {
-        (self.how == How::NoTty && self.refusal).then_some(EXIT_USAGE)
+        match self.how {
+            How::Aborted => Some(EXIT_USAGE),
+            How::NoTty if self.refusal => Some(EXIT_USAGE),
+            _ => None,
+        }
     }
     pub fn is_yes(&self, q: &Question) -> bool {
-        q.choices.get(self.index).is_some_and(|c| c.affirmative)
+        self.how != How::Aborted && q.choices.get(self.index).is_some_and(|c| c.affirmative)
     }
 }
 
@@ -142,6 +168,14 @@ impl Ui {
     }
 
     fn choices_line(&self, q: &Question) -> String {
+        if q.irreversible {
+            let said = self.msg(&cat::TYPE_YES, &[]);
+            return if self.mode == Mode::Plain {
+                format!("  {said}")
+            } else {
+                said
+            };
+        }
         if self.mode == Mode::Plain {
             let parts: Vec<String> = q
                 .choices
@@ -152,7 +186,11 @@ impl Ui {
                         "{} ({}{})",
                         c.label,
                         c.key.to_ascii_lowercase(),
-                        if i == q.default { ", default" } else { "" }
+                        if i == q.default {
+                            format!(", {}", self.msg(&cat::CHOICES_DEFAULT, &[]))
+                        } else {
+                            String::new()
+                        }
                     )
                 })
                 .collect();
@@ -187,24 +225,31 @@ impl Ui {
             Some(sum) => format!("{}  {sum}", q.text),
             None => q.text.clone(),
         };
-        let lead = if self.mode == Mode::Plain {
-            "question:"
+        // An irreversible question leads with `!` in `danger`, an ordinary one with `?` in `warn`.
+        let (icon, role) = if q.irreversible {
+            (Icon::Irreversible, Role::Danger)
         } else {
-            "?"
+            (Icon::Ask, Role::Warn)
         };
-        let mut out = format!(
-            "{} {}\n",
-            self.paint(s, Role::Warn, lead),
-            self.glyphs(&head)
-        );
+        let lead = if self.mode == Mode::Plain {
+            icon.plain_prefix()
+        } else {
+            icon.glyph(self.ascii)
+        };
+        let lead = if self.mode == Mode::Plain {
+            self.paint(s, role, lead)
+        } else {
+            self.paint_glyph(s, role, lead)
+        };
+        let mut out = format!("{lead} {}\n", self.glyphs(&head));
         for d in &q.detail {
             out.push_str(&format!("  {}\n", self.glyphs(d)));
         }
         let default = q.choices.get(q.default).map_or("no", |c| c.label.as_str());
         let enter = if q.irreversible {
-            format!("(enter = {default}; this cannot be undone)")
+            self.msg(&cat::ENTER_DEFAULT_IRREVERSIBLE, &[default])
         } else {
-            format!("(enter = {default})")
+            self.msg(&cat::ENTER_DEFAULT, &[default])
         };
         let line = self.choices_line(q);
         if self.mode == Mode::Plain {
@@ -217,7 +262,7 @@ impl Ui {
             out.push_str(&format!(
                 "  {}{}{}\n",
                 line.trim_start(),
-                " ".repeat(pad.saturating_sub(2)),
+                " ".repeat(pad.saturating_sub(2).max(2)),
                 self.paint(s, Role::Ash400, &enter)
             ));
         }
@@ -230,47 +275,103 @@ impl Ui {
         let said_yes =
             (self.yes || self.yes_irreversible) && (!q.irreversible || self.yes_irreversible);
         if let (true, Some(i)) = (said_yes, affirmative) {
-            self.chatter(&format!("--yes: {} to \"{}\"", q.choices[i].label, q.text));
+            self.chatter(&self.msg(&cat::FLAG_ANSWERED, &[&q.choices[i].label, &q.text]));
             return self.pick(q, i, How::Flag);
         }
         let can_ask = self.mode != Mode::Json && self.tty_in && self.tty_err;
         if !can_ask {
             let def = q.choices.get(q.default).map_or("no", |c| c.label.as_str());
             let why = if self.yes && q.irreversible {
-                "this step is irreversible: pass --yes-irreversible to say yes"
+                self.msg(&cat::WHY_IRREVERSIBLE, &[])
             } else {
-                "pass --yes to say yes"
+                self.msg(&cat::WHY_PASS_YES, &[])
             };
-            self.chatter(&format!(
-                "no terminal to ask on: took \"{def}\" for \"{}\" ({why})",
-                q.text
-            ));
+            self.chatter(&self.msg(&cat::NO_TERMINAL, &[def, &q.text, &why]));
             return self.pick(q, q.default, How::NoTty);
         }
         self.write(Stream::Err, &self.render_prompt(q));
-        for _ in 0..3 {
-            let Some(line) = self.read_line() else { break };
-            let typed = line.trim().chars().next().map(|c| c.to_ascii_lowercase());
-            match typed {
-                None => return self.pick(q, q.default, How::Enter),
-                Some(k) => {
-                    if let Some(i) = q
-                        .choices
-                        .iter()
-                        .position(|c| c.key.to_ascii_lowercase() == k)
-                    {
+        // One keypress on a terminal, in the voice, for a question that can be undone. Under
+        // plain (`--plain`, CI, a screen reader, `voice = plain`, a non-English locale) and for
+        // anything irreversible the answer is a typed line.
+        let mut keys = self.is_std() && !self.plain() && !q.irreversible;
+        if !keys && self.is_std() {
+            detect::drain_input();
+        }
+        let mut misses = 0;
+        while misses < 3 {
+            let reply = if keys {
+                match detect::read_key() {
+                    Some(Key::Char(c)) => Reply::Text(c.to_string()),
+                    Some(Key::Enter) => Reply::Enter,
+                    Some(Key::Eof) => Reply::Eof,
+                    Some(Key::Ignored) => Reply::Ignore,
+                    None => {
+                        // no `sh`, `stty` or `dd`: fall back to a typed line
+                        keys = false;
+                        detect::drain_input();
+                        continue;
+                    }
+                }
+            } else {
+                match self.read_line() {
+                    None => Reply::Eof,
+                    Some(l) if l.trim().is_empty() => Reply::Enter,
+                    Some(l) => Reply::Text(l.trim().to_string()),
+                }
+            };
+            match reply {
+                Reply::Eof => break,
+                Reply::Ignore => {}
+                Reply::Enter => return self.pick(q, q.default, How::Enter),
+                Reply::Text(t) => {
+                    if let Some(i) = self.matching(q, &t, keys) {
                         return self.pick(q, i, How::Typed);
                     }
-                    let keys: Vec<String> = q
-                        .choices
-                        .iter()
-                        .map(|c| c.key.to_ascii_lowercase().to_string())
-                        .collect();
-                    self.write(Stream::Err, &format!("  pick one of: {}\n", keys.join(" ")));
+                    misses += 1;
+                    let said = if q.irreversible {
+                        self.msg(&cat::PICK_YES, &[])
+                    } else {
+                        let keys: Vec<String> = q
+                            .choices
+                            .iter()
+                            .map(|c| c.key.to_ascii_lowercase().to_string())
+                            .collect();
+                        self.msg(&cat::PICK_ONE, &[&keys.join(" ")])
+                    };
+                    self.write(Stream::Err, &format!("  {said}\n"));
                 }
             }
         }
-        self.pick(q, q.default, How::NoTty)
+        self.give_up(q)
+    }
+
+    /// The choice a typed answer names. A key press is one key; a typed line is a key or a whole
+    /// label; an irreversible question takes only `yes` for yes, and its refusals by key or label.
+    fn matching(&self, q: &Question, typed: &str, key_press: bool) -> Option<usize> {
+        let t = typed.to_ascii_lowercase();
+        if q.irreversible {
+            if t == "yes" {
+                return q.choices.iter().position(|c| c.affirmative);
+            }
+            return q
+                .choices
+                .iter()
+                .position(|c| c.refusal && (c.label.to_ascii_lowercase() == t || is_key(c, &t)));
+        }
+        q.choices
+            .iter()
+            .position(|c| is_key(c, &t) || (!key_press && c.label.to_ascii_lowercase() == t))
+    }
+
+    /// Nothing was answered usefully: say so, change nothing, and exit 3 (SPEC 11.2). On the real
+    /// terminal the process ends here, so no caller can take a default by mistake; a captured
+    /// `Ui` returns the answer for the test to read.
+    fn give_up(&self, q: &Question) -> Answer {
+        self.chatter(&self.msg(&cat::GAVE_UP, &[]));
+        if self.is_std() {
+            std::process::exit(EXIT_USAGE);
+        }
+        self.pick(q, q.default, How::Aborted)
     }
 
     /// A note to stderr that `--quiet` does not hide (it explains why a question was not asked).

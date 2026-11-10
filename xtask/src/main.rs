@@ -15,7 +15,9 @@ usage:
         [--installer <v>] [--tool <name>=<v>]... [--pack <name>=<tool>,<tool>]...
         [--notes <text>] [--channel stable] [--previous <manifest.toml>]
         [--expires-days 30] [--out <file>]
-  cargo xtask pins <manifest.toml>";
+  cargo xtask pins <manifest.toml>
+  cargo xtask errors-doc
+  cargo xtask tokens [--check]";
 
 fn fail(msg: &str) -> ! {
     eprintln!("xtask: {msg}");
@@ -53,7 +55,17 @@ fn main() {
     {
         ["manifest", "assemble", rest @ ..] => assemble_cmd(rest),
         ["pins", manifest] => pins_cmd(Path::new(manifest)),
+        ["errors-doc"] => errors_doc_cmd(),
+        ["tokens"] => tokens_cmd(false),
+        ["tokens", "--check"] => tokens_cmd(true),
         _ => usage("what to do?"),
+    }
+}
+
+/// Build `crates/cigi-ui/src/tokens.rs` and `design/generated/` from `design/tokens.json`.
+fn tokens_cmd(check: bool) {
+    if let Err(e) = xtask::tokens::run(&root(), check) {
+        fail(&e);
     }
 }
 
@@ -147,4 +159,11 @@ fn pins_cmd(manifest: &Path) {
         "wrote {}; review the diff, then build",
         dest.strip_prefix(root()).unwrap_or(&dest).display()
     );
+}
+
+fn errors_doc_cmd() {
+    let dest = root().join("docs/ERRORS.md");
+    let text = xtask::errors_doc::render(cigi_ui::registry::registry());
+    std::fs::write(&dest, text).unwrap_or_else(|e| fail(&format!("{}: {e}", dest.display())));
+    println!("wrote docs/ERRORS.md from errors/registry.toml");
 }

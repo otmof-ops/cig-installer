@@ -46,14 +46,18 @@ impl Resolution {
             Some(c) => format!("from carton {c}"),
             None => "a stick".to_string(),
         };
-        let why = match &self.why {
+        format!("{tool} {}, {from} ({})", self.build, self.why_text())
+    }
+
+    /// The reason in words: `pinned in .cig-carton`, `the machine's carton`.
+    pub fn why_text(&self) -> String {
+        match &self.why {
             Why::Forced(c) => format!("CIGI_CARTON={c}"),
             Why::Pinned(f) => format!("pinned in {f}"),
             Why::Legacy(f) => format!("satisfies {f}"),
             Why::Machine => "the machine's carton".to_string(),
             Why::Stick => "installed on its own".to_string(),
-        };
-        format!("{tool} {}, {from} ({why})", self.build)
+        }
     }
 }
 

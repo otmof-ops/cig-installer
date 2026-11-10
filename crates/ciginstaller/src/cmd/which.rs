@@ -1,19 +1,131 @@
 // SPDX-FileCopyrightText: 2026 Jay Taylor (https://github.com/otmof-ops/cig-installer)
 // SPDX-License-Identifier: FSL-1.1-ALv2
-//! `which <tool> [--why] [--path]`.
+//! `which <tool> [--why] [--path]`, and `which [--why]` with no tool: every tool of the family,
+//! what runs here and why. (#30 also wants a row per project; that comes with the project walk.)
 
 use std::path::Path;
 
 use cigi_home::journal::{list_txns, TxnStatus};
 use cigi_home::{now_rfc3339, State};
-use cigi_ui::{InstallerError, Report, EXIT_REFUSED};
+use cigi_ui::{Align, Cell, InstallerError, Report, Table, EXIT_REFUSED, EXIT_USAGE};
 use serde_json::json;
 
+use super::tabular::details;
 use super::Outcome;
 use crate::cx::Cx;
 use crate::resolve::{resolve, Mode, Resolution};
 
-pub fn run(cx: &mut Cx, tool: &str, why: bool, path_only: bool) -> Result<Outcome, InstallerError> {
+pub fn run(
+    cx: &mut Cx,
+    tool: Option<&str>,
+    why: bool,
+    path_only: bool,
+) -> Result<Outcome, InstallerError> {
+    match tool {
+        Some(t) => one(cx, t, why, path_only),
+        None if path_only => Err(InstallerError::new(
+            "E1870",
+            "--path needs a tool: `ciginstaller which <tool> --path`",
+        )
+        .with_fix("ciginstaller which <tool> --path")
+        .with_exit(EXIT_USAGE)),
+        None => all(cx, why),
+    }
+}
+
+/// Every tool of the family: what runs here and why. A tool that cannot be resolved gets a row
+/// saying so, with its code; the command still answers, and its next step is the first fix.
+fn all(cx: &mut Cx, why: bool) -> Result<Outcome, InstallerError> {
+    let mut table = Table::new(&[
+        ("tool", Align::Left),
+        ("runs", Align::Left),
+        ("from", Align::Left),
+        ("why", Align::Left),
+    ]);
+    let mut rows = Vec::new();
+    let mut steps: Vec<String> = Vec::new();
+    let mut resolved = 0;
+    let mut first_fix: Option<String> = None;
+    for tool in cigi_shim::TOOLS {
+        match resolve(cx, tool, Mode::Which) {
+            Ok(res) => {
+                // No `touch_last_used` here: this is a survey of every tool, it must leave
+                // `state.json` alone (the one-tool form keeps its once-a-day touch).
+                resolved += 1;
+                let from = res
+                    .carton
+                    .as_ref()
+                    .map_or("a stick".to_string(), |c| format!("carton {c}"));
+                table = table.row(vec![
+                    Cell::new(tool),
+                    Cell::new(res.build.to_string()),
+                    Cell::new(from),
+                    Cell::new(res.why_text()),
+                ]);
+                if why {
+                    steps.push(format!("{tool}:"));
+                    steps.extend(res.steps.iter().map(|s| format!("  {}", s.trim_end())));
+                }
+                rows.push(json!({
+                    "tool": tool,
+                    "version": res.build.to_string(),
+                    "carton": res.carton.as_ref().map(|c| c.to_string()),
+                    "path": res.path.display().to_string(),
+                    "why": res.why_text(),
+                    "steps": res.steps,
+                }));
+            }
+            Err(e) => {
+                table = table.row(vec![
+                    Cell::new(tool),
+                    Cell::changed("nothing"),
+                    Cell::new("-"),
+                    // short on purpose: the last column is cut to the terminal's width, and
+                    // the whole message is in `--json`
+                    Cell::new(if e.code == "E1840" {
+                        format!("{}: not installed", e.code)
+                    } else {
+                        format!("{}: {}", e.code, e.message)
+                    }),
+                ]);
+                if first_fix.is_none() {
+                    first_fix = e.fix_text();
+                }
+                rows.push(json!({
+                    "tool": tool,
+                    "version": null,
+                    "carton": null,
+                    "path": null,
+                    "why": null,
+                    "code": e.code,
+                    "error": e.message,
+                }));
+            }
+        }
+    }
+    if resolved == 0 && cx.state.cartons.is_empty() && cx.state.sticks.is_empty() {
+        return Ok(Report::done("nothing is installed, so nothing runs here")
+            .next("ciginstaller install carton")
+            .data(json!({ "tools": rows }))
+            .into());
+    }
+    let mut r = Report::done(format!(
+        "{resolved} of {} tools run from here",
+        cigi_shim::TOOLS.len()
+    ));
+    for l in details(&cx.ui, &table) {
+        r = r.detail(l);
+    }
+    for l in steps {
+        r = r.detail(l);
+    }
+    if let Some(f) = first_fix {
+        r = r.next(f);
+    }
+    Ok(r.data(json!({ "tools": rows })).into())
+}
+
+fn one(cx: &mut Cx, tool: &str, why: bool, path_only: bool) -> Result<Outcome, InstallerError> {
     // Exit rule: only the codes that mean "refused" (a pin or CIGI_CARTON the machine cannot
     // meet: E1816, E1842, E1801) exit 2. Everything else keeps its own code: E1840 (no tool) is
     // 127, E1831 and the rest follow the registry, E1890 (a bug) is 70.

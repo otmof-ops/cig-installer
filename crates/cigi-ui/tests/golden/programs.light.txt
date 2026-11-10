@@ -1,0 +1,7 @@
+--- stdout ---
+  ␛[38;2;107;114;128mprogram␛[0m       ␛[38;2;107;114;128mbuilt with␛[0m   ␛[38;2;107;114;128mcig now␛[0m   ␛[38;2;107;114;128madvisory␛[0m
+  ~/work/tidy       ␛[38;2;194;65;12m1.19.0␛[0m    1.20.0   rebuild with CigCompile
+  ~/work/site       1.20.0    1.20.0   —
+␛[38;2;21;128;61m✓␛[0m 2 programs; 1 needs a rebuild
+  ␛[38;2;194;65;12m→␛[0m cigcompile rebuild ~/work/tidy
+--- stderr ---

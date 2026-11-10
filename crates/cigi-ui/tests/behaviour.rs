@@ -6,8 +6,8 @@
 
 use cig_compat::check::{Finding, Severity};
 use cigi_ui::registry::{self, number};
-use cigi_ui::tokens::{paint, sgr};
 use cigi_ui::*;
+use cigi_ui::{paint, sgr};
 use std::collections::BTreeSet;
 
 fn tty() -> Env {
@@ -20,6 +20,7 @@ fn tty() -> Env {
     .with("LANG", "en_US.UTF-8")
     .with("TERM", "xterm-256color")
     .with("COLORTERM", "truecolor")
+    .with("COLORFGBG", "15;0")
 }
 
 fn flags() -> GlobalFlags {
@@ -108,7 +109,26 @@ fn safe_default_without_a_tty() {
     let a = ui.ask(&q);
     assert_eq!((a.key, a.how, a.refusal), ('n', How::NoTty, true));
     assert_eq!(a.exit_code(), Some(3));
-    assert!(cap.err().contains("no terminal to ask on"));
+    assert!(
+        cap.err().contains("nobody's at the keyboard to ask"),
+        "{}",
+        cap.err()
+    );
+    // plain says the same facts in neutral words
+    let (plain, pcap) = Ui::from_env(
+        &GlobalFlags {
+            plain: true,
+            ..flags()
+        },
+        &Env::default(),
+    )
+    .captured();
+    plain.ask(&q);
+    assert!(
+        pcap.err().contains("no terminal to ask on"),
+        "{}",
+        pcap.err()
+    );
     // a non-refusing default does not force exit 3
     let a = ui.ask(&Question::yes_no("go on?", true));
     assert_eq!((a.key, a.exit_code()), ('y', None));
@@ -162,8 +182,9 @@ fn asking_on_a_terminal() {
     cap.push_input("s");
     assert_eq!(ui.ask(&q).key, 's');
     assert!(cap.err().contains("pick one of: y n s"));
-    let a = ui.ask(&q); // end of input
-    assert_eq!((a.how, a.key), (How::NoTty, 'y'));
+    let a = ui.ask(&q); // end of input: nothing is taken, and the caller stops (exit 3)
+    assert_eq!((a.how, a.exit_code()), (How::Aborted, Some(3)));
+    assert!(!a.is_yes(&q), "an aborted question is never a yes");
     let irr = Question::irreversible("sure?");
     cap.push_input("");
     let a = ui.ask(&irr);
@@ -259,9 +280,13 @@ fn icons_fall_back_to_ascii() {
             && all.contains("[-] a notice"),
         "{all}"
     );
+    // the ASCII set is `[?]` for a question and `[!]` for an irreversible one (#32)
     assert!(ui
         .render_prompt(&Question::irreversible("sure?"))
-        .starts_with("? sure?"));
+        .starts_with("[!] sure?"));
+    assert!(ui
+        .render_prompt(&Question::yes_no("sure?", true))
+        .starts_with("[?] sure?"));
     assert!(all.contains("-> next"));
     let (ui, cap) = Ui::from_env(&flags(), &Env::default().with("LANG", "en_US.UTF-8")).captured();
     ui.say(&Report::done("x").next("y"));
@@ -552,7 +577,7 @@ fn detection() {
 
 #[test]
 fn palette_roles_fall_back_by_depth() {
-    use tokens::{ColorMode as C, Role as R, Theme as T};
+    use cigi_ui::{ColorMode as C, Role as R, Theme as T};
     assert_eq!(
         sgr(C::True, T::Dark, R::Ember).as_deref(),
         Some("\x1b[38;2;249;115;22m")
@@ -574,11 +599,11 @@ fn palette_roles_fall_back_by_depth() {
     );
     assert_eq!(
         sgr(C::Ansi16, T::Dark, R::Danger).as_deref(),
-        Some("\x1b[31m")
+        Some("\x1b[91m")
     );
     assert_eq!(
         sgr(C::Ansi16, T::Dark, R::Ash400).as_deref(),
-        Some("\x1b[2m")
+        Some("\x1b[90m")
     );
     assert_eq!(
         sgr(C::True, T::Light, R::Ember),
@@ -604,7 +629,7 @@ fn tables_align_and_truncate() {
         "x".repeat(100).as_str().into(),
     ])
     .row(vec!["bbb".into(), "2".into(), "short".into()]);
-    let (ui, _) = Ui::from_env(&flags(), &Env::default().with("LANG", "en_US.UTF-8")).captured();
+    let (ui, _) = Ui::from_env(&flags(), &tty().with("NO_COLOR", "1")).captured();
     let text = ui.render_table(&t);
     let lines: Vec<&str> = text.lines().collect();
     assert_eq!(lines[0], "  name    n   what");
@@ -617,7 +642,14 @@ fn tables_align_and_truncate() {
         .nth(1)
         .unwrap_or("")
         .contains(&"x".repeat(100)));
-    let (ascii, _) = Ui::from_env(&flags(), &Env::default()).captured();
+    let (ascii, _) = Ui::from_env(
+        &flags(),
+        &Env {
+            tty_out: true,
+            ..Env::default()
+        },
+    )
+    .captured();
     assert!(ascii
         .render_table(&t)
         .lines()
@@ -670,7 +702,7 @@ fn results_go_to_stdout_and_chatter_to_stderr() {
 
 // ---- the registry -----------------------------------------------------------------------
 
-const SPEC_CODES: [(u32, &str); 59] = [
+const SPEC_CODES: [(u32, &str); 66] = [
     (1800, "combination refused"),
     (1801, "a product needs another"),
     (1802, "a stick does not fit its carton"),
@@ -727,10 +759,20 @@ const SPEC_CODES: [(u32, &str); 59] = [
     (1860, "repair could not restore a file"),
     (1861, "--purge needs OS authentication"),
     (1862, "a profile block was edited and is left alone"),
+    (
+        1863,
+        "nothing installed by that name to repair, uninstall or remove",
+    ),
+    (1864, "a tool's own doctor could not be run"),
+    (1865, "an uninstall was cut short after its last step"),
+    (1868, "this is not a home the installer made"),
+    (1869, "a path the installer will not follow or remove"),
     (1870, "usage"),
     (1871, "a question was needed and there is no TTY"),
     (1872, "platform not supported"),
     (1873, "offline was requested and the step needs the network"),
+    (1874, "there is nothing to build the shims from"),
+    (1875, "the setting is not in the file"),
     (1890, "a bug in the installer"),
     (1891, "a journal could not be recovered"),
 ];
@@ -947,7 +989,7 @@ fn errors_get_kind_exit_and_catchphrase_from_the_registry() {
     ));
     let err = cap.err();
     assert!(err.starts_with(
-        "✗ error[E1811 installer]: can't see any ciggies bro: there's no carton 1.4 on stable\n"
+        "✗ error[E1811 carton]: can't see any ciggies bro: there's no carton 1.4 on stable\n"
     ));
     assert!(
         err.contains("  = explain: ciginstaller explain E1811\n")

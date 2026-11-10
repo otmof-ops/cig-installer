@@ -1,0 +1,12 @@
+--- stdout ---
+note: cig 1.20.0
+action: I think the PATH block is missing from your profile (E1845)
+  because I checked ~/.profile, ~/.bashrc and ~/.zshrc: none has the block
+  next: ciginstaller repair
+note: CigCompile 0.2.0
+action: I think a program was built on an older cig (E1806)
+  because ~/work/tidy was built on cig 1.19.0 and cig 1.20.0 is installed
+  next: cigcompile rebuild ~/work/tidy
+note: nothing else needed a look
+ok: 2 findings, 2 fixes to run
+--- stderr ---

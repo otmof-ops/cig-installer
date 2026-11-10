@@ -1,0 +1,5 @@
+--- stdout ---
+--- stderr ---
+[x] error[E1890 internal]: the shim index has two machine lines
+  = explain: ciginstaller explain E1890
+  = fix: `ciginstaller doctor`, then report it at https://github.com/otmof-ops/cig-installer/issues

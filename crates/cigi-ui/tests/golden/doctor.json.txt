@@ -1,0 +1,3 @@
+--- stdout ---
+{"ok":true,"command":"doctor","headline":"2 findings, 2 fixes to run","detail":[],"next":null,"code":null,"data":{"findings":2,"fixes":2}}
+--- stderr ---

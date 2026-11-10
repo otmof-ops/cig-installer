@@ -51,6 +51,11 @@ pub enum Before {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         saved: Option<String>,
     },
+    /// A symbolic link stood here, pointing at `target` (`delete`): it is unlinked, never
+    /// followed, and a rollback makes the same link again.
+    Link {
+        target: String,
+    },
 }
 
 /// One journal record. The vocabulary is section 5.5's:
@@ -407,10 +412,10 @@ impl Txn {
                     )))
                 }
             }
-            Ok(md) if md.file_type().is_symlink() => Err(JournalError::Misuse(format!(
-                "{} is a symbolic link",
-                path.display()
-            ))),
+            Ok(md) if md.file_type().is_symlink() => Err(JournalError::Refused {
+                path: path.to_path_buf(),
+                why: "is a symbolic link, and the installer does not write through one".into(),
+            }),
             Ok(_) => {
                 let (sha, _) = util::sha256_file(path).map_err(jio(path))?;
                 let (rel, abs) = self.next_saved();
@@ -647,18 +652,42 @@ impl Txn {
             .components()
             .all(|c| !matches!(c, std::path::Component::ParentDir));
         if !plain || !path.starts_with(base) || path == base {
-            return Err(JournalError::Misuse(format!(
-                "refusing to delete {}: not a path inside {}",
-                path.display(),
-                base.display()
-            )));
+            return Err(JournalError::Refused {
+                path: path.to_path_buf(),
+                why: format!("is not a path inside {}", base.display()),
+            });
+        }
+        // no directory between `base` and the path may be a link: a remove goes through it
+        for dir in path.ancestors().skip(1) {
+            if dir == base || !dir.starts_with(base) {
+                break;
+            }
+            if fs::symlink_metadata(dir).is_ok_and(|m| m.file_type().is_symlink()) {
+                return Err(JournalError::Refused {
+                    path: dir.to_path_buf(),
+                    why: "is a symbolic link where a directory of the installer's should be".into(),
+                });
+            }
         }
         let md = match fs::symlink_metadata(path) {
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(()),
             Err(e) => return Err(jio(path)(e)),
             Ok(md) => md,
         };
-        if md.is_dir() {
+        if md.file_type().is_symlink() {
+            let target = fs::read_link(path).map_err(jio(path))?;
+            self.log(
+                &JournalOp::Delete {
+                    path: path.to_path_buf(),
+                    before: Before::Link {
+                        target: target.to_string_lossy().into_owned(),
+                    },
+                },
+                true,
+            )?;
+            // `remove_file` on a link removes the link itself
+            fs::remove_file(path).map_err(jio(path))?;
+        } else if md.is_dir() {
             let (rel, abs) = self.next_saved();
             self.log(
                 &JournalOp::Delete {
@@ -1125,6 +1154,27 @@ fn undo_one(
     }
 }
 
+#[cfg(unix)]
+fn make_link(target: &str, at: &Path) -> std::io::Result<()> {
+    std::os::unix::fs::symlink(target, at)
+}
+#[cfg(not(unix))]
+fn make_link(_target: &str, _at: &Path) -> std::io::Result<()> {
+    Err(std::io::Error::other(
+        "a symbolic link cannot be made again on this platform",
+    ))
+}
+
+/// A directory tree with no file in it (what `ensure_layout` leaves).
+fn only_empty_dirs(p: &Path) -> bool {
+    match fs::read_dir(p) {
+        Ok(rd) => rd.flatten().all(|e| {
+            e.file_type().is_ok_and(|t| t.is_dir() && !t.is_symlink()) && only_empty_dirs(&e.path())
+        }),
+        Err(_) => false,
+    }
+}
+
 fn undo_delete(txn_dir: &Path, path: &Path, before: &Before) -> Result<(), String> {
     match before {
         Before::File {
@@ -1137,8 +1187,19 @@ fn undo_delete(txn_dir: &Path, path: &Path, before: &Before) -> Result<(), Strin
                 restore_saved(txn_dir, s, sha256.as_deref(), path)
             }
         }
+        Before::Link { target } => {
+            if fs::symlink_metadata(path).is_ok() {
+                return Ok(());
+            }
+            make_link(target, path).map_err(|e| format!("{}: {e}", path.display()))
+        }
         Before::Dir { saved: Some(s) } => {
             let abs = txn_dir.join(s);
+            // `ensure_layout` runs before `recover` and makes an empty directory where a whole
+            // one was moved aside (`uninstall --all`): an empty one is not what was deleted
+            if path.is_dir() && abs.is_dir() && only_empty_dirs(path) {
+                fs::remove_dir_all(path).map_err(|e| format!("{}: {e}", path.display()))?;
+            }
             if util::exists_any(path) {
                 Ok(())
             } else if abs.is_dir() {

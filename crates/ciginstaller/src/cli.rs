@@ -1,6 +1,6 @@
 // SPDX-FileCopyrightText: 2026 Jay Taylor (https://github.com/otmof-ops/cig-installer)
 // SPDX-License-Identifier: FSL-1.1-ALv2
-//! The command line (SPEC 10), as far as this phase builds it.
+//! The command line.
 
 use std::path::PathBuf;
 
@@ -17,10 +17,11 @@ pub struct Cli {
     /// One JSON object per result on stdout.
     #[arg(long, global = true)]
     pub json: bool,
-    /// The same facts without decoration.
+    /// The same facts in neutral words. Also automatic under CI (`CI` set), a screen reader
+    /// (`CIG_SCREEN_READER=1`), a non-English locale, and `voice = plain` in the installer's config.
     #[arg(long, global = true)]
     pub plain: bool,
-    /// Never use colour (also NO_COLOR).
+    /// Never use color (also NO_COLOR).
     #[arg(long, global = true)]
     pub no_color: bool,
     /// Take the safe default of every question, and yes to the reversible ones.
@@ -32,6 +33,9 @@ pub struct Cli {
     /// Only results and errors.
     #[arg(long, short = 'q', global = true)]
     pub quiet: bool,
+    /// Tables are never cut to the terminal's width.
+    #[arg(long, global = true)]
+    pub wide: bool,
     /// More detail.
     #[arg(long, short = 'v', global = true)]
     pub verbose: bool,
@@ -75,7 +79,8 @@ pub enum Command {
     },
     /// Write a project pin file.
     Pin {
-        /// `carton` (`.cig-carton`) or `cig` (`.cig-version`).
+        /// `carton` (`.cig-carton`), `cig` (`.cig-version`), `cigo` (`.cigo-version`) or `cigar`
+        /// (`.cigar-version`).
         tool: String,
         /// A pin: `0.1`, `0.1.2` or `>=0.1.2`.
         pin: String,
@@ -87,7 +92,8 @@ pub enum Command {
     List,
     /// What runs here, and why.
     Which {
-        tool: String,
+        /// A tool; with none, every tool of the family and why it runs from where it does.
+        tool: Option<String>,
         /// The resolver's steps.
         #[arg(long)]
         why: bool,
@@ -99,9 +105,9 @@ pub enum Command {
         cwd: Option<PathBuf>,
     },
     // ---- the update lifecycle: update, rollback ----
-    /// Check, choose, verify, trial and switch to a newer carton (SPEC 12.2).
+    /// Check, choose, verify, trial and switch to a newer carton.
     Update(UpdateCmd),
-    /// Back to the previous carton, or one tool's build in it (SPEC 12.3).
+    /// Back to the previous carton, or one tool's build in it.
     Rollback {
         /// Switch only this tool's build (the machine becomes a mix, recorded as a stick).
         tool: Option<String>,
@@ -131,6 +137,63 @@ pub enum Command {
         #[arg(long, value_name = "DIR")]
         project: Option<PathBuf>,
     },
+    // ---- status, settings, history, shims (a4) ----
+    /// This machine at a glance: the carton, the tools, how they were trusted, what is waiting.
+    Status,
+    /// Settings: list them, `get <key>`, `set <key> <value>`, `unset <key>`.
+    Config(ConfigCmd),
+    /// What this machine has been through, newest first.
+    History,
+    /// The shims in `bin/`: `sync` rebuilds them and the index from state, `list` shows them.
+    Shims(ShimsCmd),
+    // ---- end of the a4 block ----
+    // ---- health: doctor, repair, uninstall, remove ----
+    /// One report on the whole family: shims, PATH, toolchains, state, matrix, manifest, disk,
+    /// humidor, transactions. Reads only; each finding ends with the command that fixes it.
+    Doctor {
+        /// Also fetch the manifest now (the only thing that uses the network).
+        #[arg(long)]
+        network: bool,
+        /// Print the tools' own doctors, as they answer, under their headings.
+        #[arg(long)]
+        tools: bool,
+    },
+    /// Check every installed file against its receipt and put back what is damaged, from the
+    /// store or a fresh verified download; regenerate the shims and the index.
+    Repair {
+        /// Only this tool.
+        #[arg(long, value_name = "TOOL")]
+        tool: Option<String>,
+        /// Say what would be done; change nothing.
+        #[arg(long)]
+        dry_run: bool,
+    },
+    /// Remove one tool, or everything the installer added to this machine (`--all`); your data stays.
+    Uninstall {
+        /// The tool to remove.
+        tool: Option<String>,
+        /// Remove everything the family added: shims, toolchains, store, humidor entries, PATH
+        /// blocks, and last `installer/`.
+        #[arg(long)]
+        all: bool,
+        /// Also remove your data. Refused in this build.
+        #[arg(long)]
+        purge: bool,
+        /// Keep the journal of `--all` beside the home instead of deleting it.
+        #[arg(long)]
+        keep_journal: bool,
+        /// Say what would be removed; change nothing.
+        #[arg(long)]
+        dry_run: bool,
+    },
+    /// Remove one installed carton and the builds nothing else uses.
+    Remove {
+        carton: String,
+        /// Say what would be removed; change nothing.
+        #[arg(long)]
+        dry_run: bool,
+    },
+    // ---- end of the health block ----
     #[command(name = "__selfcheck", hide = true)]
     SelfCheck,
     #[command(name = "__resolve", hide = true)]
@@ -172,12 +235,19 @@ pub struct InstallCmd {
     /// Print the plan and write nothing.
     #[arg(long, global = true)]
     pub dry_run: bool,
+    /// The security preset: chill, balanced, strict or paranoid. Recorded in config; the guard
+    /// applies it once cig-orchestrator#66 lands.
+    #[arg(long, global = true, value_name = "PRESET")]
+    pub preset: Option<String>,
 }
 
 #[derive(Subcommand)]
 pub enum InstallWhat {
-    /// Every tool of the carton.
-    Carton,
+    /// Every tool of the carton, optionally of an exact one: `install carton 1.2.0`.
+    Carton {
+        /// An exact carton or a pin such as 1.1 (the same as `--carton`; not both).
+        version: Option<String>,
+    },
     /// A named set of tools of the carton.
     Pack {
         name: Option<String>,
@@ -261,3 +331,37 @@ pub enum SelfSub {
         check: bool,
     },
 }
+
+// ---- status, settings, history, shims (a4) ----
+#[derive(Args)]
+pub struct ConfigCmd {
+    #[command(subcommand)]
+    pub sub: Option<ConfigSub>,
+}
+
+#[derive(Subcommand)]
+pub enum ConfigSub {
+    /// Every setting, its value and where the value comes from.
+    List,
+    /// One setting's value and where it comes from.
+    Get { key: String },
+    /// Set a setting in the config file (checked first; an environment variable still outranks it).
+    Set { key: String, value: String },
+    /// Remove a setting from the config file, back to its default.
+    Unset { key: String },
+}
+
+#[derive(Args)]
+pub struct ShimsCmd {
+    #[command(subcommand)]
+    pub sub: ShimsSub,
+}
+
+#[derive(Subcommand)]
+pub enum ShimsSub {
+    /// Rebuild every shim and the shim index from what is installed, in one transaction.
+    Sync,
+    /// Each shim and what it runs here.
+    List,
+}
+// ---- end of the a4 block ----

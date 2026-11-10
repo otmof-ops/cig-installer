@@ -1,0 +1,3 @@
+--- stdout ---
+{"ok":true,"command":"crash","headline":"2 reports; 1 waiting","detail":[],"next":"ciginstaller crash show c-0007","code":null,"data":null}
+--- stderr ---

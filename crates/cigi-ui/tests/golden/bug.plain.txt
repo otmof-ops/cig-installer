@@ -1,0 +1,16 @@
+--- stdout ---
+ok: filed: https://github.com/otmof-ops/cig-installer/issues/41
+--- stderr ---
+--- rendered ---
+question: does it happen every time?
+  one question per screen; your answers are part of the preview.
+  choices: yes (y), no (n), sometimes (s, default)
+  (enter = sometimes)
+┌─ preview: this is exactly what is sent ───────────────────────────────────────
+│ ciginstaller 0.1.0 on linux x86_64
+│ update stopped at the trial; no files changed
+└───────────────────────────────────────────────────────────────────────────────
+question: send it?
+  a public issue on otmof-ops/cig-installer; nothing else leaves the machine.
+  choices: yes (y), no (n, default)
+  (enter = no)

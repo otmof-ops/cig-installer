@@ -49,6 +49,9 @@ impl Shell {
 pub enum PathChange {
     Added,
     Removed,
+    /// Remove: the block went, and the profile is a link (or lies outside the user's home) and
+    /// held nothing else: it is left as an empty file, because it is not the installer's to delete.
+    Emptied,
     /// Add: the exact block is already there.
     AlreadyPresent,
     /// Remove: no block.
@@ -277,10 +280,17 @@ pub fn remove_path_block(
                 }
             }
             let rest = format!("{}{}", &text[..start], &text[e..]);
+            let mode = platform::mode_of(&profile);
             if rest.is_empty() && !separator {
+                // delete a profile the add created; a link, or a file outside the user's home
+                // (a dotfiles repository), is not ours to delete: write it back empty
+                let is_link = fs::symlink_metadata(&link).is_ok_and(|m| m.file_type().is_symlink());
+                if is_link || !profile.starts_with(home.user_home()) {
+                    txn.write_block(&profile, MARKER, rest.as_bytes(), mode)?;
+                    return Ok(PathChange::Emptied);
+                }
                 txn.delete_user_file(&profile)?;
             } else {
-                let mode = platform::mode_of(&profile);
                 txn.write_block(&profile, MARKER, rest.as_bytes(), mode)?;
             }
             Ok(PathChange::Removed)

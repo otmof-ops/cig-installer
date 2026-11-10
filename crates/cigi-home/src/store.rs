@@ -215,16 +215,32 @@ impl<'a> Store<'a> {
     }
 
     pub fn has(&self, id: &ObjectId) -> bool {
-        self.object_path(id).is_file()
+        fs::symlink_metadata(self.object_path(id)).is_ok_and(|m| m.file_type().is_file())
     }
 
     /// The bytes hash to the name and the mode is the one the name says.
     pub fn verify(&self, id: &ObjectId) -> Result<(), StoreError> {
         let p = self.object_path(id);
-        if !p.is_file() {
-            return Err(StoreError::Missing {
-                object: id.file_name(),
-            });
+        // an object is a plain file: a link to one with the right bytes is a mismatch, because
+        // what it points at can change after this check
+        match fs::symlink_metadata(&p) {
+            Err(_) => {
+                return Err(StoreError::Missing {
+                    object: id.file_name(),
+                })
+            }
+            Ok(m) if m.file_type().is_symlink() => {
+                return Err(StoreError::Mismatch {
+                    object: id.file_name(),
+                    actual: "a symbolic link".into(),
+                })
+            }
+            Ok(m) if !m.is_file() => {
+                return Err(StoreError::Missing {
+                    object: id.file_name(),
+                })
+            }
+            Ok(_) => {}
         }
         let (actual, _) = util::sha256_file(&p).map_err(|source| StoreError::Io {
             path: p.clone(),

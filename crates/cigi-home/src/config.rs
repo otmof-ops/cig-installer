@@ -74,6 +74,11 @@ pub const KEYS: &[KeySpec] = &[
         values: Some(&["auto", "dark", "light"]),
         default: "auto",
     },
+    KeySpec {
+        key: "voice",
+        values: Some(&["voice", "plain"]),
+        default: "voice",
+    },
 ];
 
 fn spec(key: &str) -> Option<&'static KeySpec> {
@@ -99,6 +104,16 @@ impl Config {
             Err(source) => return Err(StateError::Io { path: p, source }),
         };
         Ok(Config::from_text(&text, &|k| std::env::var(k).ok()))
+    }
+
+    /// Read the file again, keeping this run's overrides (`set_for_run`) and the environment.
+    /// For a writer that now holds the lock: the text it edits must be the file as it is now,
+    /// not as it was when the command started.
+    pub fn reread(&mut self, home: &Home) -> Result<(), StateError> {
+        let fresh = Config::load(home)?;
+        self.text = fresh.text;
+        self.values = fresh.values;
+        Ok(())
     }
 
     /// Parse config text with an explicit environment (tests).
@@ -148,6 +163,59 @@ impl Config {
         self.values.get(key).cloned()
     }
 
+    /// Is this key set by its `CIGI_<KEY>` environment variable (or a flag for this run)?
+    pub fn env_has(&self, key: &str) -> bool {
+        self.env.contains_key(key)
+    }
+
+    /// Where the effective value of `key` comes from: `environment`, `file` or `default`.
+    pub fn source(&self, key: &str) -> &'static str {
+        if self.env.contains_key(key) {
+            "environment"
+        } else if self.values.contains_key(key) {
+            "file"
+        } else {
+            "default"
+        }
+    }
+
+    /// Remove a key's lines from the file text, through the journal. Returns whether the file
+    /// had one; when it had none nothing is written. Comments and other keys are untouched.
+    pub fn unset_in(&mut self, txn: &mut Txn, key: &str) -> Result<bool, StateError> {
+        if spec(key).is_none() {
+            return Err(StateError::Usage(format!("unknown setting `{key}`")));
+        }
+        let mut out = String::new();
+        let mut found = false;
+        for line in self.text.lines() {
+            match parse_line(line) {
+                Some((k, _)) if k == key => found = true,
+                _ => {
+                    out.push_str(line);
+                    out.push('\n');
+                }
+            }
+        }
+        if !found {
+            return Ok(false);
+        }
+        let p = txn.home().config_path();
+        txn.write(&p, out.as_bytes(), Some(0o644))?;
+        self.text = out;
+        self.values.remove(key);
+        Ok(true)
+    }
+
+    /// The whole-number range a numeric key accepts, inclusive. Every numeric key in [`KEYS`]
+    /// is listed here; a key with no entry is text or a fixed list of words.
+    pub fn numeric_range(key: &str) -> Option<(u32, u32)> {
+        match key {
+            // 0 would make every carton "unused" and `gc` remove them all; ten years is the ceiling
+            "keep_days" => Some((1, 3650)),
+            _ => None,
+        }
+    }
+
     /// Check a key and value against 5.2 (`E1870` otherwise).
     pub fn validate(key: &str, value: &str) -> Result<(), StateError> {
         let s = spec(key).ok_or_else(|| StateError::Usage(format!("unknown setting `{key}`")))?;
@@ -166,9 +234,14 @@ impl Config {
                     .collect::<Vec<_>>()
                     .join(", ")
             ))),
-            None if key == "keep_days" && value.parse::<u32>().is_err() => Err(StateError::Usage(
-                "`keep_days` is a whole number of days".to_string(),
-            )),
+            None => match Config::numeric_range(key) {
+                Some((lo, hi)) if !value.parse::<u32>().is_ok_and(|n| (lo..=hi).contains(&n)) => {
+                    Err(StateError::Usage(format!(
+                        "`{key}` is a whole number from {lo} to {hi}; got `{value}`"
+                    )))
+                }
+                _ => Ok(()),
+            },
             _ => Ok(()),
         }
     }
@@ -238,6 +311,27 @@ mod tests {
     }
 
     #[test]
+    fn reread_takes_the_file_as_it_is_now_and_keeps_this_runs_flags() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let home = Home::at(tmp.path().join("h"));
+        home.ensure_layout().expect("layout");
+        std::fs::write(
+            home.config_path(),
+            "# mine
+",
+        )
+        .expect("write");
+        let mut c = Config::load(&home).expect("load");
+        c.set_for_run("channel", "beta").expect("flag");
+        // another writer edits the file after this one read it
+        std::fs::write(home.config_path(), "# mine\nmirror = \"file:///m\"\n").expect("write");
+        assert_eq!(c.get("mirror"), "");
+        c.reread(&home).expect("reread");
+        assert_eq!(c.get("mirror"), "file:///m");
+        assert_eq!(c.get("channel"), "beta", "the run's own flag survives");
+    }
+
+    #[test]
     fn defaults_file_and_env_in_that_precedence() {
         let c = Config::from_text("# c\nchannel = beta\nmirror = \"file:///m\"\n", &no_env);
         assert_eq!(c.get("channel"), "beta");
@@ -253,6 +347,32 @@ mod tests {
     }
 
     #[test]
+    fn source_says_where_the_value_comes_from() {
+        let c = Config::from_text("channel = beta\n", &|k| {
+            (k == "CIGI_THEME").then(|| "dark".to_string())
+        });
+        assert_eq!(c.source("channel"), "file");
+        assert_eq!(c.source("theme"), "environment");
+        assert_eq!(c.source("keep_days"), "default");
+        assert!(c.env_has("theme") && !c.env_has("channel"));
+    }
+
+    #[test]
+    fn every_numeric_key_has_a_range() {
+        // keys with no list of words are numeric, except the text ones named here
+        for k in KEYS.iter().filter(|k| k.values.is_none()) {
+            if k.key == "mirror" {
+                continue;
+            }
+            assert!(
+                Config::numeric_range(k.key).is_some(),
+                "{} has no list of values and no range",
+                k.key
+            );
+        }
+    }
+
+    #[test]
     fn validation() {
         assert!(Config::validate("channel", "stable").is_ok());
         assert_eq!(
@@ -261,6 +381,13 @@ mod tests {
         );
         assert!(Config::validate("keep_days", "30").is_ok());
         assert!(Config::validate("keep_days", "soon").is_err());
+        for bad in ["0", "3651", "-1", "", "4294967296"] {
+            let e = Config::validate("keep_days", bad).unwrap_err();
+            assert_eq!(e.code(), "E1870");
+            assert!(e.to_string().contains("from 1 to 3650"), "{e}");
+        }
+        assert!(Config::validate("keep_days", "1").is_ok());
+        assert!(Config::validate("keep_days", "3650").is_ok());
         assert!(Config::validate("bogus", "1").is_err());
         assert!(Config::validate("mirror", "https://x").is_ok());
     }

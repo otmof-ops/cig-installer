@@ -170,7 +170,7 @@ fn a3_check_matrix_e1801_a_product_needs_another() {
     assert_eq!(fs[0].severity, Severity::Refuse);
     assert_eq!(
         fs[0].headline,
-        "cigo 1.4.0 needs cig 1.8 or newer; you have 1.7.2"
+        "these two don't smoke together. cigo 1.4.0 needs cig 1.8 or newer; you have 1.7.2"
     );
     assert_eq!(fix_command(&fs[0].fixes[0]), "ciginstaller update");
     // a recommendation is only a warning

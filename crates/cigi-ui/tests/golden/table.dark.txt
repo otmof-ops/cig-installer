@@ -2,5 +2,5 @@
   ␛[38;2;156;163;175mproduct␛[0m      ␛[38;2;156;163;175minstalled␛[0m   ␛[38;2;156;163;175mcarton 0.1.1␛[0m   ␛[38;2;156;163;175mchanges␛[0m
   cig             1.20.0         ␛[38;2;249;115;22m1.20.1␛[0m   programs refuse instead of turning in…
   cigo            1.17.0         1.17.0   —
-  cigcompile       0.2.0          0.2.0   —
+  CigCompile       0.2.0          0.2.0   —
 --- stderr ---

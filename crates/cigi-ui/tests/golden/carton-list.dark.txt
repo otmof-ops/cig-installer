@@ -1,0 +1,7 @@
+--- stdout ---
+  ␛[38;2;156;163;175mcarton␛[0m         ␛[38;2;156;163;175mchannel␛[0m      ␛[38;2;156;163;175mcig␛[0m     ␛[38;2;156;163;175mcigo␛[0m   ␛[38;2;156;163;175mCigCompile␛[0m   ␛[38;2;156;163;175mchanges␛[0m
+  ␛[38;2;249;115;22m0.1.1␛[0m          stable    ␛[38;2;249;115;22m1.20.1␛[0m   1.17.0        0.2.0   programs refuse inste…
+  0.1.0          stable    1.20.0   1.17.0        0.2.0   installed
+  0.2.0-beta.2   beta      1.21.0   1.18.0        0.3.0   the passes, still in …
+␛[38;2;74;222;128m✓␛[0m 3 cartons; 0.1.0 is installed
+--- stderr ---

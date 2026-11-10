@@ -38,12 +38,17 @@ impl Kind {
 pub struct InstallerError {
     pub code: &'static str,
     pub message: String,
-    pub hint: Option<String>,
-    pub subject: Option<String>,
+    pub hint: Option<Box<str>>,
+    pub subject: Option<Box<str>>,
     pub kind: Kind,
     pub exit: i32,
     /// A complete command that fixes it (an addition to SPEC 2.4); else the registry's fix is shown.
     pub fix: Option<String>,
+    /// What the doctor found, when it has a finding for this: "I think this, because I
+    /// checked that". Shown as the `= doctor:` line, before `= fix:`.
+    /// (Boxed, like `hint` and `subject`: all three are rarely set, and keeping them small keeps
+    /// `InstallerError` under clippy's size limit for an `Err` variant.)
+    pub doctor: Option<Box<str>>,
 }
 
 impl InstallerError {
@@ -58,11 +63,12 @@ impl InstallerError {
             kind: registry::kind_of(code).unwrap_or(Kind::Runtime),
             exit: default_exit(code),
             fix: None,
+            doctor: None,
         }
     }
 
     pub fn with_hint(mut self, hint: impl Into<String>) -> Self {
-        self.hint = Some(hint.into());
+        self.hint = Some(hint.into().into_boxed_str());
         self
     }
 
@@ -71,8 +77,14 @@ impl InstallerError {
         self
     }
 
+    /// The doctor's finding for this error, shown as `= doctor:` (#32).
+    pub fn with_doctor(mut self, finding: impl Into<String>) -> Self {
+        self.doctor = Some(finding.into().into_boxed_str());
+        self
+    }
+
     pub fn with_subject(mut self, subject: impl Into<String>) -> Self {
-        self.subject = Some(subject.into());
+        self.subject = Some(subject.into().into_boxed_str());
         self
     }
 
@@ -112,7 +124,13 @@ pub fn default_exit(code: &str) -> i32 {
 
 impl std::fmt::Display for InstallerError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "error[{} installer]: {}", self.code, self.message)
+        write!(
+            f,
+            "error[{} {}]: {}",
+            self.code,
+            registry::area(self.code),
+            self.message
+        )
     }
 }
 

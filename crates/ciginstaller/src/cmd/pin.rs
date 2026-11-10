@@ -1,6 +1,9 @@
 // SPDX-FileCopyrightText: 2026 Jay Taylor (https://github.com/otmof-ops/cig-installer)
 // SPDX-License-Identifier: FSL-1.1-ALv2
-//! `pin carton <pin>`, `pin cig <pin>`; anything else has no pin file (E1843).
+//! `pin carton <pin>`, and `pin <tool> <version>` for a tool with a per-tool pin file: `cig`
+//! (`.cig-version`), `cigar` (`.cigar-version`; both named by #6) and `cigo` (`.cigo-version`;
+//! #6 names no file for cigo, so this one is the installer's own, read by `which` and the resolver
+//! like the others). Any other tool has no pin file (E1843).
 
 use std::fs;
 use std::io::{Read, Write};
@@ -16,6 +19,11 @@ use super::Outcome;
 use crate::cx::Cx;
 use crate::errors::ie;
 use crate::project::project_root;
+
+/// The per-tool pin file `pin <tool>` writes: the same list the resolver reads.
+fn per_tool_file(tool: &str) -> Option<&'static str> {
+    cig_compat::pin_file_of(tool)
+}
 
 fn usage(msg: String, fix: &str) -> InstallerError {
     InstallerError::new("E1870", msg)
@@ -398,7 +406,7 @@ pub fn run(
 ) -> Result<Outcome, InstallerError> {
     // pin files live in the project, but the home's permissions are still checked before any write
     cx.home.check_permissions().map_err(ie)?;
-    if tool != "carton" && tool != "cig" {
+    if tool != "carton" && per_tool_file(tool).is_none() {
         return Err(InstallerError::new(
             "E1843",
             format!("there is no per-tool pin file for `{tool}`; pin the carton that holds the build you want"),
@@ -412,7 +420,7 @@ pub fn run(
     let root = project_root(&cx.cwd, &home_root, cigi_shim::user_home().as_deref());
     let pin_text = parsed.to_string();
     let (name, what) = match (tool, file) {
-        ("cig", _) => (".cig-version", "cig"),
+        (t, _) if per_tool_file(t).is_some() => (per_tool_file(t).unwrap_or_default(), t),
         (_, None) => (".cig-carton", "carton"),
         (_, Some("cig-tasks.json")) => ("cig-tasks.json", "carton"),
         (_, Some("cigar.toml")) => ("cigar.toml", "carton"),
@@ -439,7 +447,9 @@ pub fn run(
     }
     let old = read_existing(&path, old_md.is_some())?;
     let text = match name {
-        ".cig-version" => replace_pin_line(old.as_deref(), "", &pin_text),
+        ".cig-version" | ".cigar-version" | ".cigo-version" => {
+            replace_pin_line(old.as_deref(), "", &pin_text)
+        }
         ".cig-carton" => replace_pin_line(old.as_deref(), "carton ", &pin_text),
         "cig-tasks.json" => json_with_carton(&path, old.as_deref(), &pin_text)?,
         _ => toml_with_carton(&path, old.as_deref(), &pin_text)?,

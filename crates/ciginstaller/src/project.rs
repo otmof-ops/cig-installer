@@ -11,7 +11,9 @@ use cigi_shim::{
 use cigi_ui::{InstallerError, EXIT_USAGE};
 
 /// The per-tool pin files the shim sends to the slow path, and the tool each one pins.
-pub const LEGACY_FILES: &[(&str, &str)] = &[(".cig-version", "cig"), (".cigar-version", "cigar")];
+/// The one list is `cig_compat::PER_TOOL_PIN_FILES`; #6 names `.cig-version` and
+/// `.cigar-version`, and `.cigo-version` is the installer's own (#6 is silent on cigo's).
+pub use cig_compat::PER_TOOL_PIN_FILES as LEGACY_FILES;
 
 /// What the walk up from a directory found.
 #[derive(Debug, Clone, Default)]

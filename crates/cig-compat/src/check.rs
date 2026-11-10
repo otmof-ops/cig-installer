@@ -12,6 +12,24 @@ use std::collections::BTreeMap;
 
 pub const E_COMBINATION: &str = "E1800";
 pub const E_NEEDS: &str = "E1801";
+
+/// The tools that have a per-tool pin file in a project, and the file each one reads. The one
+/// list: `ciginstaller pin <tool>` writes them, the resolver reads them, and the shim index
+/// names them so the shim sends such a project to the slow path. Lives here, the lowest crate,
+/// because the E1801 fix below needs it and `cigi-home` depends on this crate, not the reverse.
+pub const PER_TOOL_PIN_FILES: &[(&str, &str)] = &[
+    (".cig-version", "cig"),
+    (".cigar-version", "cigar"),
+    (".cigo-version", "cigo"),
+];
+
+/// The per-tool pin file of `tool`, when it has one.
+pub fn pin_file_of(tool: &str) -> Option<&'static str> {
+    PER_TOOL_PIN_FILES
+        .iter()
+        .find(|(_, t)| *t == tool)
+        .map(|(f, _)| *f)
+}
 pub const E_STICK: &str = "E1802";
 pub const E_YANKED: &str = "E1803";
 pub const E_ADVISORY: &str = "E1804";
@@ -84,7 +102,8 @@ pub enum Severity {
 pub struct Finding {
     pub code: &'static str,
     pub severity: Severity,
-    /// The plain fact, no catchphrase and no trailing period.
+    /// The plain fact, no trailing period. A hard E1801 leads with #4's own words, "these two
+    /// don't smoke together."
     pub headline: String,
     pub detail: Vec<String>,
     /// One `→` line each: `<what it does>: <complete command>`. [`fix_command`]
@@ -255,9 +274,16 @@ fn requires_fixes(
         .filter_map(|c| holds(c).map(|x| (c, x)))
         .find(|(_, (t, d))| t < ver && d == dep_ver)
     {
+        // a tool with a pin file of its own is pinned by name; any other is kept by pinning
+        // the carton that holds the older build (`pin <tool>` would be E1843)
+        let pin = if pin_file_of(tool).is_some() {
+            format!("{tool} {}.{}", t.major, t.minor)
+        } else {
+            format!("carton {}.{}", c.major, c.minor)
+        };
         fixes.push(format!(
-            "or keep {tool} {}.{} for this project: ciginstaller pin carton {}.{}",
-            t.major, t.minor, c.major, c.minor
+            "or keep {tool} {}.{} for this project: ciginstaller pin {pin}",
+            t.major, t.minor
         ));
     }
     if fixes.is_empty() {
@@ -291,11 +317,17 @@ fn push_requirement_findings(
                 } else {
                     "works best with"
                 };
+                // #4's voice for a hard requirement: the catchphrase leads the headline
+                let lead = if severity == Severity::Refuse {
+                    "these two don't smoke together. "
+                } else {
+                    ""
+                };
                 out.push(finding(
                     E_NEEDS,
                     severity,
                     format!(
-                        "{tool} {ver} {verb} {dep} {}; you have {dep_ver}",
+                        "{lead}{tool} {ver} {verb} {dep} {}; you have {dep_ver}",
                         describe_range(req)
                     ),
                     vec![format!("{tool} {ver} declares {dep} {}", req.text)],

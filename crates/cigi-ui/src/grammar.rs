@@ -25,26 +25,31 @@ pub enum Icon {
     Refused,
     Bug,
     Note,
+    /// A finding that needs something done (a warning with a fix): the note's glyph, in `warn`,
+    /// and `action:` in plain.
+    Action,
     Irreversible,
 }
 
 impl Icon {
-    fn glyph(self, ascii: bool) -> &'static str {
+    pub fn glyph(self, ascii: bool) -> &'static str {
         match (self, ascii) {
             (Icon::Done, false) => "✓",
             (Icon::Running, false) => "●",
-            (Icon::Ask, _) => "?",
+            (Icon::Ask, false) => "?",
             (Icon::Refused | Icon::Bug, false) => "✗",
-            (Icon::Note, false) => "·",
-            (Icon::Irreversible, _) => "!",
+            (Icon::Note | Icon::Action, false) => "·",
+            (Icon::Irreversible, false) => "!",
+            (Icon::Ask, true) => "[?]",
+            (Icon::Irreversible, true) => "[!]",
             (Icon::Done, true) => "[ok]",
             (Icon::Running, true) => "[..]",
             (Icon::Refused | Icon::Bug, true) => "[x]",
-            (Icon::Note, true) => "[-]",
+            (Icon::Note | Icon::Action, true) => "[-]",
         }
     }
 
-    fn plain_prefix(self) -> &'static str {
+    pub fn plain_prefix(self) -> &'static str {
         match self {
             Icon::Done => "ok:",
             Icon::Running => "...",
@@ -52,16 +57,20 @@ impl Icon {
             Icon::Refused => "refused:",
             Icon::Bug => "bug:",
             Icon::Note => "note:",
+            Icon::Action => "action:",
             Icon::Irreversible => "irreversible:",
         }
     }
 
-    fn role(self) -> Role {
+    pub fn role(self) -> Role {
         match self {
             Icon::Done => Role::Ok,
             Icon::Running => Role::EmberBright,
-            Icon::Ask => Role::Warn,
-            Icon::Refused | Icon::Bug | Icon::Irreversible => Role::Danger,
+            Icon::Ask | Icon::Action => Role::Warn,
+            Icon::Bug | Icon::Irreversible => Role::Danger,
+            // A refusal is painted by its kind of no (see `Ui::line`); without one it is a
+            // plain "no" and reads as a warning, never as a bug.
+            Icon::Refused => Role::Warn,
             Icon::Note => Role::Ash400,
         }
     }
@@ -114,15 +123,11 @@ impl Report {
     }
 }
 
-/// One finding of `cig-compat::check`, as a report: a refusal is `✗` with its code, a
-/// warning or note is `·`. Only the first fix fits `Report::next`; use `Ui::finding` to
+/// One finding of `cig-compat::check`, as a report: a refusal is `✗` with its code, a warning
+/// that has something to do is `·` in `warn` and `action:` in plain, a note is `·`. Only the first fix fits `Report::next`; use `Ui::finding` to
 /// print every fix, one `→` line each.
 pub fn finding_report(f: &Finding) -> Report {
-    let icon = if f.severity == Severity::Refuse {
-        Icon::Refused
-    } else {
-        Icon::Note
-    };
+    let icon = finding_icon(f);
     Report {
         icon,
         headline: f.headline.clone(),
@@ -130,6 +135,16 @@ pub fn finding_report(f: &Finding) -> Report {
         next: f.fixes.first().cloned(),
         code: Some(f.code),
         data: serde_json::Value::Null,
+    }
+}
+
+/// The icon of a finding: a refusal refuses, a warning that carries a fix needs action, the rest
+/// are notes.
+fn finding_icon(f: &Finding) -> Icon {
+    match f.severity {
+        Severity::Refuse => Icon::Refused,
+        Severity::Warn if !f.fixes.is_empty() => Icon::Action,
+        _ => Icon::Note,
     }
 }
 
@@ -164,21 +179,21 @@ struct JsonError<'a> {
 }
 
 impl Ui {
-    fn line(&self, s: Stream, icon: Icon, text: &str) -> (String, usize) {
+    fn line(&self, s: Stream, icon: Icon, role: Role, text: &str) -> (String, usize) {
         // returns the painted line and its visible width
         let text = self.glyphs(text);
         match self.mode {
             Mode::Plain => {
                 let pre = icon.plain_prefix();
                 (
-                    format!("{} {text}", self.paint(s, icon.role(), pre)),
+                    format!("{} {text}", self.paint(s, role, pre)),
                     pre.chars().count() + 1 + text.chars().count(),
                 )
             }
             _ => {
                 let g = icon.glyph(self.ascii);
                 (
-                    format!("{} {text}", self.paint(s, icon.role(), g)),
+                    format!("{} {text}", self.paint_glyph(s, role, g)),
                     g.chars().count() + 1 + text.chars().count(),
                 )
             }
@@ -194,14 +209,18 @@ impl Ui {
         nexts: &[String],
         code: Option<&str>,
     ) -> String {
-        let headline = match (icon, code, self.mode) {
-            (Icon::Refused, Some(c), Mode::Voice) => match registry::catchphrase(c) {
-                Some(hear) => format!("{hear}: {headline}"),
+        let role = match (icon, code) {
+            (Icon::Refused, Some(c)) => registry::role_of(c),
+            _ => icon.role(),
+        };
+        let headline = match (icon, code) {
+            (Icon::Refused, Some(c)) => match self.kind_label(c) {
+                Some(label) => format!("{label}: {headline}"),
                 None => headline.to_string(),
             },
             _ => headline.to_string(),
         };
-        let (mut first, width) = self.line(s, icon, &headline);
+        let (mut first, width) = self.line(s, icon, role, &headline);
         if let Some(c) = code {
             match self.mode {
                 Mode::Plain => first.push_str(&format!(" ({c})")),
@@ -217,13 +236,13 @@ impl Ui {
             out.push_str(&format!("  {}\n", self.glyphs(d)));
         }
         for n in nexts {
-            let n = self.glyphs(n);
+            let n = self.literal(n);
             if self.mode == Mode::Plain {
                 out.push_str(&format!("  next: {n}\n"));
             } else {
                 out.push_str(&format!(
                     "  {} {}\n",
-                    self.paint(s, Role::Ember, self.arrow()),
+                    self.paint_glyph(s, Role::Ember, self.arrow()),
                     n
                 ));
             }
@@ -258,11 +277,7 @@ impl Ui {
 
     /// A `check` finding: the headline with its code, the detail, and every fix as a `→` line.
     pub fn render_finding(&self, f: &Finding) -> String {
-        let icon = if f.severity == Severity::Refuse {
-            Icon::Refused
-        } else {
-            Icon::Note
-        };
+        let icon = finding_icon(f);
         self.grammar(
             Stream::Out,
             icon,
@@ -279,36 +294,53 @@ impl Ui {
         }
     }
 
-    /// `error[E1811 installer]: <message>` with hint, explain and fix lines.
+    /// The kind of no a code is, in the active mode: the voice's catchphrase ("can't see any
+    /// ciggies bro") or plain's name for it ("not found"). `None` for a code that has no kind.
+    fn kind_label(&self, code: &str) -> Option<&'static str> {
+        match self.mode {
+            Mode::Voice => registry::catchphrase(code),
+            _ => registry::plain_label(code),
+        }
+    }
+
+    /// `error[E1811 carton]: <message>` with subject, hint, explain, doctor and fix lines.
+    /// The code and its area are always shown; the colour follows the kind of no (#31).
     pub fn render_error(&self, e: &InstallerError) -> String {
-        let icon = if e.kind == crate::error::Kind::Internal {
-            Icon::Bug
+        let internal = e.kind == crate::error::Kind::Internal;
+        let icon = if internal { Icon::Bug } else { Icon::Refused };
+        let role = if internal {
+            Role::Danger
         } else {
-            Icon::Refused
+            registry::role_of(e.code)
         };
-        let said = match (self.mode, registry::catchphrase(e.code)) {
-            (Mode::Voice, Some(hear)) => format!("{hear}: {}", e.message),
-            _ => e.message.clone(),
+        let said = match self.kind_label(e.code) {
+            Some(label) => format!("{label}: {}", e.message),
+            None => e.message.clone(),
         };
-        let head = format!("error[{} installer]: {said}", e.code);
-        let (first, _) = self.line(Stream::Err, icon, &head);
+        let head = format!("error[{} {}]: {said}", e.code, registry::area(e.code));
+        let (first, _) = self.line(Stream::Err, icon, role, &head);
         let mut out = first + "\n";
-        let mut eq = |label: &str, v: &str| {
+        let mut eq = |label: &str, v: String| {
             out.push_str(&format!(
-                "  {} {}\n",
+                "  {} {v}\n",
                 self.paint(Stream::Err, Role::Ash400, &format!("= {label}:")),
-                self.glyphs(v)
             ))
         };
         if let Some(s) = &e.subject {
-            eq("subject", s);
+            eq("subject", self.glyphs(s));
         }
         if let Some(h) = &e.hint {
-            eq("hint", h);
+            eq("hint", self.glyphs(h));
         }
-        eq("explain", &format!("ciginstaller explain {}", e.code));
+        eq(
+            "explain",
+            self.literal(&format!("ciginstaller explain {}", e.code)),
+        );
+        if let Some(d) = &e.doctor {
+            eq("doctor", self.glyphs(d));
+        }
         if let Some(f) = e.fix_text() {
-            eq("fix", &f);
+            eq("fix", self.literal(&f));
         }
         out
     }
@@ -396,7 +428,7 @@ impl Ui {
         if self.mode == Mode::Json || self.quiet || !self.take_notice_slot() {
             return;
         }
-        let (l, _) = self.line(Stream::Err, Icon::Note, line);
+        let (l, _) = self.line(Stream::Err, Icon::Note, Icon::Note.role(), line);
         self.write(Stream::Err, &format!("{l}\n"));
     }
 }
@@ -404,6 +436,7 @@ impl Ui {
 impl InstallerError {
     /// cig's `hint` is "what to type next": the flow's fix, else the registry's, else the plain hint.
     fn fix_text_for_json(&self) -> Option<String> {
-        self.fix_text().or_else(|| self.hint.clone())
+        self.fix_text()
+            .or_else(|| self.hint.as_deref().map(str::to_string))
     }
 }

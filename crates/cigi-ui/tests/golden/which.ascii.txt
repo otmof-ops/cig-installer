@@ -1,0 +1,4 @@
+--- stdout ---
+[ok] cigo 1.17.0, from carton 0.1.0 (pinned in .cig-carton)
+  /home/u/.cigscript/toolchains/cigo/1.17.0/bin/cigo
+--- stderr ---

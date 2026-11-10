@@ -9,7 +9,6 @@
 //! `update` (12.2 step 1) calls [`offered`] to learn whether a newer installer exists and
 //! [`run_locked`] to apply it; the caller re-executes `bin/ciginstaller` afterwards.
 
-use std::collections::BTreeSet;
 use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
@@ -18,8 +17,8 @@ use std::time::{Duration, Instant};
 use cig_compat::{Manifest, Target, Version};
 use cigi_home::state::HistoryEntry;
 use cigi_home::{
-    materialize, now_rfc3339, prune_txns, read_receipt, shim_path, sync_shims, Home, Journal,
-    ObjectId, Provenance, ReceiptArtifact, ReceiptSource, ReceiptTrust, StagedFile, State, Txn,
+    materialize, now_rfc3339, prune_txns, shim_path, sync_shims, Home, Journal, ObjectId,
+    Provenance, ReceiptArtifact, ReceiptSource, ReceiptTrust, StagedFile, State, Txn,
 };
 use cigi_source::fetch::downloads_dir;
 use cigi_source::{
@@ -282,33 +281,7 @@ fn update_to(
     )
 }
 
-/// The tool shim names the state lists (only those the shim binary serves).
-fn shim_names(home: &Home, state: &State) -> BTreeSet<String> {
-    let mut builds: Vec<(String, String)> = Vec::new();
-    for r in state.cartons.values() {
-        builds.extend(r.tools.iter().map(|(t, v)| (t.clone(), v.clone())));
-    }
-    builds.extend(
-        state
-            .sticks
-            .iter()
-            .map(|s| (s.tool.clone(), s.version.clone())),
-    );
-    let mut names = BTreeSet::new();
-    for (t, v) in &builds {
-        if let Ok(v) = Version::parse(v) {
-            if let Ok(r) = read_receipt(home, t, &v) {
-                names.extend(
-                    r.shims
-                        .iter()
-                        .map(|s| s.name.clone())
-                        .filter(|n| cigi_shim::TOOLS.contains(&n.as_str())),
-                );
-            }
-        }
-    }
-    names
-}
+use super::switch::shim_names;
 
 #[allow(clippy::too_many_arguments)]
 fn apply(

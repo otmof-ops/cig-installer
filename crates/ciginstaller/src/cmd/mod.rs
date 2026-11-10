@@ -5,12 +5,20 @@
 pub mod carton;
 pub mod channel;
 pub mod check;
+pub mod config;
+pub mod doctor;
 pub mod gc;
+pub mod history;
 pub mod install;
 pub mod list;
 pub mod pin;
+pub mod repair;
 pub mod resolve;
 pub mod self_cmd;
+pub mod shims;
+pub mod status;
+pub mod tabular;
+pub mod uninstall;
 pub mod which;
 
 use cigi_ui::Report;

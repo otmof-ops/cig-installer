@@ -1,11 +1,11 @@
 --- stdout ---
-␛[38;2;107;114;128m·␛[0m carton 0.1.0 → 0.1.1: cig 1.20.0 → 1.20.1   (cigo, cigcompile unchanged)
+␛[38;2;107;114;128m·␛[0m carton 0.1.0 → 0.1.1: cig 1.20.0 → 1.20.1   (cigo, CigCompile unchanged)
   ␛[38;2;107;114;128mproduct␛[0m      ␛[38;2;107;114;128minstalled␛[0m   ␛[38;2;107;114;128mcarton 0.1.1␛[0m   ␛[38;2;107;114;128mchanges␛[0m
-  cig             1.20.0         ␛[38;2;234;88;12m1.20.1␛[0m   programs refuse instead of turning in…
+  cig             1.20.0         ␛[38;2;194;65;12m1.20.1␛[0m   programs refuse instead of turning in…
   cigo            1.17.0         1.17.0   —
-  cigcompile       0.2.0          0.2.0   —
-␛[38;2;22;163;74m✓␛[0m carton 0.1.1 installed; trial: 14 scripts dry-ran the same on the new cig
-  ␛[38;2;234;88;12m→␛[0m nothing to do. ciginstaller rollback puts 0.1.0 back.
+  CigCompile       0.2.0          0.2.0   —
+␛[38;2;21;128;61m✓␛[0m carton 0.1.1 installed; trial: 14 scripts dry-ran the same on the new cig
+  ␛[38;2;194;65;12m→␛[0m nothing to do. ciginstaller rollback puts 0.1.0 back.
 --- stderr ---
 ␛[38;2;194;65;12m●␛[0m checking manifest (stable) ...
 ␛[38;2;194;65;12m●␛[0m trial: cig on 14 scripts in ~/work/site

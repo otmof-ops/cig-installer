@@ -102,6 +102,9 @@ pub struct ManifestOpts {
     pub now: Option<i64>,
     /// Look for the attestation bundle next to the manifest. Off saves a request when `gh` is absent.
     pub fetch_attestation: bool,
+    /// Admit the manifest and give it back without writing it to the cache (`doctor --network`:
+    /// a read-only command writes nothing, and makes no directory).
+    pub no_cache: bool,
 }
 
 /// What `fetched.json` records.
@@ -196,7 +199,7 @@ pub fn get_manifest_with(
         offline: opts.offline,
         now: opts.now,
         channel: Some(channel.to_string()),
-        scratch: Some(home.installer().join("cache")),
+        scratch: (!opts.no_cache).then(|| home.installer().join("cache")),
     };
     if opts.offline {
         let Some(c) = cached else {
@@ -228,6 +231,9 @@ pub fn get_manifest_with(
         attestation.as_deref().map(str::as_bytes),
         &seen,
     )?;
+    if opts.no_cache {
+        return Ok(admitted);
+    }
     // cache only what passed
     let dir = manifest_cache_dir(home, channel);
     std::fs::create_dir_all(&dir).map_err(io_err(&dir))?;

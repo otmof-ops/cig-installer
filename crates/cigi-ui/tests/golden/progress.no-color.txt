@@ -1,5 +1,5 @@
 --- stdout ---
 --- stderr ---
 --- rendered ---
-● fetching carton 0.1.0  ━━━━━━━━━━━━━━╸━━━━━━━━━  18.2/31.0 MB  3.0 MB/s  6 s
-● trial: cig on your projects  ━━━━━━━━━━━━━━━━╸━━━━━━━━━  9/14 scripts  4 s
+● fetching carton 0.1.0  ━━━━━━━━━━━━━━╸─────────  18.2/31.0 MB  3.0 MB/s  6 s
+● trial: cig on your projects  ━━━━━━━━━━━━━━━━╸─────────  9/14 scripts  4 s
