@@ -778,6 +778,7 @@ the installer: shims, pins, updates, rollbacks, repair, uninstall, and the comma
 | [`E1854`](#e1854-update-blocked-by-this-projects-pins) | update blocked by this project's pins | these are MY ciggies | `ciginstaller check --project <dir>` |
 | [`E1855`](#e1855-pinned-carton-was-yanked) | pinned carton was yanked | not one of the four | `ciginstaller pin carton <version>` with a carton that is not yanked |
 | [`E1856`](#e1856-fetching-did-not-satisfy-the-pin) | fetching did not satisfy the pin | not one of the four | `ciginstaller carton list` |
+| [`E1857`](#e1857-a-crash-report-did-not-leave-this-machine) | a crash report did not leave this machine | one of the four; the message says which | `ciginstaller crash show <report>`, then `ciginstaller crash send <report>` once the cause is gone |
 | [`E1860`](#e1860-repair-could-not-restore-a-file) | repair could not restore a file | not one of the four | `ciginstaller repair --tool <tool>`, online |
 | [`E1861`](#e1861---purge-needs-os-authentication) | --purge needs OS authentication | these are MY ciggies | `ciginstaller uninstall --all` |
 | [`E1862`](#e1862-a-profile-block-was-edited-and-is-left-alone) | a profile block was edited and is left alone | these are MY ciggies | `ciginstaller doctor` |
@@ -1065,6 +1066,24 @@ The slow path fetched what a pin called for, once, and the pin is still not met.
 1. the carton fetched does not hold a build that satisfies every pin (probe `installed-cartons`). **Remedy:** change the pins with `ciginstaller pin carton <pin>`, or install a carton that has the build
 
 Related: [`E1801`](#e1801-a-product-needs-another), [`E1842`](#e1842-pinned-carton-unavailable-and-fetching-refused).
+
+### E1857 a crash report did not leave this machine
+
+*usage · since 0.1.0 · arises in crash*
+
+**Kind of no:** one of the four; the message says which (read the operating-system reason in the message; ENOENT, EACCES, ENOSPC and friends, each mapped in the causes below).
+
+`ciginstaller crash send` (or `crash submit --now`) did not send a report: the `reports` setting is `never`, the issues route is not usable, or the route did not take it. Nothing was lost: the report stays in the ashtray with the reason, and `ciginstaller crash show` still prints exactly what would be sent.
+
+**What to type next:** `ciginstaller crash show <report>`, then `ciginstaller crash send <report>` once the cause is gone
+
+**Known causes**, ranked; the doctor checks them in this order:
+
+1. `reports` is `never` (`CIG_REPORTS`, `CIGI_REPORTS` or `ciginstaller config set reports never`), so nothing is sent, not even a report you name (no probe; a suggestion, not a finding). **Remedy:** `ciginstaller config set reports ask` (and unset `CIG_REPORTS` if it is set), then send the report again
+2. the route named by `CIGI_REPORT_ROUTE` is not an https address (plain http is allowed to a loopback address only), or carries a query string, a fragment or credentials (no probe; a suggestion, not a finding). **Remedy:** set it to the route's plain `https://` address
+3. the route could not be reached, or answered with an error or a redirect (a report goes only where it was told to, so a redirect is not followed) (no probe; a suggestion, not a finding). **Remedy:** check the connection and send again; the report waits in the ashtray and its last error is in `ciginstaller crash list`
+
+Related: [`E1890`](#e1890-a-bug-in-the-installer), [`E1870`](#e1870-usage).
 
 ### E1860 repair could not restore a file
 

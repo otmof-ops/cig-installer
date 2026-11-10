@@ -15,6 +15,7 @@ compile_error!("the fault-injection feature is for debug test builds only, never
 mod advisories;
 mod cli;
 mod cmd;
+mod crash;
 mod cx;
 mod errors;
 mod flows;
@@ -42,6 +43,8 @@ fn our_name(argv0: &str) -> bool {
 }
 
 fn main() {
+    // a crash in the installer is written to the family ashtray from here on (#10, #28)
+    crash::hook::install();
     let argv0 = std::env::args().next().unwrap_or_default();
     if !our_name(&argv0) {
         let ui = Ui::from_env_and_flags(&GlobalFlags::default());
@@ -62,6 +65,14 @@ fn main() {
         }
     };
     let flags = flags_of(&cli);
+    crash::hook::set_context(cli.home.clone(), cli.json, command_name(&cli.command));
+    // the crash path's own test: a debug build only, never a release (see `crash::hook`)
+    #[cfg(debug_assertions)]
+    if let Ok(m) = std::env::var("CIGI_PLANT_PANIC") {
+        if !m.is_empty() {
+            panic!("{m}");
+        }
+    }
     let ui = Ui::from_env_and_flags(&flags);
     let ui = if matches!(cli.command, Some(Command::Resolve { .. })) {
         ui.all_to_stderr()
@@ -112,6 +123,9 @@ fn dispatch(cli: Cli, ui: Ui) -> i32 {
         Some(Command::Shims(_)) => ("shims", None),
         // ---- end of the a4 block ----
         Some(Command::Bench(_)) => ("bench", None),
+        // ---- crash (#10, #28) ----
+        Some(Command::Crash(_)) => ("crash", None),
+        // ---- end of the crash block ----
     };
     // the exit code a successful command ends with when it is not 0 (`update --check --exit-code`)
     let mut exit_override: Option<i32> = None;
@@ -119,6 +133,12 @@ fn dispatch(cli: Cli, ui: Ui) -> i32 {
     let mut notice_cx: Option<Cx> = None;
     if let Some(Command::Explain { code }) = &cli.command {
         return explain(&ui, code.as_deref());
+    }
+    // the crash commands read the ashtray and the config only: they work when the installer's
+    // own state is the thing that is broken
+    if let Some(Command::Crash(c)) = &cli.command {
+        let result = cmd::crash::run(&ui, cli.home.as_ref(), c);
+        return ui.finish("crash", &result);
     }
     let result = (|| -> Result<Outcome, InstallerError> {
         let mut cx = Cx::new(ui.duplicate(), globals, cwd)?;
@@ -258,6 +278,7 @@ fn dispatch(cli: Cli, ui: Ui) -> i32 {
                 | "doctor"
                 | "licences"
                 | "bench"
+                | "crash"
         )
     {
         if let Some(cx) = &notice_cx {
@@ -311,6 +332,7 @@ fn read_only(cmd: &Option<Command>) -> bool {
         // they write a cache and the directory or file they were given, never the machine's state
         Some(Command::Bundle { .. } | Command::Mirror { .. }) => true,
         Some(Command::Bench(_)) => true,
+        Some(Command::Crash(_)) => true,
         Some(Command::Licences { .. }) => true,
         Some(Command::Repair { dry_run, .. })
         | Some(Command::Remove { dry_run, .. })
@@ -321,6 +343,21 @@ fn read_only(cmd: &Option<Command>) -> bool {
             sub: SelfSub::Update { check },
         })) => *check,
         _ => false,
+    }
+}
+
+/// The command's name, as the crash hook's JSON error and the report name it.
+fn command_name(cmd: &Option<Command>) -> &'static str {
+    match cmd {
+        None | Some(Command::Status) => "status",
+        Some(Command::Install(_)) => "install",
+        Some(Command::Update(_)) => "update",
+        Some(Command::Crash(_)) => "crash",
+        Some(Command::Doctor { .. }) => "doctor",
+        Some(Command::Repair { .. }) => "repair",
+        Some(Command::Uninstall { .. }) => "uninstall",
+        Some(Command::SelfCmd(_)) => "self",
+        _ => "",
     }
 }
 

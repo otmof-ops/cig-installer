@@ -51,6 +51,11 @@ Keys are stable once released; new keys may be added. Versions are strings; path
 | `uninstall <tool>` | `{"tool":"cigo","versions":["1.17.0"],"removed":[...]}` |
 | `uninstall --all` | `{"changed":true,"removed":[{"path":"bin/cig","kind":"link"\|"toolchain"\|"file"\|"object","sha256":"...","bytes":0}],"notes":["..."],"journal":"<path>"\|null}`; under `--dry-run`, `{"dry_run":true,"would_remove":[...]}` |
 | `remove <carton>` | `{"carton":"0.1.0","removed":[...]}` |
+| `crash` (list) | `{"reports":[{"id":"20261110T141515Z-927346","origin":"ciginstaller","kind":"crash","version":"0.1.0","state":"local"\|"pending"\|"filed"\|"failed: <why>","title":"...","fingerprint":"92734611","target":"otmof-ops/cig-installer","issue":"https://..."\|null,"attempts":0,"last_error":null}],"waiting":1,"unreadable":0,"reports_setting":"ask"\|"always"\|"never","route":{"configured":false,"host":null}}`; every tool's reports, newest first |
+| `crash show <id>` | `{"id":"...","state":"local","target":"otmof-ops/cig-installer","report":{...}}`; `report` is exactly the object `crash send` sends, whose keys are the properties of `schemas/report.schema.json` |
+| `crash send <id>` / `--all` | `{"sent":[{"id":"...","url":"https://..."\|null}],"already_filed":[],"queued":[]}`; with no issues route `{"sent":[],"queued":["<id>"],"route":{"configured":false}}` and exit 0; `reports = never` is E1857 with exit 2, a route that fails is E1857 with exit 1, and the report stays queued either way |
+| `crash delete <id>` / `--all` | `{"deleted":["<id>"]}`; `--all` needs `--yes-irreversible` |
+| `crash submit --origin <tool> --file <f>` | `{"id":"...","sent":false,"origin":"cig-orchestrator","fingerprint":"..."}`; with `--now` the `send` shape |
 | `gc` | `{"removed":["<path>"],"freed_bytes":0,"dry_run":false}` |
 | `shims sync` | `{"shims":["cig","cigo"],"relinked":[],"removed":[],"index_rewritten":false}` |
 | `shims list` | `{"shims":[{"name":"cig","target":"..."\|null,"error":null,"present":true,"first_on_path":true}]}` |
@@ -63,3 +68,7 @@ Keys are stable once released; new keys may be added. Versions are strings; path
 | `bench` | `{"shim_dispatch_ns":240000,"check_ms":12.4,"switch_ms":8.1,"shim_bytes":344008,"installer_bytes":6170000,` then, added: `"shim_dispatch_p95_ns","check_p95_ms","switch_p95_ms","disk_five_cigo_ratio","first_line_status_ms","first_line_list_ms","install_pack_dev_ms","install_carton_ms","build":"debug"\|"release","runs":100,"over_budget":0,"budgets":[{"id","what","source","unit","limit","median","p95","runs","status":"ok"\|"over"\|"info"\|"not measured","note"}],"not_measured_by_bench":[{"id","what","limit","unit"}],"not_built":[{"view","blocked_by"}]}`; a figure that was not measured is `null`. The five reserved keys keep their meaning; times are medians. `--strict` with a budget over is an error, `E1866`. |
 
 Progress, prompts and notices are never printed in JSON mode. A question that would be asked takes its safe default (exit 3 when that default was a refusal) and nothing is written to stderr.
+
+## A crash in the installer
+
+A panic writes a report to the ashtray (origin `ciginstaller`) and, under `--json`, prints one line on stdout and nothing on stderr: `{"ok":false,"command":"status","error":{"code":"E1890","kind":"internal","message":"...","hint":"ciginstaller crash show <id>","subject":"<fingerprint>","report":"~/d1/f2.json"}}`. Nothing is sent.

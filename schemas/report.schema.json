@@ -1,0 +1,30 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/otmof-ops/cig-installer/schemas/report.schema.json",
+  "title": "cig-report v1: what a family crash report carries when it leaves a machine",
+  "description": "The allowlist for every product of the family (#28). `ciginstaller crash show <id>` prints exactly this object and `crash send` sends exactly this object; a field not named here never travels. It is cig's report as `cig crash show` prints it, so a report from any product validates unchanged. Free text is anonymised before it is stored and again before it is sent: the person's paths are shapes, their user and host names are gone, the family's own paths stay readable.",
+  "x-version": 1,
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["id", "fingerprint", "kind", "origin", "version", "os", "arch", "timestamp", "command", "cwd", "panic_message", "panic_location", "backtrace"],
+  "properties": {
+    "id": { "type": "string", "pattern": "^[A-Za-z0-9_-]{1,64}$", "description": "UTC second plus the first six characters of the fingerprint" },
+    "fingerprint": { "type": "string", "pattern": "^[0-9a-f]{8}$", "description": "kind, location and message with numbers removed, plus the product and its major version; never a path, user name or host" },
+    "kind": { "enum": ["crash", "internal", "tripwire", "report"] },
+    "origin": { "type": "string", "pattern": "^[A-Za-z0-9_-]{1,40}$", "description": "the product that saw it, such as ciginstaller" },
+    "version": { "type": "string", "maxLength": 40, "description": "the origin's version" },
+    "os": { "type": "string", "maxLength": 40 },
+    "arch": { "type": "string", "maxLength": 40 },
+    "timestamp": { "type": "string", "maxLength": 40, "description": "RFC 3339, UTC, whole seconds" },
+    "command": { "type": "array", "items": { "type": "string" }, "description": "the command line reduced to words the product knows; everything else is <path>, <flag>, <arg>, <url> or <redacted>" },
+    "cwd": { "type": "string", "description": "the working directory as its shape" },
+    "panic_message": { "type": "string", "maxLength": 500 },
+    "panic_location": { "type": "string", "description": "a source location in the product's own tree, or the tripwire or error code that raised it" },
+    "backtrace": { "type": "array", "maxItems": 40, "items": { "type": "string" }, "description": "the product's own frames only" },
+    "active_run_id": { "type": ["string", "null"] },
+    "rolled_back": { "type": ["boolean", "null"] },
+    "title": { "type": "string", "maxLength": 500, "description": "one line for a report that is not a panic" },
+    "details": { "description": "kind-specific detail; every string in it is anonymised" },
+    "repro": { "type": "object", "description": "an anonymised, verified repro, when the product built one" }
+  }
+}

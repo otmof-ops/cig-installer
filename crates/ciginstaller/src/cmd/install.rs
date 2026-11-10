@@ -146,7 +146,7 @@ fn ask_preset(cx: &Cx) -> Option<String> {
 fn ask_reports(cx: &Cx) -> String {
     let mut q = Question::yes_no("send a crash report when a tool crashes?", true)
         .summary("nothing leaves this machine without you seeing it first")
-        .detail("crash reports are not built yet, so nothing is sent; this records your answer for when they are");
+        .detail("nothing leaves this machine without your yes; `ciginstaller crash show` prints exactly what would travel");
     q.choices = vec![
         Choice::new('a', "always send"),
         Choice::new('n', "never send"),

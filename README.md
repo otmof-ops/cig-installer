@@ -300,9 +300,14 @@ start its tool. A shim otherwise passes the tool's own exit code through.
   undo.
 - **The first carton holds `cig`, `cigo` and `cigcompile`.** CigarScript joins
   it when it has a release.
-- **Not built:** crash reports and bug filing
-  ([#10](https://github.com/otmof-ops/cig-installer/issues/10),
-  [#29](https://github.com/otmof-ops/cig-installer/issues/29)), organization
+- **Crash reports are half built.** `ciginstaller crash list|show|send|delete|submit`
+  work over cig's ashtray, and a crash in the installer lands there. There is
+  no issues route to send to yet: the relay and token
+  ([#28](https://github.com/otmof-ops/cig-installer/issues/28)) and the courier
+  ([#24](https://github.com/otmof-ops/cig-installer/issues/24)) are still to
+  come, so `crash send` keeps the report queued and says so.
+- **Not built:** bug filing
+  ([#29](https://github.com/otmof-ops/cig-installer/issues/29)), organization
   policy ([#17](https://github.com/otmof-ops/cig-installer/issues/17)), and
   the window ([#18](https://github.com/otmof-ops/cig-installer/issues/18)).
 
@@ -322,8 +327,12 @@ This is a promise, and it is tested:
   machine), only standard HTTP headers and `User-Agent: ciginstaller`.
   `update_check = off` stops even that, and `--offline` makes no request at
   all.
-- Crash reports are not built yet. When they are, they leave your machine
-  only with your consent, under the allowlist `cig` already keeps.
+- A crash report leaves your machine only when you type `ciginstaller crash send`,
+  and never when `reports` is `never` (`CIG_REPORTS=never` counts too).
+  `crash show` prints exactly what would be sent: the fields of
+  [schemas/report.schema.json](schemas/report.schema.json), with your paths as
+  shapes and your user and host names removed. It is one plain `POST` with no
+  query string, cookie, login or identifier.
 - A test records every request an install makes against a local server and
   fails if any carries an identifier, a cookie or a query string. It covers
   `install` and the commands that read; it is being extended to `update`

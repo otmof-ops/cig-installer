@@ -613,9 +613,15 @@ dependencies = [
  "cigi-testkit",
  "cigi-ui",
  "clap",
+ "hex",
+ "serde",
  "serde_json",
+ "sha2",
  "tempfile",
+ "tiny_http",
  "toml_edit 0.22.27",
+ "ureq",
+ "url",
 ]
 
 [[package]]
