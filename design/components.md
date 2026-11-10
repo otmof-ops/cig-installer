@@ -135,7 +135,7 @@ Variants: `dark` (truecolor, dark), `light` (truecolor, `COLORFGBG=0;15`), `ansi
 | errors | `error-no-such-carton`, `error-bug` | a refusal painted by its kind; a bug in `danger` |
 | irreversible prompt | `prompt-irreversible` | the `!` lead, default no, "can't be undone" |
 
-Screens whose commands belong to other work (`doctor`, `crash`, `bug`, `programs`) are drawn with the shared components from fixtures, so their look is fixed before their commands land.
+Screens whose commands are still to be built (`crash`, #28; `bug`, #29; `programs`, #30) are drawn with the shared components from fixtures, so their look is fixed before their commands land. The `doctor` screen is drawn the same way; the command's own output is tested in `crates/ciginstaller/tests/a4_doctor.rs`.
 
 ### Golden changes in this standard version
 

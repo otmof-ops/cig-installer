@@ -1,6 +1,6 @@
 // SPDX-FileCopyrightText: 2026 Jay Taylor (https://github.com/otmof-ops/cig-installer)
 // SPDX-License-Identifier: FSL-1.1-ALv2
-//! The command line (SPEC 10), as far as this phase builds it.
+//! The command line.
 
 use std::path::PathBuf;
 
@@ -20,7 +20,7 @@ pub struct Cli {
     /// The same facts without decoration.
     #[arg(long, global = true)]
     pub plain: bool,
-    /// Never use colour (also NO_COLOR).
+    /// Never use color (also NO_COLOR).
     #[arg(long, global = true)]
     pub no_color: bool,
     /// Take the safe default of every question, and yes to the reversible ones.
@@ -103,9 +103,9 @@ pub enum Command {
         cwd: Option<PathBuf>,
     },
     // ---- the update lifecycle: update, rollback ----
-    /// Check, choose, verify, trial and switch to a newer carton (SPEC 12.2).
+    /// Check, choose, verify, trial and switch to a newer carton.
     Update(UpdateCmd),
-    /// Back to the previous carton, or one tool's build in it (SPEC 12.3).
+    /// Back to the previous carton, or one tool's build in it.
     Rollback {
         /// Switch only this tool's build (the machine becomes a mix, recorded as a stick).
         tool: Option<String>,

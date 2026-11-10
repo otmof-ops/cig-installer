@@ -76,7 +76,7 @@ Right:
 ```text
 · I think the PATH block is missing from your profile                      E1845
   because I checked ~/.profile, ~/.bashrc and ~/.zshrc: none has the block
-  → ciginstaller repair path
+  → ciginstaller repair
 ```
 
 Wrong: `Your PATH is broken. Fixing...`. No evidence, and it fixed before asking.

@@ -2,7 +2,7 @@
 ␛[2m·␛[0m cig 1.20.0
 ␛[2m·␛[0m I think the PATH block is missing from your profile                      ␛[2mE1845␛[0m
   because I checked ~/.profile, ~/.bashrc and ~/.zshrc: none has the block
-  ␛[93m→␛[0m ciginstaller repair path
+  ␛[93m→␛[0m ciginstaller repair
 ␛[2m·␛[0m CigCompile 0.2.0
 ␛[2m·␛[0m I think a program was built on an older cig                              ␛[2mE1806␛[0m
   because ~/work/tidy was built on cig 1.19.0 and cig 1.20.0 is installed

@@ -49,7 +49,7 @@ The output below comes from the project's output tests. The carton numbers
 ciginstaller install carton
 ```
 ```
-✓ carton 0.1.0 installed: cig 1.20.0, cigo 1.17.0, cigcompile 0.2.0
+✓ carton 0.1.0 installed: cig 1.20.0, cigo 1.17.0, CigCompile 0.2.0
   trust: pinned 1, checksummed 2 (two sources agree); PATH block added to ~/.profile
   → open a new shell, or run: export PATH="$HOME/.cigscript/bin:$PATH"
 ```
@@ -82,11 +82,11 @@ ciginstaller pin carton 0.1
 ciginstaller update
 ```
 ```
-· carton 0.1.0 → 0.1.1: cig 1.20.0 → 1.20.1   (cigo, cigcompile unchanged)
+· carton 0.1.0 → 0.1.1: cig 1.20.0 → 1.20.1   (cigo, CigCompile unchanged)
   product      installed   carton 0.1.1   changes
   cig             1.20.0         1.20.1   programs refuse instead of turning in…
   cigo            1.17.0         1.17.0   —
-  cigcompile       0.2.0          0.2.0   —
+  CigCompile       0.2.0          0.2.0   —
 ✓ carton 0.1.1 installed; trial: 14 scripts dry-ran the same on the new cig
   → nothing to do. ciginstaller rollback puts 0.1.0 back.
 ```
@@ -97,7 +97,7 @@ mind, and `ciginstaller rollback` puts the previous carton back. Run
 `ciginstaller` with no arguments for the one-screen status:
 
 ```
-✓ carton 0.1.0: cig 1.20.0, cigo 1.17.0, cigcompile 0.2.0
+✓ carton 0.1.0: cig 1.20.0, cigo 1.17.0, CigCompile 0.2.0
   channel stable, trust pinned 1, checksummed 2
   waiting: carton 0.1.1 (cig 1.20.0 → 1.20.1)
   → ciginstaller update
@@ -140,7 +140,7 @@ Every code is in [docs/ERRORS.md](docs/ERRORS.md).
 | everything from one carton | a pack is a named slice of a carton and a stick is one tool of it, so adding more later takes builds from the same carton and nothing mixes |
 | builds checked before they run | three levels, and nothing below the floor installs: `pinned`, `attested` and `checksummed`. [SECURITY.md](SECURITY.md) says what each proves and what none of them do |
 | an install is a burn | every change is a journaled transaction that ends in one atomic switch. A kill before the switch rolls back, and a kill after it rolls forward. No moment has a tool half-updated |
-| the right build for each project | `pin carton <pin>` writes `.cig-carton`, `pin cig <pin>` writes `.cig-version`, and `pin` also takes `--file` for a key in `cig-tasks.json` or `cigar.toml`. `which <tool> --why` shows every step of the choice |
+| the right build for each project | `pin carton <pin>` writes `.cig-carton`, `pin <tool> <version>` writes `.cig-version`, `.cigo-version` or `.cigar-version` for one tool, and `pin` also takes `--file` for a key in `cig-tasks.json` or `cigar.toml`. `which <tool> --why` shows every step of the choice, and `which --why` does it for every tool |
 | updates that are tried first | `update` runs the new `cig` against your project before it switches, and shows the differences it found |
 | an undo | `rollback` returns the previous carton, or one tool's build with `rollback <tool>` |
 | combinations that fit | `check` is the marry-up matrix: it says when a tool needs a newer `cig`, or a pin and a carton disagree, before anything runs |
@@ -176,7 +176,7 @@ Running `install` against the real source ends where it should, because the
 
 ```
 $ ciginstaller install carton
-✗ error[E1820 installer]: https://github.com/otmof-ops/cig-installer/releases/download/manifest/manifest-stable.toml does not exist (404)
+✗ error[E1820 fetch]: https://github.com/otmof-ops/cig-installer/releases/download/manifest/manifest-stable.toml does not exist (404)
   = explain: ciginstaller explain E1820
   = fix: `ciginstaller install carton`, and add `--offline` once a copy is cached
 ```
@@ -197,27 +197,28 @@ that checks itself before it runs are the planned ways in
 
 ## Commands
 
-Every command takes `--json`, `--plain`, `--no-color`, `--yes`, `--quiet`,
-`--verbose`, `--offline` and `--home <dir>`. A command that changes something
+Every command takes `--json`, `--plain`, `--no-color`, `--yes`,
+`--yes-irreversible`, `--quiet`, `--verbose`, `--wide`, `--offline` and
+`--home <dir>`. A command that changes something
 takes `--dry-run`, which prints the plan and writes nothing. `ciginstaller --help`
 lists them all.
 
 | command | does |
 |---|---|
-| `ciginstaller` | the status: the carton, what is in it, anything waiting, and the next step |
+| `ciginstaller`, `status` | the status: the carton, what is in it, anything waiting, and the next step, in at most eight lines |
 | `install carton`, `install pack <name>`, `install stick <tool>` | install from one carton, verified, as one transaction. Flags: `--carton`, `--channel`, `--no-path`, `--shell`, `--from`, `--require`, `--allow-yanked`, `--preset` |
 | `carton`, `carton list`, `carton show <v>`, `carton <v>` | which carton this machine is on, what exists, what is inside one, and moving to another |
 | `channel [stable\|beta\|nightly]` | the channel this machine follows, or switch it. Nothing is installed |
 | `use <carton>` | make an installed carton the machine's, with no download |
 | `update` | check, choose, verify, trial and switch. `--check` only looks, `--to` names a carton, `--no-trial` skips the trial |
 | `rollback [tool]` | back to the previous carton, or one tool's previous build |
-| `pin carton <pin>`, `pin cig <pin>` | write a project pin file |
-| `list`, `which <tool>`, `check` | what is installed, what runs here and why, and whether the combination fits |
+| `pin carton <pin>`, `pin <tool> <version>` | write a project pin file: the carton, or one tool's (`cig`, `cigo`, `cigar`) |
+| `list`, `which [tool]`, `check` | what is installed, what runs here and why (every tool when none is named), and whether the combination fits |
 | `doctor`, `repair` | find problems the installer owns, each with its fix command, and repair files from receipts |
-| `uninstall <tool>`, `uninstall --all`, `remove carton <v>` | remove a tool, everything the installer added, or one carton |
+| `uninstall <tool>`, `uninstall --all`, `remove <carton>` | remove a tool, everything the installer added, or one carton; your data stays |
 | `gc` | remove cartons unused for `keep_days` and the store objects nothing uses |
 | `shims sync`, `shims list` | rewrite the shims from the installer's state, and list them |
-| `config get\|set\|list` | the installer's settings, such as `channel`, `trust`, `update_check` and `keep_days` |
+| `config list\|get\|set\|unset` | the installer's settings and where each value comes from, such as `channel`, `trust`, `update_check`, `keep_days`, `theme` and `voice` |
 | `history` | the last installs, updates and rollbacks |
 | `self update` | update ciginstaller itself |
 | `explain [code]` | what an error code means, why it comes and what fixes it |

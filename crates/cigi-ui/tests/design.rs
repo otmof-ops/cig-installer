@@ -289,12 +289,12 @@ fn product_names_reach_headlines_and_tables_but_not_the_next_step() {
     let (u, _) = ui(&Env::default().with("LANG", "en_US.UTF-8")).captured();
     let r = Report::done("carton 0.1.0 installed: cigcompile 0.2.0")
         .detail("cigar 0.1.0 is in the carton")
-        .next("ciginstaller install cigcompile");
+        .next("ciginstaller install stick cigcompile");
     let t = u.render_report(&r);
     assert!(t.contains("CigCompile 0.2.0"), "{t}");
     assert!(t.contains("CigarScript 0.1.0"), "{t}");
     assert!(
-        t.contains("→ ciginstaller install cigcompile"),
+        t.contains("→ ciginstaller install stick cigcompile"),
         "the command is typed as is: {t}"
     );
     let table = Table::new(&[("product", Align::Left)]).row(vec!["cigcompile".into()]);

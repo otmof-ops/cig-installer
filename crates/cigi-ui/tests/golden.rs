@@ -360,7 +360,7 @@ fn golden_output_per_screen() {
             )
             .code("E1845")
             .detail("because I checked ~/.profile, ~/.bashrc and ~/.zshrc: none has the block")
-            .next("ciginstaller repair path"),
+            .next("ciginstaller repair"),
         );
         ui.say(&Report::new(Icon::Note, "cigcompile 0.2.0"));
         ui.say(
