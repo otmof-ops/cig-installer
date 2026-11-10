@@ -46,8 +46,15 @@ fn have_script() -> bool {
         .is_ok_and(|s| s.success())
 }
 
-/// The `probe` example, built fresh: a test target asked for alone does not build examples.
+/// The `probe` example, built fresh once per test run: a test target asked for alone does not
+/// build examples. Once, because the tests run in parallel and a build re-links the binary, so a
+/// second build could take the file away from a test that is starting it.
 fn probe() -> PathBuf {
+    static PROBE: std::sync::OnceLock<PathBuf> = std::sync::OnceLock::new();
+    PROBE.get_or_init(build_probe).clone()
+}
+
+fn build_probe() -> PathBuf {
     let exe = std::env::current_exe().expect("test exe");
     let debug = exe.parent().and_then(Path::parent).expect("target dir");
     let p = debug.join("examples").join("probe");
