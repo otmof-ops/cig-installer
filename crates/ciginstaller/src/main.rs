@@ -12,6 +12,7 @@
 #[cfg(all(feature = "fault-injection", not(debug_assertions)))]
 compile_error!("the fault-injection feature is for debug test builds only, never a release build");
 
+mod advisories;
 mod cli;
 mod cmd;
 mod cx;

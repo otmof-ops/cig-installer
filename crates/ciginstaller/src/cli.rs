@@ -183,12 +183,19 @@ pub struct InstallCmd {
     /// Print the plan and write nothing.
     #[arg(long, global = true)]
     pub dry_run: bool,
+    /// The security preset: chill, balanced, strict or paranoid. Recorded in config; the guard
+    /// applies it once cig-orchestrator#66 lands.
+    #[arg(long, global = true, value_name = "PRESET")]
+    pub preset: Option<String>,
 }
 
 #[derive(Subcommand)]
 pub enum InstallWhat {
-    /// Every tool of the carton.
-    Carton,
+    /// Every tool of the carton, optionally of an exact one: `install carton 1.2.0`.
+    Carton {
+        /// An exact carton or a pin such as 1.1 (the same as `--carton`; not both).
+        version: Option<String>,
+    },
     /// A named set of tools of the carton.
     Pack {
         name: Option<String>,

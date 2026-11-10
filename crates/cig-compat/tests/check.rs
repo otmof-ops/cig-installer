@@ -53,7 +53,7 @@ fn e1801_a_product_needs_another_golden() {
     assert_eq!(f.subject, "cigo");
     assert_eq!(f.fixes.len(), 2);
     assert_eq!(fix_command(&f.fixes[0]), "ciginstaller update");
-    assert_eq!(fix_command(&f.fixes[1]), "ciginstaller pin carton 1.0");
+    assert_eq!(fix_command(&f.fixes[1]), "ciginstaller pin cigo 1.3");
     let golden = include_str!("golden/e1801.txt");
     assert_eq!(voice(f), golden);
 }
@@ -66,7 +66,7 @@ fn e1801_the_range_in_words() {
     let f = &only(&fs, "E1801")[0];
     assert_eq!(
         f.headline,
-        "cigo 1.17.0 needs cig 1.16.1 or newer, below 2; you have 1.10.0"
+        "these two don't smoke together. cigo 1.17.0 needs cig 1.16.1 or newer, below 2; you have 1.10.0"
     );
     // the same, but cig 2.0.0 is above the ceiling
     let c = combo(&[("cig", "2.0.0"), ("cigo", "1.17.0")], Origin::Mixed);

@@ -20,7 +20,7 @@ pub const INDEX_HEADER: &str = "cigi-index 1";
 
 /// Pin files that send the shim to the slow path (the list can grow without
 /// a new shim).
-pub const LEGACY_PIN_FILES: &[&str] = &[".cig-version", ".cigar-version"];
+pub const LEGACY_PIN_FILES: &[&str] = &[".cig-version", ".cigar-version", ".cigo-version"];
 
 /// The content of `shim-index`, structured.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -357,7 +357,7 @@ stick\tcigo\t/h/.cigscript/toolchains/cigo/1.16.0/bin/cigo
 carton-minor\t0.1\t0.1.1
 carton-minor\t0.2\t0.2.0
 carton-major\t0\t0.2.0
-legacy-pin-files\t.cig-version\t.cigar-version
+legacy-pin-files\t.cig-version\t.cigar-version\t.cigo-version
 ";
 
     #[test]

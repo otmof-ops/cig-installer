@@ -84,7 +84,8 @@ pub enum Severity {
 pub struct Finding {
     pub code: &'static str,
     pub severity: Severity,
-    /// The plain fact, no catchphrase and no trailing period.
+    /// The plain fact, no trailing period. A hard E1801 leads with #4's own words, "these two
+    /// don't smoke together."
     pub headline: String,
     pub detail: Vec<String>,
     /// One `→` line each: `<what it does>: <complete command>`. [`fix_command`]
@@ -247,7 +248,7 @@ fn requires_fixes(
         ));
     }
     // Stay behind: the newest carton with an older tool where the pair fits.
-    if let Some((c, (t, _))) = m
+    if let Some((_, (t, _))) = m
         .cartons
         .keys()
         .rev()
@@ -256,8 +257,8 @@ fn requires_fixes(
         .find(|(_, (t, d))| t < ver && d == dep_ver)
     {
         fixes.push(format!(
-            "or keep {tool} {}.{} for this project: ciginstaller pin carton {}.{}",
-            t.major, t.minor, c.major, c.minor
+            "or keep {tool} {}.{} for this project: ciginstaller pin {tool} {}.{}",
+            t.major, t.minor, t.major, t.minor
         ));
     }
     if fixes.is_empty() {
@@ -291,11 +292,17 @@ fn push_requirement_findings(
                 } else {
                     "works best with"
                 };
+                // #4's voice for a hard requirement: the catchphrase leads the headline
+                let lead = if severity == Severity::Refuse {
+                    "these two don't smoke together. "
+                } else {
+                    ""
+                };
                 out.push(finding(
                     E_NEEDS,
                     severity,
                     format!(
-                        "{tool} {ver} {verb} {dep} {}; you have {dep_ver}",
+                        "{lead}{tool} {ver} {verb} {dep} {}; you have {dep_ver}",
                         describe_range(req)
                     ),
                     vec![format!("{tool} {ver} declares {dep} {}", req.text)],

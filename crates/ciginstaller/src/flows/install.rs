@@ -44,6 +44,10 @@ pub struct InstallArgs {
     pub shell: Option<String>,
     pub allow_yanked: bool,
     pub dry_run: bool,
+    /// `--preset` or the answer to the preset question: recorded in config with the install.
+    pub preset: Option<String>,
+    /// The answer to the crash-report consent question (`reports`), recorded with the install.
+    pub reports: Option<String>,
     /// Why this install happens (`install carton`, `pin fetch`), recorded in `state.json`.
     pub reason: Option<String>,
 }
@@ -57,6 +61,8 @@ impl InstallArgs {
             shell: None,
             allow_yanked: false,
             dry_run: false,
+            preset: None,
+            reports: None,
             reason: None,
         }
     }
@@ -111,8 +117,15 @@ pub fn finding_error(f: &cig_compat::Finding) -> InstallerError {
     let mut e = InstallerError::new(f.code, f.headline.clone())
         .with_subject(f.subject.clone())
         .with_exit(EXIT_REFUSED);
-    if !f.detail.is_empty() {
-        e = e.with_hint(f.detail.join("; "));
+    // the error carries one `fix`; #4's other ways out ride in the hint, in its words
+    let hint: Vec<String> = f
+        .detail
+        .iter()
+        .cloned()
+        .chain(f.fixes.iter().skip(1).cloned())
+        .collect();
+    if !hint.is_empty() {
+        e = e.with_hint(hint.join("; "));
     }
     if let Some(fix) = f.fixes.first() {
         e = e.with_fix(fix_command(fix));
@@ -391,11 +404,20 @@ pub fn run_locked(cx: &mut Cx, a: &InstallArgs) -> Result<Report, InstallerError
         _ => Origin::Carton(cv.clone()),
     };
     let mut warnings: Vec<String> = Vec::new();
+    // a security advisory is shown once per version (#4, #12); the memory is written with the
+    // install's own state save, so a dry run or a failed install leaves it alone
+    let mut newly_shown: Vec<cig_compat::Finding> = Vec::new();
     for f in check(&m, &Combination { items, origin }, &cx.host) {
         if f.severity == Severity::Refuse {
             return Err(finding_error(&f));
         }
-        warnings.push(format!("{}: {}", f.code, f.headline));
+        if crate::advisories::is_advisory(&f) {
+            if crate::advisories::seen(&cx.state, &f) && !a.dry_run {
+                continue;
+            }
+            newly_shown.push(f.clone());
+        }
+        warnings.push(crate::advisories::line(&f));
     }
 
     let todo: Vec<(String, Version)> = want
@@ -468,6 +490,7 @@ pub fn run_locked(cx: &mut Cx, a: &InstallArgs) -> Result<Report, InstallerError
         add_path = cx.ui.ask(&q).is_yes(&q);
     }
 
+    crate::advisories::mark(&mut cx.state, &newly_shown.iter().collect::<Vec<_>>());
     let mut txn = cx.begin(&format!("install {what_text}"))?;
     let applied = apply(
         cx,
@@ -523,6 +546,11 @@ pub fn run_locked(cx: &mut Cx, a: &InstallArgs) -> Result<Report, InstallerError
     for w in &warnings {
         rep = rep.detail(format!("warning {w}"));
     }
+    if let Some(p) = &a.preset {
+        rep = rep.detail(format!(
+            "preset {p} is recorded; the guard applies it once cig-orchestrator#66 lands"
+        ));
+    }
     if !matches!(a.what, What::Carton) {
         if let (Some(mc), Some(mrec)) = (
             machine.as_deref().filter(|m| *m != cv.to_string()),
@@ -563,6 +591,7 @@ pub fn run_locked(cx: &mut Cx, a: &InstallArgs) -> Result<Report, InstallerError
     Ok(rep.data(json!({
         "carton": cv.to_string(),
         "changed": true,
+        "preset": a.preset,
         "txn": txn_id,
         "tools": want.iter().map(|(t, v)| json!({
             "tool": t, "version": v.to_string(),
@@ -680,6 +709,13 @@ fn apply(cx: &mut Cx, txn: &mut Txn, p: &Plan<'_>) -> Result<Applied, InstallerE
 
     // 2. the installer's own toolchain and links
     let (exe_obj, shim_obj) = bootstrap(cx, txn)?;
+
+    // 2b. the install's own settings, inside the same transaction (a rollback undoes them)
+    for (key, value) in [("preset", &p.args.preset), ("reports", &p.args.reports)] {
+        if let Some(v) = value {
+            cx.cfg.set_in(txn, key, v).map_err(ie)?;
+        }
+    }
 
     // 3. the new state
     let mut state = cx.state.clone();

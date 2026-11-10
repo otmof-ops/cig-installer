@@ -505,7 +505,7 @@ fn a2_pin_list_carton_show() {
     );
     let o = fx
         .cigi()
-        .args(["pin", "cigo", "1.0"])
+        .args(["pin", "cigcompile", "1.0"])
         .current_dir(&sub)
         .output()
         .unwrap();

@@ -34,7 +34,7 @@ the installer: carton and tool combinations that do not fit (marry-up), and cart
 | code | title | kind of no | what to type next |
 |---|---|---|---|
 | [`E1800`](#e1800-combination-refused) | combination refused | these are MY ciggies | `ciginstaller check` |
-| [`E1801`](#e1801-a-product-needs-another) | a product needs another | these are MY ciggies | `ciginstaller carton list`, then `ciginstaller carton <version>` for one that holds both |
+| [`E1801`](#e1801-a-product-needs-another) | a product needs another | these are MY ciggies | `ciginstaller update` to the carton where they match, or keep the older tool for this project: `ciginstaller pin <tool> <version>`, for example `ciginstaller pin cigo 1.3` |
 | [`E1802`](#e1802-a-stick-does-not-fit-its-carton) | a stick does not fit its carton | these are MY ciggies | `ciginstaller check`, then `ciginstaller install carton --carton <version>` |
 | [`E1803`](#e1803-yanked-version-or-carton-in-use) | yanked version or carton in use | these are MY ciggies | `ciginstaller update` |
 | [`E1804`](#e1804-security-advisory) | security advisory | not one of the four | `ciginstaller update` |
@@ -75,13 +75,13 @@ Related: [`E1801`](#e1801-a-product-needs-another), [`E1802`](#e1802-a-stick-doe
 
 **Kind of no:** these are MY ciggies (the door: it knows you and said no; 403 Forbidden; permission denied; a lock; a refusal by policy).
 
-One product in the combination needs a version of another that is not there, for example cigo needs a cig at or above its minimum.
+One product in the combination needs a version of another that is not there, for example cigo needs a cig at or above its minimum. A hard requirement leads with "these two don't smoke together." and refuses, with the fix as one command; a soft one only warns.
 
-**What to type next:** `ciginstaller carton list`, then `ciginstaller carton <version>` for one that holds both
+**What to type next:** `ciginstaller update` to the carton where they match, or keep the older tool for this project: `ciginstaller pin <tool> <version>`, for example `ciginstaller pin cigo 1.3`
 
 **Known causes**, ranked; the doctor checks them in this order:
 
-1. the project pins a cig older than the cigo in the carton accepts (probe `project-pins`). **Remedy:** `ciginstaller check`, then pin a carton whose cig satisfies it: `ciginstaller pin carton <pin>`
+1. the project pins a cig older than the cigo in the carton accepts (probe `project-pins`). **Remedy:** `ciginstaller check`, then keep the tool that fits this project (`ciginstaller pin cigo 1.3`) or move to a carton where they match (`ciginstaller update`)
 2. a stick replaced one product with a build the others do not accept (probe `installed-cartons`). **Remedy:** `ciginstaller check`, then `ciginstaller install carton` to put the carton's own build back
 
 Related: [`E1800`](#e1800-combination-refused).
