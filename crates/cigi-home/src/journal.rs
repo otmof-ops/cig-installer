@@ -1581,18 +1581,36 @@ pub struct TxnInfo {
     pub status: TxnStatus,
 }
 
-/// Every transaction on disk, oldest first. Read-only.
+/// The second a transaction id was made in: the part before its random suffix.
+pub fn txn_second(id: &str) -> &str {
+    id.split_once('-').map_or(id, |(t, _)| t)
+}
+
+/// Every transaction on disk, oldest first. Read-only. An id names its second only, and two
+/// operations can start in the same one, so within a second the journal written last is the
+/// newer: the random part of the id says nothing about order.
 pub fn list_txns(home: &Home) -> Vec<TxnInfo> {
     let root = home.txn_root();
-    let mut ids: Vec<String> = fs::read_dir(&root)
+    let mut ids: Vec<(String, Option<std::time::SystemTime>)> = fs::read_dir(&root)
         .map(|rd| {
             rd.flatten()
                 .filter(|e| e.path().is_dir())
-                .map(|e| e.file_name().to_string_lossy().into_owned())
+                .map(|e| {
+                    let written = fs::metadata(e.path().join("journal.jsonl"))
+                        .and_then(|m| m.modified())
+                        .ok();
+                    (e.file_name().to_string_lossy().into_owned(), written)
+                })
                 .collect()
         })
         .unwrap_or_default();
-    ids.sort();
+    ids.sort_by(|a, b| {
+        txn_second(&a.0)
+            .cmp(txn_second(&b.0))
+            .then(a.1.cmp(&b.1))
+            .then(a.0.cmp(&b.0))
+    });
+    let ids: Vec<String> = ids.into_iter().map(|(id, _)| id).collect();
     ids.into_iter()
         .map(|id| {
             let p = root.join(&id).join("journal.jsonl");

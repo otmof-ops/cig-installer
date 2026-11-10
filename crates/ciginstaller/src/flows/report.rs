@@ -18,7 +18,7 @@ use std::collections::BTreeMap;
 use std::path::Path;
 
 use cig_compat::{Manifest, Version};
-use cigi_home::journal::{list_txns, TxnStatus, JOURNAL_FORMAT};
+use cigi_home::journal::{list_txns, txn_second, TxnStatus, JOURNAL_FORMAT};
 use cigi_home::{read_receipt, verify_toolchain, Home};
 use cigi_ui::{InstallerError, EXIT_USAGE};
 use serde_json::{json, Map, Value};
@@ -453,6 +453,8 @@ pub fn flagged(b: &Value) -> usize {
 /// `run` as an installer operation: a history id or transaction id (or a prefix of either);
 /// with no run named, the newest operation. `Ok(None)` when nothing matches.
 pub fn find_operation(cx: &Cx, run: Option<&str>) -> Result<Option<String>, InstallerError> {
+    // oldest first: `list_txns` orders operations that started in the same second; one only
+    // `history` remembers (its folder tidied away) takes its place by its second
     let txns = list_txns(&cx.home);
     let mut ids: Vec<String> = txns.iter().map(|t| t.id.clone()).collect();
     for h in &cx.state.history {
@@ -460,7 +462,7 @@ pub fn find_operation(cx: &Cx, run: Option<&str>) -> Result<Option<String>, Inst
             ids.push(h.txn.clone());
         }
     }
-    ids.sort();
+    ids.sort_by(|a, b| txn_second(a).cmp(txn_second(b)));
     let Some(want) = run else {
         return Ok(ids.pop());
     };

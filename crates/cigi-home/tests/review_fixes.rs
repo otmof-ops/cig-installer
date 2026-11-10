@@ -550,3 +550,40 @@ fn two_sticks_of_one_tool_are_refused_not_last_wins() {
     s.sticks.pop();
     assert!(State::parse(&s.to_json()).is_ok());
 }
+
+#[test]
+fn operations_that_start_in_the_same_second_are_listed_in_the_order_they_ran() {
+    let f = fx();
+    let root = f.home.txn_root();
+    let mut dirs = Vec::new();
+    for label in ["first", "second"] {
+        let mut t = f.txn(label);
+        t.write(&f.home.root().join(format!("{label}.txt")), b"x", None)
+            .unwrap();
+        dirs.push(t.dir().to_path_buf());
+        t.commit().unwrap();
+    }
+    // the same second, with random parts that sort the wrong way round
+    let older = root.join("20260101T000000-ffffff");
+    let newer = root.join("20260101T000000-000000");
+    fs::rename(&dirs[0], &older).unwrap();
+    fs::rename(&dirs[1], &newer).unwrap();
+    let t0 = std::time::SystemTime::UNIX_EPOCH + std::time::Duration::from_secs(1_767_225_600);
+    for (dir, at) in [
+        (&older, t0),
+        (&newer, t0 + std::time::Duration::from_millis(400)),
+    ] {
+        fs::OpenOptions::new()
+            .append(true)
+            .open(dir.join("journal.jsonl"))
+            .unwrap()
+            .set_modified(at)
+            .unwrap();
+    }
+    let ids: Vec<String> = list_txns(&f.home).into_iter().map(|t| t.id).collect();
+    assert_eq!(ids, ["20260101T000000-ffffff", "20260101T000000-000000"]);
+    assert_eq!(
+        journal::txn_second("20260101T000000-ffffff"),
+        "20260101T000000"
+    );
+}
