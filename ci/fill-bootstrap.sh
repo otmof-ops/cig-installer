@@ -25,7 +25,7 @@ digest_of() {
   name="ciginstaller-v${ver}-${platform}.${ext}"
   side="$assets/$name.sha256"
   if [[ ! -f "$side" ]]; then echo none; return; fi
-  [[ "$(wc -l < "$side")" == 1 ]] || { echo "::error::$side is not exactly one line" >&2; exit 1; }
+  [[ "$(wc -l < "$side" | tr -d ' ')" == 1 ]] || { echo "::error::$side is not exactly one line" >&2; exit 1; }
   line="$(cat "$side")"
   [[ "$line" =~ ^([0-9a-f]{64})[[:space:]]+[\*]?${name//./\\.}$ ]] \
     || { echo "::error::$side is not a sha256sum line for $name" >&2; exit 1; }
@@ -53,7 +53,12 @@ for t in install.sh install.ps1; do
     echo "::error::$t still holds a placeholder"
     exit 1
   fi
-  (cd "$out" && sha256sum "$t" > "$t.sha256")
+  # sha256sum is GNU coreutils; macOS has `shasum -a 256` (same line format)
+  if command -v sha256sum > /dev/null; then
+    (cd "$out" && sha256sum "$t" > "$t.sha256")
+  else
+    (cd "$out" && shasum -a 256 "$t" > "$t.sha256")
+  fi
 done
 chmod +x "$out/install.sh"
 sh -n "$out/install.sh"

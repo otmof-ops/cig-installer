@@ -107,6 +107,7 @@ pub fn key_of(byte: u8) -> Key {
 /// The device-attributes reply (`ESC [ ? ... c`) that ends the query: terminals answer it
 /// even when they ignore OSC 11, so an unsupportive terminal costs a few milliseconds, not
 /// the whole timeout.
+#[cfg_attr(not(unix), allow(dead_code))] // only the Unix terminal query reads it
 fn answered_da1(buf: &[u8]) -> bool {
     buf.windows(3)
         .position(|w| w == b"\x1b[?")
@@ -116,6 +117,10 @@ fn answered_da1(buf: &[u8]) -> bool {
 /// Is this process in the foreground process group of its terminal? Reads `tpgid` and `pgrp`
 /// from `/proc/self/stat` (Linux). Where there is no `/proc`, the answer is yes.
 pub fn in_foreground() -> bool {
+    // only Linux has `/proc/self/stat`; elsewhere there is nothing to read, so the answer is yes
+    if !cfg!(target_os = "linux") {
+        return true;
+    }
     match std::fs::read_to_string("/proc/self/stat") {
         Ok(stat) => foreground_in_stat(&stat).unwrap_or(false),
         Err(_) => !std::path::Path::new("/proc/self").exists(),

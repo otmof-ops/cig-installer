@@ -284,6 +284,8 @@ fn a2r_pin_fetch_policy_before_network() {
 /// Finding 13: the installer lock is not held while the tool runs after a pin fetch. The fake
 /// `cig` that cigo calls tries a mutating installer command; it waits 30 s and fails if the
 /// resolver still holds the lock.
+// Unix only: the fake `cig` is a shell script; proves the lock is free while a tool runs.
+#[cfg(unix)]
 #[test]
 fn a2r_lock_released_while_tool_runs() {
     let mut fx = fixture();

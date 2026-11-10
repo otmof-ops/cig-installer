@@ -112,6 +112,7 @@ impl PrivateDir {
             .map(Path::to_path_buf)
             .unwrap_or_else(std::env::temp_dir);
         let p = base.join(format!("attest-{}", crate::digest::random_suffix()));
+        #[cfg_attr(not(unix), allow(unused_mut))] // `mode` is Unix only
         let mut b = std::fs::DirBuilder::new();
         #[cfg(unix)]
         {

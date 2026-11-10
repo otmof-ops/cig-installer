@@ -32,8 +32,10 @@ pub const MAX_FILE_INSTALLER: u64 = 1024 * 1024;
 /// Who may own a project pin file: the owner of CIGSCRIPT_HOME, or root. `None` off Unix.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct Trusted {
+    #[cfg_attr(not(unix), allow(dead_code))] // read by the Unix owner check only
     uid: Option<u32>,
     /// The check is on (Unix); a home whose owner cannot be read then trusts no pin file.
+    #[cfg_attr(not(unix), allow(dead_code))]
     on: bool,
 }
 

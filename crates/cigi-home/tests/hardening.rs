@@ -4,6 +4,10 @@
 //! What the library refuses to follow or trust: receipt paths, links where files or directories
 //! should be, humidor names, profiles that are links, the owner marker and the home's modes.
 
+// Unix only: every test here builds symlinks or reads and sets Unix modes. The Windows
+// equivalents (junctions, ACL owner) are the Windows runtime drafts' tests.
+#![cfg(unix)]
+
 mod common;
 
 use std::fs;

@@ -6,7 +6,6 @@
 //! cannot outlast its timeout. The first-line budgets for the real binary are measured in
 //! `crates/ciginstaller/tests/budget.rs`.
 
-use cigi_ui::detect::query_background;
 use cigi_ui::tokens::budget;
 use cigi_ui::*;
 use std::time::{Duration, Instant};
@@ -47,6 +46,7 @@ fn the_budgets_are_the_numbers_in_issue_32() {
 #[cfg(unix)]
 #[test]
 fn the_background_query_without_a_terminal_answers_none_at_once() {
+    use cigi_ui::detect::query_background;
     // Only provable where there is no controlling terminal (CI, a container). On a developer's
     // terminal this would query it for real, so the check is skipped there; `examples/probe`
     // is how that case is tried by hand.

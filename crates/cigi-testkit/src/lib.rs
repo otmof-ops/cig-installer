@@ -14,6 +14,7 @@
 
 mod fixture;
 mod products;
+mod pty;
 mod recorder;
 mod server;
 mod snapshot;
@@ -21,6 +22,7 @@ mod tarball;
 
 pub use fixture::{binary_path, output_retrying, Fixture, ManifestPaths, PublishOpts};
 pub use products::{asset_name, host_target, ProductBuilder};
+pub use pty::script_args;
 pub use recorder::{check_no_telemetry, Recorded};
 pub use server::{FixtureServer, Rule, ShortBodyServer};
 pub use snapshot::{Entry, Snapshot};

@@ -4,6 +4,10 @@
 //! `uninstall --all` says it keeps, read-only dry runs, `gc` for E1865, the ownership check,
 //! symlinks, and a doctor that writes nothing.
 
+// Unix only: review-fix tests build symlinks, set Unix modes and drive shell-script tools.
+// The Windows runtime drafts add their own equivalents.
+#![cfg(unix)]
+
 mod common;
 
 use std::os::unix::fs::symlink;

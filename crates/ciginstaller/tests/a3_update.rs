@@ -185,7 +185,7 @@ fn a3_update_dry_run_and_up_to_date_change_nothing() {
     assert!(text(&o).contains("is the newest"), "{}", text(&o));
 }
 
-/// A TTY for the child through util-linux `script`; its input is `keys`.
+/// A TTY for the child through `script` (util-linux or BSD, see `cigi_testkit::script_args`); its input is `keys`.
 fn on_tty(fx: &Fixture, args: &str, keys: &[&str], env: &[(&str, &str)]) -> (i32, String) {
     let c = fx.cigi();
     let exe = c.get_program().to_string_lossy().to_string();
@@ -200,7 +200,7 @@ fn on_tty(fx: &Fixture, args: &str, keys: &[&str], env: &[(&str, &str)]) -> (i32
     }
     s.envs(env.iter().copied());
     s.env("CIGI_ALLOW_SINGLE_SOURCE", "true")
-        .args(["-qec", &line, "/dev/null"])
+        .args(cigi_testkit::script_args(&line))
         .current_dir(&fx.project)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())

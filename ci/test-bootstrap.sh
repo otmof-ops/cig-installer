@@ -16,6 +16,15 @@ cleanup() {
 }
 trap cleanup EXIT
 
+# sha256sum is GNU coreutils; macOS has `shasum -a 256` (same output and `-c` format)
+sum256() { if command -v sha256sum > /dev/null; then sha256sum "$@"; else shasum -a 256 "$@"; fi; }
+# GNU tar can make the tarballs reproducible; bsdtar (macOS) has no such flags and does not need them here
+if tar --version 2> /dev/null | grep -q GNU; then
+  mktar() { tar --sort=name --owner=0 --group=0 --numeric-owner "$@"; }
+else
+  mktar() { tar "$@"; }
+fi
+
 fails=0
 pass() { echo "ok   $*"; }
 fail() { echo "FAIL $*"; fails=$((fails + 1)); }
@@ -44,8 +53,8 @@ echo licence > "$fx/stage/LICENSE"; echo notice > "$fx/stage/NOTICE"; echo third
 chmod +x "$fx/stage/ciginstaller" "$fx/stage/cigi-shim"
 for p in linux-x86_64 linux-aarch64; do
   name="ciginstaller-v$ver-$p.tar.gz"
-  tar --sort=name --owner=0 --group=0 --numeric-owner -C "$fx/stage" -cf - . | gzip -n > "$fx/$name"
-  (cd "$fx" && sha256sum "$name" > "$name.sha256")
+  mktar -C "$fx/stage" -cf - . | gzip -n > "$fx/$name"
+  (cd "$fx" && sum256 "$name" > "$name.sha256")
 done
 bash "$here/ci/fill-bootstrap.sh" "$tag" "$repo" "$fx" "$work/out" > "$work/fill.log" 2>&1 \
   || { cat "$work/fill.log"; echo "FAIL fill-bootstrap.sh"; exit 1; }
@@ -186,7 +195,7 @@ for p in ("linux-x86_64", "linux-aarch64"):
             i = tarfile.TarInfo("sneaky"); i.type = tarfile.SYMTYPE; i.linkname = "/etc"
             t.addfile(i)
 PY
-    (cd "$bad" && for f in "ciginstaller-v$ver"-*.tar.gz; do sha256sum "$f" > "$f.sha256"; done)
+    (cd "$bad" && for f in "ciginstaller-v$ver"-*.tar.gz; do sum256 "$f" > "$f.sha256"; done)
     bash "$here/ci/fill-bootstrap.sh" "$tag" "$repo" "$bad" "$work/out-bad" > /dev/null 2>&1
     home="$work/home9-$kind"
     PATH="$work/bin:$PATH" TMPDIR="$work/tmp" CIGSCRIPT_HOME="$home" CIGI_BOOTSTRAP_BASE_URL="file://$bad" \
@@ -223,7 +232,7 @@ rm "$work/badfill/ciginstaller-v$ver-linux-aarch64.tar.gz.sha256"
 cp "$fx/ciginstaller-v$ver-linux-x86_64.tar.gz.sha256" "$work/badfill/"
 bash "$here/ci/fill-bootstrap.sh" "$tag" "$repo" "$work/badfill" "$work/out-y" > /dev/null 2>&1; rc=$?
 check "fill: a missing Linux platform fails" test "$rc" -ne 0
-check "fill: the published script's own checksum verifies" bash -c "cd '$work/out' && sha256sum -c install.sh.sha256 install.ps1.sha256 > /dev/null"
+check "fill: the published script's own checksum verifies" bash -c "cd '$work/out' && $(declare -f sum256) && sum256 -c install.sh.sha256 install.ps1.sha256 > /dev/null"
 check "fill: windows is written as none until a build exists" grep -q "^\$ShaWindowsX86_64 = 'none'" "$work/out/install.ps1"
 
 # 12. PowerShell: parse the filled script; on a non-Windows host it must refuse by name

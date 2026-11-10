@@ -80,6 +80,8 @@ fn a_failed_install_still_cleans_its_partial_toolchain_tree() {
 
 // ---------------------------------------------------------------- M2
 
+// Unix only: a profile that is a symlink gets the block written in its target (Unix symlinks).
+#[cfg(unix)]
 #[test]
 fn a_symlinked_profile_gets_the_block_in_its_target() {
     let f = fx();
@@ -121,6 +123,8 @@ fn a_symlinked_profile_gets_the_block_in_its_target() {
         .is_symlink());
 }
 
+// Unix only: rollback of a symlinked profile restores its target (Unix symlinks).
+#[cfg(unix)]
 #[test]
 fn a_symlinked_profile_rolls_back_through_its_target() {
     let f = fx();
@@ -135,6 +139,8 @@ fn a_symlinked_profile_rolls_back_through_its_target() {
     assert_eq!(fs::read_to_string(&target).unwrap(), "alias a=b\n");
 }
 
+// Unix only: a dangling profile symlink is skipped without error (Unix symlinks).
+#[cfg(unix)]
 #[test]
 fn a_dangling_profile_link_is_skipped_not_an_error() {
     let f = fx();
@@ -311,6 +317,8 @@ fn a_rebuild_replaces_the_damaged_toolchain() {
 
 // ---------------------------------------------------------------- L3
 
+// Unix only: toolchain directories are never group-writable under umask 002 (Unix modes).
+#[cfg(unix)]
 #[test]
 fn toolchain_directories_are_never_group_writable_under_umask_002() {
     use std::os::unix::fs::PermissionsExt;

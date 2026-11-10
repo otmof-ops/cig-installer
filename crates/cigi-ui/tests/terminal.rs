@@ -12,7 +12,8 @@
 //! * a hostile `PATH` is never used to find `stty`, `dd` or `sh`;
 //! * three typed answers that are not options end the run with exit 3.
 
-#![cfg(target_os = "linux")]
+// Linux and macOS: both have `script(1)`, with different arguments (`script_args` below).
+#![cfg(any(target_os = "linux", target_os = "macos"))]
 
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
@@ -20,9 +21,25 @@ use std::process::{Child, ChildStdin, Command, Stdio};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
+/// The arguments for `script` that run `line` on a pseudo-terminal: util-linux takes
+/// `-qec <line> /dev/null`, BSD `script` (macOS) takes `-q /dev/null <command>`.
+fn script_args(line: &str) -> Vec<String> {
+    if cfg!(target_os = "macos") {
+        ["-q", "/dev/null", line].map(String::from).to_vec()
+    } else {
+        ["-qec", line, "/dev/null"].map(String::from).to_vec()
+    }
+}
+
 fn have_script() -> bool {
+    // BSD `script` has no `--version`: ask it to run `true` instead
+    let args = script_args("true");
     Command::new("script")
-        .arg("--version")
+        .args(if cfg!(target_os = "macos") {
+            args
+        } else {
+            vec!["--version".to_string()]
+        })
         .stdout(Stdio::null())
         .stderr(Stdio::null())
         .status()
@@ -68,7 +85,7 @@ impl Tty {
             .env("LANG", "en_US.UTF-8")
             .env("COLORFGBG", "15;0")
             .envs(env.iter().copied())
-            .args(["-qec", &probe().to_string_lossy(), "/dev/null"])
+            .args(script_args(&probe().to_string_lossy()))
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::null());

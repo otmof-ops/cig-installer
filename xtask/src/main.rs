@@ -17,6 +17,7 @@ usage:
         [--expires-days 30] [--out <file>]
   cargo xtask pins <manifest.toml>
   cargo xtask errors-doc
+  cargo xtask fixture-mirror <dir>
   cargo xtask tokens [--check]";
 
 fn fail(msg: &str) -> ! {
@@ -56,9 +57,19 @@ fn main() {
         ["manifest", "assemble", rest @ ..] => assemble_cmd(rest),
         ["pins", manifest] => pins_cmd(Path::new(manifest)),
         ["errors-doc"] => errors_doc_cmd(),
+        ["fixture-mirror", dir] => fixture_mirror_cmd(Path::new(dir)),
         ["tokens"] => tokens_cmd(false),
         ["tokens", "--check"] => tokens_cmd(true),
         _ => usage("what to do?"),
+    }
+}
+
+/// Write the testkit's fixture mirror (the one the cargo tests install from) into `dir`, for CI
+/// jobs that install from it on machines that have no Rust.
+fn fixture_mirror_cmd(dir: &Path) {
+    match xtask::fixture_mirror::write(dir) {
+        Ok(n) => println!("fixture mirror: {n} files in {}", dir.display()),
+        Err(e) => fail(&e),
     }
 }
 

@@ -25,7 +25,7 @@ fn bare(fx: &Fixture, dir: &Path, args: &[&str]) -> Output {
         .expect("run ciginstaller")
 }
 
-/// A terminal for the child through util-linux `script`; its input is `keys`.
+/// A terminal for the child through `script` (util-linux or BSD, see `cigi_testkit::script_args`); its input is `keys`.
 fn on_tty(fx: &Fixture, args: &str, keys: &[&str]) -> (i32, String) {
     let c = fx.cigi();
     let exe = c.get_program().to_string_lossy().to_string();
@@ -40,7 +40,7 @@ fn on_tty(fx: &Fixture, args: &str, keys: &[&str]) -> (i32, String) {
         }
     }
     s.env(MIRROR.0, MIRROR.1)
-        .args(["-qec", &line, "/dev/null"])
+        .args(cigi_testkit::script_args(&line))
         .current_dir(&fx.project)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())

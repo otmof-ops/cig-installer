@@ -3,6 +3,10 @@
 //! Phase 2 acceptance: pin files and project discovery. One reader (the shim's) decides which pin
 //! file counts, for the shim and for `ciginstaller`; `pin` edits what it finds and nothing else.
 
+// Unix only: pin-file tests need Unix symlinks, modes and owners (the shim's trust rules).
+// The Windows runtime drafts add their own equivalents.
+#![cfg(unix)]
+
 mod common;
 
 use std::fs;
