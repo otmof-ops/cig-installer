@@ -135,8 +135,12 @@ fn dispatch(cli: Cli, ui: Ui) -> i32 {
             }
             Some(Command::List) => cmd::list::run(&mut cx),
             Some(Command::Which {
-                tool, why, path, ..
-            }) => cmd::which::run(&mut cx, tool.as_deref(), *why, *path),
+                tool,
+                why,
+                path,
+                script,
+                ..
+            }) => cmd::which::run(&mut cx, tool.as_deref(), *why, *path, script.as_deref()),
             Some(Command::Resolve { tool, args, .. }) => {
                 match cmd::resolve::run(&mut cx, tool, args) {
                     Ok(code) => Err(InstallerError::new("E1832", "").with_exit(code)),

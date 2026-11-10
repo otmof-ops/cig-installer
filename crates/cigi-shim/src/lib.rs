@@ -17,7 +17,8 @@ use std::path::{Path, PathBuf};
 
 pub mod pins;
 
-use pins::{pin_from_carton_file, pin_from_json, pin_from_toml};
+pub use pins::ScriptPin;
+use pins::{cig_from_json, header_pin, pin_from_carton_file, pin_from_json, pin_from_toml};
 
 /// The tools the shim serves.
 pub const TOOLS: [&str; 4] = ["cig", "cigo", "cigcompile", "cigar"];
@@ -189,7 +190,8 @@ pub enum Found {
         kind: Kind,
         pin: Option<String>,
     },
-    /// No current pin file, but these legacy per-tool files are here and trusted.
+    /// No current pin file, but these legacy per-tool files are here and trusted. A `cig-tasks.json`
+    /// whose top level has a `"cig"` key (the cig the project is written for) is one of them.
     Legacy {
         dir: PathBuf,
         files: Vec<PathBuf>,
@@ -213,6 +215,7 @@ pub fn find(start: &Path, legacy: &[&str], t: Trusted, stop: Option<&Path>, cap:
     let mut dir = Some(start);
     for _ in 0..MAX_DEPTH {
         let Some(d) = dir else { break };
+        let mut manifest_cig = None;
         for (name, kind) in [
             (".cig-carton", Kind::CartonFile),
             ("cig-tasks.json", Kind::Json),
@@ -243,13 +246,20 @@ pub fn find(start: &Path, legacy: &[&str], t: Trusted, stop: Option<&Path>, cap:
                             pin,
                         };
                     }
+                    if kind == Kind::Json && cig_from_json(&text).is_some() {
+                        manifest_cig = Some(file);
+                    }
                 }
             }
         }
-        let files: Vec<PathBuf> = legacy
-            .iter()
-            .map(|n| d.join(n))
-            .filter(|p| trusted_entry(p, t, false))
+        let files: Vec<PathBuf> = manifest_cig
+            .into_iter()
+            .chain(
+                legacy
+                    .iter()
+                    .map(|n| d.join(n))
+                    .filter(|p| trusted_entry(p, t, false)),
+            )
             .collect();
         if !files.is_empty() {
             return Found::Legacy {
@@ -263,6 +273,51 @@ pub fn find(start: &Path, legacy: &[&str], t: Trusted, stop: Option<&Path>, cap:
         dir = d.parent();
     }
     Found::Nothing
+}
+
+/// The cap on what the shim reads of a script to find its header: a header sits before the first
+/// statement, so a script whose first 16 KiB are still comments has none worth finding.
+pub const MAX_SCRIPT_PEEK: u64 = 16 * 1024;
+
+/// The words that put the file to run after them: `cig run s.cig`, `cig check s.cig`.
+const SCRIPT_SUBCOMMANDS: [&str; 4] = ["run", "check", "light", "chains"];
+
+/// The argument that names the script a `cig` command is about: the first that is not a flag,
+/// after `run`, `check`, `light` or `chains` when one comes first. After a `--` the next argument
+/// counts whatever it starts with. `None` when the command has none (`cig --version`).
+pub fn script_arg(args: &[std::ffi::OsString]) -> Option<&std::ffi::OsString> {
+    let (mut sub, mut rest_are_args) = (false, false);
+    for a in args {
+        let s = a.to_str();
+        if !rest_are_args {
+            if s == Some("--") {
+                rest_are_args = true;
+                continue;
+            }
+            if s.is_some_and(|s| s.starts_with('-')) {
+                continue;
+            }
+        }
+        if !sub && s.is_some_and(|s| SCRIPT_SUBCOMMANDS.contains(&s)) {
+            sub = true;
+            continue;
+        }
+        return Some(a);
+    }
+    None
+}
+
+/// The pin in the header of the script at `path`, when it is a readable regular file (a link to
+/// one counts: cig reads through links) that carries one. Opens without blocking, reads at most
+/// [`MAX_SCRIPT_PEEK`] bytes and never writes. Anything else is `None`: no file, no pin.
+pub fn read_script_header(path: &Path) -> Option<ScriptPin> {
+    let f = open_nonblocking(path).ok()?;
+    if !f.metadata().ok()?.is_file() {
+        return None;
+    }
+    let mut bytes = Vec::new();
+    f.take(MAX_SCRIPT_PEEK).read_to_end(&mut bytes).ok()?;
+    header_pin(&String::from_utf8_lossy(&bytes))
 }
 
 #[cfg(test)]

@@ -380,6 +380,31 @@ probe = "project-pins"
 remedy = "install a carton that satisfies it: `ciginstaller carton list`"
 
 [[code]]
+code = "E1809"
+title = "a script's pin is not met"
+meaning = "A script pins the cig it was written for in its header (`# cig >=1.6.2`), and no cig installed here meets that pin. The resolver tried the carton the project or the machine uses, then every installed cig, and fetching a carton that has one was off or is not possible: `which` never fetches, `pin_fetch` was `never` or `ask` with nobody to ask, or no carton on the channel has a cig that meets it."
+fix = "`ciginstaller install carton --carton <version>` (the message names the carton), or `ciginstaller carton list`"
+no = "these-are-mine"
+arises = ["run"]
+tags = ["installer", "beginner-likely"]
+since = "0.1.0"
+related = ["E1801", "E1842"]
+[[code.cause]]
+why = "the carton that has a cig new enough is on the channel but not installed, and fetching is off"
+no = "these-are-mine"
+probe = "installed-cartons"
+remedy = "`ciginstaller install carton --carton <version>`, then run the script again; `ciginstaller config set pin_fetch auto` lets the shim do it"
+[[code.cause]]
+why = "no carton on this channel has a cig that meets the header, because the pin asks for a cig newer than any shipped or for another major version"
+no = "cant-see-any"
+probe = "carton-list"
+remedy = "`ciginstaller carton list` shows each carton's cig; loosen the header, or `ciginstaller channel beta` if a newer cig is there"
+[[code.cause]]
+why = "the header holds a typo, such as `>=1.62` for `>=1.6.2`"
+probe = "pin-file"
+remedy = "`ciginstaller which cig --why --script <file>` shows what was asked for and how far the look got"
+
+[[code]]
 code = "E1810"
 title = "no manifest"
 meaning = "The installer has no manifest to work from: it is offline and the cache is empty, or the channel returned nothing."
@@ -543,6 +568,27 @@ why = "the carton's record was made before the tool was added to it, or the tool
 no = "dont-have-any"
 probe = "installed-cartons"
 remedy = "`ciginstaller install carton --carton <version>` fills the carton in"
+
+[[code]]
+code = "E1819"
+title = "the channel's latest carton is not fetched"
+meaning = "Nothing is installed here and no project pin or machine carton says what to run, so the resolver's last step is the channel's latest carton. It was not fetched: `which` never fetches, `pin_fetch` was `never`, `--offline` was given, or `ask` had no terminal to ask on."
+fix = "`ciginstaller install carton`"
+no = "dont-have-any"
+arises = ["run"]
+tags = ["installer", "beginner-likely", "ci-likely"]
+since = "0.1.0"
+related = ["E1840", "E1842"]
+[[code.cause]]
+why = "ciginstaller has not installed anything yet, and a shim or `which` was run first"
+no = "dont-have-any"
+probe = "installed-cartons"
+remedy = "`ciginstaller install carton`"
+[[code.cause]]
+why = "the shim ran with no terminal and `pin_fetch` is `ask`, the default, which acts as `never` then"
+no = "these-are-mine"
+probe = "manifest-cache"
+remedy = "`ciginstaller install carton` once, or `ciginstaller config set pin_fetch auto` for CI"
 
 [[code]]
 code = "E1820"

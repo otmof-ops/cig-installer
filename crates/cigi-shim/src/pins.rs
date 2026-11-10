@@ -18,6 +18,17 @@ pub fn pin_from_carton_file(text: &str) -> Option<String> {
 
 /// `cig-tasks.json`: the string value of the top-level key `"carton"`, by a small state machine.
 pub fn pin_from_json(text: &str) -> Option<String> {
+    top_string(text, "carton")
+}
+
+/// `cig-tasks.json`: the string value of the top-level key `"cig"`, the cig the project is written
+/// for (cig-orchestrator's manifest, `docs/manifest.md`: `1.2`, `1.2.0` or `>=1.2.0`). The same
+/// reader as the carton key, so a nested `"cig"` (a component called cig) never counts.
+pub fn cig_from_json(text: &str) -> Option<String> {
+    top_string(text, "cig")
+}
+
+fn top_string(text: &str, want: &str) -> Option<String> {
     let b = text.as_bytes();
     let (mut i, mut depth) = (0, 0usize);
     while i < b.len() {
@@ -35,7 +46,7 @@ pub fn pin_from_json(text: &str) -> Option<String> {
                 while j < b.len() && b[j].is_ascii_whitespace() {
                     j += 1;
                 }
-                if depth == 1 && key == "carton" && b.get(j) == Some(&b':') {
+                if depth == 1 && key == want && b.get(j) == Some(&b':') {
                     j += 1;
                     while j < b.len() && b[j].is_ascii_whitespace() {
                         j += 1;
@@ -121,4 +132,48 @@ fn scan_toml_line(b: &[u8], depth: &mut usize, ml: &mut Option<&'static str>) {
         }
         i += 1;
     }
+}
+
+/// A pin a script carries in its header, as cig reads it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ScriptPin {
+    /// What follows `# cig` (or `# cig:`), trimmed: `>=1.6.2`.
+    pub text: String,
+    /// The line it is on, counting from 1.
+    pub line: usize,
+}
+
+/// The pin in a script's header: the comment lines before its first statement, a shebang allowed
+/// on the first line only, a leading byte-order mark ignored. `# cig 1.1`, `# cig >=1.6.2` and
+/// `# cig: 1.1.2` are pins; `# cig run s.cig -- x` (a usage line) and `# cig: run --dry-run`
+/// (a directive) are not, because a pin starts like a version. This is the rule of cig's own
+/// reader (`src/pin.rs`), so the shim, the installer and cig cannot disagree about which scripts
+/// carry one. Whether the text is a constraint cig can read is for the caller.
+pub fn header_pin(source: &str) -> Option<ScriptPin> {
+    for (i, raw) in source.lines().enumerate() {
+        let line = raw.trim_start_matches('\u{feff}').trim();
+        if line.is_empty() || (i == 0 && line.starts_with("#!")) {
+            continue;
+        }
+        let Some(comment) = line.strip_prefix('#') else {
+            break;
+        };
+        let comment = comment.trim();
+        let Some(rest) = comment
+            .strip_prefix("cig:")
+            .or_else(|| comment.strip_prefix("cig "))
+            .map(str::trim)
+        else {
+            continue;
+        };
+        let v = rest.trim_start_matches(">=").trim_start();
+        let v = v.strip_prefix('v').unwrap_or(v);
+        if v.chars().next().is_some_and(|c| c.is_ascii_digit()) {
+            return Some(ScriptPin {
+                text: rest.to_string(),
+                line: i + 1,
+            });
+        }
+    }
+    None
 }

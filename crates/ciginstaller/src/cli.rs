@@ -103,6 +103,9 @@ pub enum Command {
         /// Resolve as if run from this directory.
         #[arg(long, value_name = "DIR")]
         cwd: Option<PathBuf>,
+        /// For `cig`: as if running this script, so a `# cig >=1.6.2` header in it counts.
+        #[arg(long, value_name = "FILE")]
+        script: Option<PathBuf>,
     },
     // ---- the update lifecycle: update, rollback ----
     /// Check, choose, verify, trial and switch to a newer carton.

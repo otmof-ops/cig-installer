@@ -19,7 +19,7 @@ mod server;
 mod snapshot;
 mod tarball;
 
-pub use fixture::{binary_path, Fixture, ManifestPaths, PublishOpts};
+pub use fixture::{binary_path, output_retrying, Fixture, ManifestPaths, PublishOpts};
 pub use products::{asset_name, host_target, ProductBuilder};
 pub use recorder::{check_no_telemetry, Recorded};
 pub use server::{FixtureServer, Rule, ShortBodyServer};

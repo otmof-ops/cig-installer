@@ -42,6 +42,7 @@ the installer: carton and tool combinations that do not fit (marry-up), and cart
 | [`E1806`](#e1806-journal-format-against-this-cig) | journal format against this cig *(planned)* | these are MY ciggies | `ciginstaller carton list`, then `ciginstaller carton <version>` for a cig that reads it |
 | [`E1807`](#e1807-operating-system-or-kernel-below-a-minimum) | operating system or kernel below a minimum | these are MY ciggies | `ciginstaller carton list`, then `ciginstaller carton <version>` for one that supports this system |
 | [`E1808`](#e1808-a-packages-requirements) | a package's requirements *(planned)* | these are MY ciggies | `ciginstaller check --project <dir>` |
+| [`E1809`](#e1809-a-scripts-pin-is-not-met) | a script's pin is not met | these are MY ciggies | `ciginstaller install carton --carton <version>` (the message names the carton), or `ciginstaller carton list` |
 | [`E1810`](#e1810-no-manifest) | no manifest | don't have any over here | `ciginstaller update --check`, online, to fetch the manifest |
 | [`E1811`](#e1811-no-such-carton) | no such carton | can't see any ciggies bro | `ciginstaller carton list` |
 | [`E1812`](#e1812-no-such-channel) | no such channel | can't see any ciggies bro | `ciginstaller config list`, then `ciginstaller channel stable` |
@@ -51,6 +52,7 @@ the installer: carton and tool combinations that do not fit (marry-up), and cart
 | [`E1816`](#e1816-carton-not-installed) | carton not installed | don't have any over here | `ciginstaller install carton --carton <version>` |
 | [`E1817`](#e1817-carton-is-only-partly-installed) | carton is only partly installed | don't have any over here | `ciginstaller install carton --carton <version>` |
 | [`E1818`](#e1818-carton-lacks-a-tool-this-machine-has) | carton lacks a tool this machine has | don't have any over here | `ciginstaller install carton --carton <version>` |
+| [`E1819`](#e1819-the-channels-latest-carton-is-not-fetched) | the channel's latest carton is not fetched | don't have any over here | `ciginstaller install carton` |
 
 ### E1800 combination refused
 
@@ -198,6 +200,24 @@ A package a project adds needs a product version the carton does not provide. Em
 1. the package declares a minimum for cig or cigo above the installed build (probe `project-pins`). **Remedy:** install a carton that satisfies it: `ciginstaller carton list`
 
 Related: [`E1801`](#e1801-a-product-needs-another).
+
+### E1809 a script's pin is not met
+
+*usage · since 0.1.0 · arises in run*
+
+**Kind of no:** these are MY ciggies (the door: it knows you and said no; 403 Forbidden; permission denied; a lock; a refusal by policy).
+
+A script pins the cig it was written for in its header (`# cig >=1.6.2`), and no cig installed here meets that pin. The resolver tried the carton the project or the machine uses, then every installed cig, and fetching a carton that has one was off or is not possible: `which` never fetches, `pin_fetch` was `never` or `ask` with nobody to ask, or no carton on the channel has a cig that meets it.
+
+**What to type next:** `ciginstaller install carton --carton <version>` (the message names the carton), or `ciginstaller carton list`
+
+**Known causes**, ranked; the doctor checks them in this order:
+
+1. the carton that has a cig new enough is on the channel but not installed, and fetching is off (probe `installed-cartons`). **Remedy:** `ciginstaller install carton --carton <version>`, then run the script again; `ciginstaller config set pin_fetch auto` lets the shim do it
+2. no carton on this channel has a cig that meets the header, because the pin asks for a cig newer than any shipped or for another major version (probe `carton-list`). **Remedy:** `ciginstaller carton list` shows each carton's cig; loosen the header, or `ciginstaller channel beta` if a newer cig is there
+3. the header holds a typo, such as `>=1.62` for `>=1.6.2` (probe `pin-file`). **Remedy:** `ciginstaller which cig --why --script <file>` shows what was asked for and how far the look got
+
+Related: [`E1801`](#e1801-a-product-needs-another), [`E1842`](#e1842-pinned-carton-unavailable-and-fetching-refused).
 
 ### E1810 no manifest
 
@@ -347,6 +367,23 @@ The carton named is meant to have a tool the machine's carton has (by the manife
 1. the carton's record was made before the tool was added to it, or the tool was uninstalled (probe `installed-cartons`). **Remedy:** `ciginstaller install carton --carton <version>` fills the carton in
 
 Related: [`E1817`](#e1817-carton-is-only-partly-installed), [`E1840`](#e1840-nothing-installed-for-this-tool).
+
+### E1819 the channel's latest carton is not fetched
+
+*usage · since 0.1.0 · arises in run*
+
+**Kind of no:** don't have any over here (nobody's: right place, right you, nothing there; 404 from the server's side; an empty result).
+
+Nothing is installed here and no project pin or machine carton says what to run, so the resolver's last step is the channel's latest carton. It was not fetched: `which` never fetches, `pin_fetch` was `never`, `--offline` was given, or `ask` had no terminal to ask on.
+
+**What to type next:** `ciginstaller install carton`
+
+**Known causes**, ranked; the doctor checks them in this order:
+
+1. ciginstaller has not installed anything yet, and a shim or `which` was run first (probe `installed-cartons`). **Remedy:** `ciginstaller install carton`
+2. the shim ran with no terminal and `pin_fetch` is `ask`, the default, which acts as `never` then (probe `manifest-cache`). **Remedy:** `ciginstaller install carton` once, or `ciginstaller config set pin_fetch auto` for CI
+
+Related: [`E1840`](#e1840-nothing-installed-for-this-tool), [`E1842`](#e1842-pinned-carton-unavailable-and-fetching-refused).
 
 
 ## installer (`E1820`–`E1839`)

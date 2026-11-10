@@ -38,6 +38,7 @@ Keys are stable once released; new keys may be added. Versions are strings; path
 | `carton show` | `{"carton":"0.1.0","tools":[{"tool":"cig","build":"1.20.0","trust":"pinned","targets":["linux-x86_64"]}],"packs":{"standard":["cig","cigo"]}}` |
 | `update` | as `carton <v>` plus `{"checked":true,"installed":false}` under `--check`; with `--exit-code` the exit is 10 when newer |
 | `which <tool>` | `{"tool":"cigo","build":"1.17.0","carton":"0.1.0","path":"/home/u/.cigscript/toolchains/cigo/1.17.0/bin/cigo","why":"pinned in .cig-carton","steps":[{"step":2,"result":"hit"}]}` |
+| `which cig --script <file>` | the `which <tool>` shape, plus `"script":{"file":"/home/u/work/s.cig","header":">=1.6.2"}` when the script carries a `# cig` pin; `steps` then holds the `H0` to `H3` lines for the header after the numbered ones |
 | `which` (no tool) | `{"tools":[{"tool":"cig","version":"1.20.0","carton":"0.1.0","path":"...","why":"...","steps":[...]}]}`; a tool that does not resolve has `"version":null`, `"code"` and `"error"` |
 | `list` | `{"cartons":["0.1.0"],"sticks":[{"tool":"cigo","build":"1.16.0"}],"disk_bytes":123}` |
 | `check` | `{"findings":[{"code":"E1801","severity":"refuse","headline":"...","detail":[],"fixes":["..."],"subject":"cigo"}]}` |

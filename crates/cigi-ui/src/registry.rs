@@ -204,7 +204,8 @@ pub fn role_of(code: &str) -> Role {
 /// about, in one lowercase word. Ranges follow `errors/registry.toml`.
 pub fn area(code: &str) -> &'static str {
     match number(code) {
-        Some(1800..=1809) => "check",
+        Some(1800..=1808) => "check",
+        Some(1809 | 1819) => "resolve",
         Some(1810) => "manifest",
         Some(1811 | 1816..=1818) => "carton",
         Some(1812) => "channel",

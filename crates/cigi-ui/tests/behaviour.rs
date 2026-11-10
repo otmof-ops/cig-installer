@@ -702,7 +702,7 @@ fn results_go_to_stdout_and_chatter_to_stderr() {
 
 // ---- the registry -----------------------------------------------------------------------
 
-const SPEC_CODES: [(u32, &str); 66] = [
+const SPEC_CODES: [(u32, &str); 68] = [
     (1800, "combination refused"),
     (1801, "a product needs another"),
     (1802, "a stick does not fit its carton"),
@@ -712,6 +712,7 @@ const SPEC_CODES: [(u32, &str); 66] = [
     (1806, "journal format against this cig"),
     (1807, "operating system or kernel below a minimum"),
     (1808, "a package's requirements"),
+    (1809, "a script's pin is not met"),
     (1810, "no manifest"),
     (1811, "no such carton"),
     (1812, "no such channel"),
@@ -721,6 +722,7 @@ const SPEC_CODES: [(u32, &str); 66] = [
     (1816, "carton not installed"),
     (1817, "carton is only partly installed"),
     (1818, "carton lacks a tool this machine has"),
+    (1819, "the channel's latest carton is not fetched"),
     (1820, "download failed"),
     (1821, "digest or size mismatch"),
     (1822, "trust floor not met"),
