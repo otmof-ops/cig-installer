@@ -23,6 +23,13 @@ requires = { cig = ">=1.16.1, <2" }
 license = "Apache-2.0"
 # otmof-ops/cig-orchestrator, LICENSE at tag v1.17.0: Apache-2.0.
 
+[product.cigo."1.18.0"]
+# orchestrate.cig line 4 at tag v1.18.0 says `# cig >=1.20.0`, and bin/cigo and install.sh at that tag
+# check the same floor (needs_major/minor/patch = 1/20/0). v1.17.0 above keeps the floor it shipped with.
+requires = { cig = ">=1.20.0, <2" }
+license = "Apache-2.0"
+# otmof-ops/cig-orchestrator, LICENSE at tag v1.18.0: Apache-2.0.
+
 [product.cigcompile."0.2.0"]
 requires = {}
 license = "Apache-2.0"
@@ -31,7 +38,11 @@ license = "Apache-2.0"
 embeds = { cig_runtime = "1.18.0", journal_format = 3 }
 
 [product.cigcompile."0.3.0"]
-requires = {}
+# A cigcompile build embeds one cig runtime (`embeds.cig_runtime` below) and makes programs for that
+# cig, so the cig on the machine must be that one. Cargo.toml pins cigscript at tag v1.20.0.
+# 0.2.0 above keeps `requires = {}`: it embeds cig 1.18.0 and manifest/README.md assembles it into a
+# carton with cig 1.20.0, which a requirement on it would refuse.
+requires = { cig = "=1.20.0" }
 license = "Apache-2.0"
 # otmof-ops/cig-compile, LICENSE at tag v0.3.0: Apache-2.0.
 # Cargo.toml: cigscript at tag v1.20.0, whose JOURNAL_FORMAT is 3.

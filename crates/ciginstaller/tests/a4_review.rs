@@ -496,9 +496,9 @@ fn a4_doctor_tools_skips_a_tool_whose_toolchain_is_damaged() {
     let cig = tools.iter().find(|t| t["tool"] == "cig 1.20.0").unwrap();
     assert_eq!(cig["ok"], false);
     assert_eq!(cig["code"], "E1864");
-    assert!(cig["output"].as_str().unwrap().contains("not run"), "{cig}");
+    assert!(cig["note"].as_str().unwrap().contains("not run"), "{cig}");
     assert!(
-        !cig["output"].as_str().unwrap().contains("tampered"),
+        !cig["note"].as_str().unwrap().contains("tampered"),
         "the changed binary was run: {d:#}"
     );
     let cigo = tools.iter().find(|t| t["tool"] == "cigo 1.16.0").unwrap();

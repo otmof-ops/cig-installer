@@ -9,7 +9,10 @@
 //! rolls back to the whole home. Its last step is the rename of `installer/` to a sibling of the
 //! home (`cigi_home::uninstall`): that rename is the commit point, and after it there is nothing
 //! to recover. It leaves what is the user's: `runs/`, `tin/`, `config`, `locks/`, `inbox/`,
-//! `ashtray/`, `cache/`, `cigcompile/`. The guard's hooks, daemon, eBPF programs, WDAC policy, DNS
+//! `ashtray/`, and whatever else of theirs is in `cache/` and `cigcompile/`. The products' caches
+//! are not theirs and go in the same transaction (`family::all_caches`): cigar's run cache,
+//! cigcompile's fetched runtimes and compile cache. Before anything, cigo's own guard is taken
+//! down by `cigo guard uninstall --yes`, when it is installed. The guard's hooks, daemon, eBPF programs, WDAC policy, DNS
 //! filter and scheduled jobs do not exist in this build, so there is nothing of them to remove.
 
 use std::collections::{BTreeSet, HashSet};
@@ -28,6 +31,10 @@ use cigi_home::{
 use cigi_ui::{Icon, InstallerError, Question, Report, EXIT_REFUSED, EXIT_USAGE};
 use serde_json::json;
 
+use super::family::{
+    all_caches, caches_of, delete_caches, guard_pending, guard_uninstall, only_caches,
+    tidy_parents, CacheDir,
+};
 use super::gc::{finish_pending, record_pending};
 use super::health::{pending_txns, remove_committed_txn, shim_names, size_text};
 use super::{cached_yanked, save_and_flip, settle};
@@ -86,7 +93,8 @@ fn remove_builds(
     label: &str,
     mutate: impl FnOnce(&mut State),
     gone: Vec<(String, Version)>,
-) -> Result<Vec<String>, InstallerError> {
+    caches: &[CacheDir],
+) -> Result<(Vec<String>, Vec<String>), InstallerError> {
     let home = cx.home.clone();
     let before_names = shim_names(&home, &cx.state);
     let mut state = cx.state.clone();
@@ -94,6 +102,7 @@ fn remove_builds(
     let after_names = shim_names(&home, &state);
     let dead: Vec<String> = before_names.difference(&after_names).cloned().collect();
     let mut removed: Vec<String> = Vec::new();
+    let mut notes: Vec<String> = Vec::new();
     let mut txn = cx.begin(label)?;
     let txn_id = txn.id().to_string();
     let applied = (|| -> Result<(), InstallerError> {
@@ -107,6 +116,9 @@ fn remove_builds(
         for d in &dead {
             removed.push(shim_path(&home, d).display().to_string());
         }
+        // the product's caches are not user data: they go in the same transaction, and one that
+        // cannot be taken is left and said, never a reason to keep the tool
+        removed.extend(delete_caches(&mut txn, &home, caches, &mut notes));
         // the index flip below stops naming these; the directories go after the commit
         record_pending(&mut state, &gone);
         let now = now_rfc3339();
@@ -128,8 +140,9 @@ fn remove_builds(
     finish_pending(cx, &gone)?;
     free_store(&home);
     remove_committed_txn(&home, &txn_id);
+    tidy_parents(&home, caches);
     cx.state = State::load(&home).map_err(ie)?;
-    Ok(removed)
+    Ok((removed, notes))
 }
 
 /// After the commit: objects nothing references any more.
@@ -171,6 +184,8 @@ fn tool(cx: &mut Cx, t: &str, dry_run: bool) -> Result<Report, InstallerError> {
         ));
     }
     let versions: Vec<String> = gone.iter().map(|(_, v)| v.to_string()).collect();
+    let caches = caches_of(&home, t);
+    let guard = t == "cigo" && guard_pending(&home, &cx.state);
     if dry_run {
         let mut r = Report::done(format!(
             "dry run: would remove {t} {}",
@@ -180,8 +195,14 @@ fn tool(cx: &mut Cx, t: &str, dry_run: bool) -> Result<Report, InstallerError> {
                 versions.join(", ")
             }
         ));
+        if guard {
+            r = r.detail("would first run `cigo guard uninstall --yes`: cigo's guard is installed");
+        }
         for (x, v) in &gone {
             r = r.detail(format!("would remove {}", home.toolchain(x, v).display()));
+        }
+        for c in &caches {
+            r = r.detail(format!("would remove {} ({})", c.path.display(), c.what));
         }
         let interrupted = pending_txns(&home);
         for i in &interrupted {
@@ -191,10 +212,18 @@ fn tool(cx: &mut Cx, t: &str, dry_run: bool) -> Result<Report, InstallerError> {
         }
         return Ok(r.next(format!("ciginstaller uninstall {t}")).data(json!({
             "dry_run": true, "tool": t, "versions": versions, "interrupted": interrupted,
+            "guard": guard,
+            "caches": caches.iter().map(|c| c.path.display().to_string()).collect::<Vec<_>>(),
         })));
     }
+    // cigo's guard is taken down by cigo, before cigo is: a failure stops here with nothing removed
+    let guard_line = if t == "cigo" {
+        guard_uninstall(&home, &cx.state)?
+    } else {
+        None
+    };
     let tool_name = t.to_string();
-    let removed = remove_builds(
+    let (removed, notes) = remove_builds(
         cx,
         &format!("uninstall {t}"),
         |s| {
@@ -206,16 +235,25 @@ fn tool(cx: &mut Cx, t: &str, dry_run: bool) -> Result<Report, InstallerError> {
             s.sticks.retain(|x| x.tool != tool_name);
         },
         gone,
+        &caches,
     )?;
     let mut r = Report::done(format!(
         "{t} is uninstalled: {} version(s) removed; the cartons that had it are marked partial",
         versions.len()
     ));
+    if let Some(l) = &guard_line {
+        r = r.detail(l.clone());
+    }
     for p in &removed {
         r = r.detail(format!("removed {p}"));
     }
+    for n in &notes {
+        r = r.detail(n.clone());
+    }
     Ok(r.next("ciginstaller list").data(json!({
-        "tool": t, "versions": versions, "removed": removed,
+        "tool": t, "versions": versions, "removed": removed, "guard": guard_line.is_some(),
+        "caches": caches.iter().map(|c| c.path.display().to_string()).collect::<Vec<_>>(),
+        "notes": notes,
     })))
 }
 
@@ -295,7 +333,9 @@ fn carton(cx: &mut Cx, c: &str, dry_run: bool) -> Result<Report, InstallerError>
             s.cartons.remove(&n);
         },
         gone.clone(),
-    )?;
+        &[],
+    )?
+    .0;
     let mut r = Report::done(format!(
         "carton {name} is removed, with {} toolchain(s) nothing else uses",
         gone.len()
@@ -406,6 +446,12 @@ fn all(cx: &mut Cx, a: &UninstallArgs) -> Result<Report, InstallerError> {
         du.objects,
         size_text(du.bytes)
     ));
+    // the products' caches are not user data: cigar's run cache, cigcompile's fetched runtimes
+    let caches = all_caches(&home);
+    for c in &caches {
+        plan.push(format!("{} ({})", c.path.display(), c.what));
+    }
+    let guard = guard_pending(&home, &cx.state);
     if let Ok(es) = cigi_home::humidor::entries(&home) {
         for e in es.iter().filter(|e| e.source == cigi_home::humidor::SOURCE) {
             plan.push(home.humidor().join(&e.version).display().to_string());
@@ -444,12 +490,15 @@ fn all(cx: &mut Cx, a: &UninstallArgs) -> Result<Report, InstallerError> {
         for p in &plan {
             r = r.detail(format!("would remove {p}"));
         }
+        if guard {
+            r = r.detail("would first run `cigo guard uninstall --yes`: cigo's guard is installed");
+        }
         r = r.detail(stays_line(&home, &stays));
         r = r.detail(not_in_build());
         return Ok(r
             .next("ciginstaller uninstall --all --yes-irreversible")
             .data(json!({
-                "dry_run": true, "would_remove": plan, "stays": stays,
+                "dry_run": true, "would_remove": plan, "stays": stays, "guard": guard,
             })));
     }
 
@@ -474,11 +523,17 @@ fn all(cx: &mut Cx, a: &UninstallArgs) -> Result<Report, InstallerError> {
             .data(json!({ "removed": [], "changed": false })));
     }
 
+    // cigo takes its own guard down before anything is removed; a failure stops here, with the
+    // home exactly as it was
+    let guard_line = guard_uninstall(&home, &cx.state)?;
     cx.lock_and_recover()?;
     let entries = snapshot_entries(&home);
     let mut txn = cx.begin("uninstall --all")?;
     let id = txn.id().to_string();
     let mut notes: Vec<String> = Vec::new();
+    if let Some(l) = &guard_line {
+        notes.push(l.clone());
+    }
     let applied = (|| -> Result<PathBuf, InstallerError> {
         // the snapshot of what is about to go: it lives in installer/, so it leaves with the journal
         let snap = json!({
@@ -494,6 +549,7 @@ fn all(cx: &mut Cx, a: &UninstallArgs) -> Result<Report, InstallerError> {
         )
         .map_err(ie)?;
         remove_family(&mut txn, &home, &mut notes)?;
+        delete_caches(&mut txn, &home, &caches, &mut notes);
         move_installer_aside(&mut txn, &home).map_err(ie)
     })();
     let aside = match applied {
@@ -526,6 +582,8 @@ fn all(cx: &mut Cx, a: &UninstallArgs) -> Result<Report, InstallerError> {
     // Windows keeps the lock file beside `installer/`, not in it: it is the installer's, and
     // nothing holds it now
     let _ = std::fs::remove_file(home.lock_path());
+    // the folders the caches stood in, when they are empty now
+    tidy_parents(&home, &caches);
     // the home itself, when nothing of the user's is in it
     let _ = std::fs::remove_dir(home.root());
 
@@ -569,7 +627,7 @@ fn stays(home: &Home) -> Vec<String> {
     if let Ok(rd) = std::fs::read_dir(home.root()) {
         for e in rd.flatten() {
             let name = e.file_name().to_string_lossy().into_owned();
-            if ours.contains(&name.as_str()) {
+            if ours.contains(&name.as_str()) || only_caches(home, &name) {
                 continue;
             }
             let dir = e.file_type().is_ok_and(|t| t.is_dir());

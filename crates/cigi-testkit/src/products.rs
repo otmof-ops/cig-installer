@@ -50,6 +50,7 @@ pub struct ProductBuilder {
     pub(crate) yanked: Option<String>,
     pub(crate) dry_run_output: Option<String>,
     pub(crate) selfcheck_fails: bool,
+    pub(crate) shell: String,
     pub(crate) extra_files: Vec<(String, Vec<u8>)>,
 }
 
@@ -77,6 +78,7 @@ impl ProductBuilder {
             yanked: None,
             dry_run_output: None,
             selfcheck_fails: false,
+            shell: String::new(),
             extra_files: Vec::new(),
         }
     }
@@ -137,6 +139,21 @@ impl ProductBuilder {
         self.selfcheck_fails = true;
         self
     }
+    /// Lines of `sh` the fake tool runs first, before it answers anything else (`cig`, `cigcompile`
+    /// and `cigo`): a test makes it answer `__doctor`, or record that a subcommand was called.
+    pub fn shell(&mut self, lines: &str) -> &mut Self {
+        self.shell.push_str(lines);
+        self.shell.push('\n');
+        self
+    }
+    /// The fake tool answers `<tool> __doctor --json` with `json` and exits 0. Without this the
+    /// fake has no `__doctor`: it echoes its arguments, which is not JSON.
+    pub fn doctor_json(&mut self, json: &str) -> &mut Self {
+        let line = format!(
+            "if [ \"$1\" = \"__doctor\" ]; then cat <<'CIGI_DOCTOR_EOF'\n{json}\nCIGI_DOCTOR_EOF\nexit 0; fi"
+        );
+        self.shell(&line)
+    }
     /// An extra file in an archive product (path inside the top directory).
     pub fn file(&mut self, path: &str, bytes: &[u8]) -> &mut Self {
         self.extra_files.push((path.into(), bytes.to_vec()));
@@ -161,7 +178,8 @@ impl ProductBuilder {
             None => String::new(),
         };
         format!(
-            "#!/bin/sh\n# fake {tool} {v} (cigi-testkit)\nif [ \"$1\" = \"--version\" ] || [ \"$1\" = \"version\" ]; then echo \"{tool} {v}\"; exit 0; fi\n{dry}echo \"{tool} {v} args=$* carton=${{CIGI_CARTON:-}}\"\nexit \"${{FAKE_EXIT:-0}}\"\n",
+            "#!/bin/sh\n# fake {tool} {v} (cigi-testkit)\nif [ \"$1\" = \"--version\" ] || [ \"$1\" = \"version\" ]; then echo \"{tool} {v}\"; exit 0; fi\n{pre}{dry}echo \"{tool} {v} args=$* carton=${{CIGI_CARTON:-}}\"\nexit \"${{FAKE_EXIT:-0}}\"\n",
+            pre = self.shell,
             tool = self.tool
         )
         .into_bytes()
@@ -181,7 +199,7 @@ impl ProductBuilder {
                 t.dir(&format!("{top}/"));
                 t.file(
                     &format!("{top}/bin/cigo"),
-                    format!("#!/bin/sh\necho \"cigo {v} uses $(cig --version)\"\nexit \"${{FAKE_EXIT:-0}}\"\n").as_bytes(),
+                    format!("#!/bin/sh\n{}echo \"cigo {v} uses $(cig --version)\"\nexit \"${{FAKE_EXIT:-0}}\"\n", self.shell).as_bytes(),
                     true,
                 );
                 t.file(

@@ -5,8 +5,10 @@
 //! found, what was checked to find it, and the one command that fixes it.
 //!
 //! Not in this build, so said to be absent rather than faked: the guard's checks, the ashtray's
-//! queue and consent, the guard's kernel features. The tools' own doctors run only under
-//! `--tools`, and their words are printed as they came.
+//! queue and consent, the guard's kernel features. The tools' own checks run only under
+//! `--tools`: each installed product is asked `<tool> __doctor --json` (never `<tool> doctor`,
+//! which for cig and cigo is a stub that comes back here), and the findings it answers with are
+//! shown as the installer's own, under the tool's heading (docs/decisions/0003).
 
 use std::collections::BTreeSet;
 use std::io::Read;
@@ -34,7 +36,7 @@ use crate::cx::{now_override, Cx};
 pub struct DoctorArgs {
     /// Fetch the manifest now (the only thing that touches the network).
     pub network: bool,
-    /// Print the tools' own doctors, verbatim, under their headings.
+    /// Run each installed tool's own `__doctor --json` and show its findings under its heading.
     pub tools: bool,
 }
 
@@ -915,16 +917,32 @@ fn kill_group(pid: u32) {
 #[cfg(not(unix))]
 fn kill_group(_pid: u32) {}
 
-/// Run a tool's own doctor and return its words, as they came (each stream cut at 256 KiB). The
-/// tool is the installed one at `exe`, run in `cwd` (the home, not the project the user stands
-/// in) with the library-loading variables removed. On a timeout the whole process group is
-/// killed and a reader still blocked on a pipe somebody else holds open is not waited for.
-fn run_tool(exe: &Path, cwd: &Path, secs: u64) -> Result<String, String> {
+/// What a tool said and how it ended: each stream cut at 256 KiB.
+#[derive(Debug, Clone, Default)]
+pub(super) struct Ran {
+    /// The exit code, when the tool ended by itself and not by a signal.
+    pub code: Option<i32>,
+    pub stdout: String,
+    pub stderr: String,
+}
+
+/// Run an installed tool with `args` and return what it said. The tool is the one at `exe`, run
+/// in `cwd` (the home, not the project the user stands in) with the library-loading variables
+/// removed; `bin_first` puts a directory (the home's `bin`) ahead of `PATH`, for a tool that
+/// looks for its siblings there. On a timeout the whole process group is killed and a reader
+/// still blocked on a pipe somebody else holds open is not waited for.
+pub(super) fn run_args(
+    exe: &Path,
+    args: &[&str],
+    cwd: &Path,
+    secs: u64,
+    bin_first: Option<&Path>,
+) -> Result<Ran, String> {
     use std::process::{Command, Stdio};
     let mut tries = 0;
     let mut child = loop {
         let mut c = Command::new(exe);
-        c.arg("doctor")
+        c.args(args)
             .current_dir(cwd)
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
@@ -932,6 +950,15 @@ fn run_tool(exe: &Path, cwd: &Path, secs: u64) -> Result<String, String> {
         for (k, _) in std::env::vars_os() {
             if k.to_str().is_some_and(scrubbed) {
                 c.env_remove(&k);
+            }
+        }
+        if let Some(bin) = bin_first {
+            let mut dirs = vec![bin.to_path_buf()];
+            if let Some(p) = std::env::var_os("PATH") {
+                dirs.extend(std::env::split_paths(&p));
+            }
+            if let Ok(joined) = std::env::join_paths(dirs) {
+                c.env("PATH", joined);
             }
         }
         #[cfg(unix)]
@@ -949,9 +976,13 @@ fn run_tool(exe: &Path, cwd: &Path, secs: u64) -> Result<String, String> {
     let out = child.stdout.take().map(capture);
     let err = child.stderr.take().map(capture);
     let deadline = Instant::now() + Duration::from_secs(secs);
+    let mut code = None;
     let finished = loop {
         match child.try_wait() {
-            Ok(Some(_)) => break true,
+            Ok(Some(st)) => {
+                code = st.code();
+                break true;
+            }
             Ok(None) if Instant::now() < deadline => std::thread::sleep(Duration::from_millis(20)),
             _ => {
                 kill_group(child.id());
@@ -968,60 +999,128 @@ fn run_tool(exe: &Path, cwd: &Path, secs: u64) -> Result<String, String> {
     } else {
         Duration::from_millis(300)
     };
-    let mut text = String::new();
-    for rx in [out, err].into_iter().flatten() {
-        if let Ok(b) = rx.recv_timeout(wait) {
-            text.push_str(&String::from_utf8_lossy(&b));
+    let mut said = [String::new(), String::new()];
+    for (slot, rx) in said.iter_mut().zip([out, err]) {
+        if let Some(Ok(b)) = rx.map(|r| r.recv_timeout(wait)) {
+            *slot = String::from_utf8_lossy(&b).into_owned();
         }
     }
+    let [stdout, stderr] = said;
     if finished {
-        Ok(text)
+        Ok(Ran {
+            code,
+            stdout,
+            stderr,
+        })
     } else {
         Err(format!("did not finish within {secs} seconds"))
     }
 }
 
-/// `(tool, words or why not)` for each of the machine's cig and cigo that is installed.
-fn tool_doctors(cx: &Cx) -> Vec<(String, Result<String, String>)> {
-    let st = &cx.state;
+/// How one tool's `__doctor --json` came out.
+enum SelfCheck {
+    /// Its findings, in its own order.
+    Findings(Vec<ToolFinding>),
+    /// This build has no `__doctor` (an unknown subcommand, or an answer that is not JSON).
+    Absent,
+    /// It could not be run (E1864).
+    Failed(String),
+    /// It answered JSON that is not the contract's shape (E1879).
+    Malformed(String),
+}
+
+/// One finding as the tool wrote it (the contract's shape, section 1.7).
+struct ToolFinding {
+    check: String,
+    sev: Sev,
+    found: String,
+    because: String,
+    fix: Option<String>,
+}
+
+/// Read `{"tool", "version", "findings": [...]}`. `None` is "not JSON at all"; `Some(Err)` is JSON
+/// that is not the shape.
+fn parse_self_check(text: &str) -> Option<Result<Vec<ToolFinding>, String>> {
+    let v: serde_json::Value = serde_json::from_str(text.trim()).ok()?;
+    let Some(list) = v.get("findings").and_then(|f| f.as_array()) else {
+        return Some(Err("it has no `findings` list".to_string()));
+    };
     let mut out = Vec::new();
-    for tool in ["cig", "cigo"] {
-        let ver = st
-            .sticks
-            .iter()
-            .find(|s| s.tool == tool)
-            .map(|s| s.version.clone())
-            .or_else(|| {
-                st.machine_carton
-                    .as_ref()
-                    .and_then(|c| st.cartons.get(c))
-                    .and_then(|r| r.tools.get(tool).cloned())
-            });
-        let Some(ver) = ver.and_then(|v| Version::parse(&v).ok()) else {
+    for (i, f) in list.iter().enumerate() {
+        let text = |k: &str| f.get(k).and_then(|x| x.as_str());
+        let (Some(check), Some(found)) = (text("check"), text("found")) else {
+            return Some(Err(format!("finding {} lacks `check` or `found`", i + 1)));
+        };
+        let sev = match text("severity") {
+            Some("ok") => Sev::Ok,
+            Some("action") => Sev::Action,
+            Some("note") => Sev::Note,
+            other => {
+                return Some(Err(format!(
+                    "finding {} has the severity {}, not ok, note or action",
+                    i + 1,
+                    other.map_or("(none)".to_string(), |s| format!("`{s}`"))
+                )))
+            }
+        };
+        out.push(ToolFinding {
+            check: check.to_string(),
+            sev,
+            found: found.to_string(),
+            because: text("because").unwrap_or("").to_string(),
+            fix: text("fix").filter(|s| !s.is_empty()).map(str::to_string),
+        });
+    }
+    Some(Ok(out))
+}
+
+/// `(tool, version, its self-check)` for each of the machine's installed products. The check is
+/// `<tool> __doctor --json`: never `<tool> doctor`, which for cig and cigo is a stub that comes
+/// back here.
+fn tool_doctors(cx: &Cx) -> Vec<(String, Version, SelfCheck)> {
+    let mut out = Vec::new();
+    for tool in cigi_shim::TOOLS {
+        let Some(ver) = super::family::installed_version(&cx.state, tool) else {
             continue;
         };
-        let name = format!("{tool} {ver}");
         // the doctor does not run a binary it has just found changed
         if !verify_toolchain(&cx.home, tool, &ver).is_empty() {
             out.push((
-                name,
-                Err("not run: its toolchain differs from its receipt".to_string()),
+                tool.to_string(),
+                ver,
+                SelfCheck::Failed("not run: its toolchain differs from its receipt".to_string()),
             ));
             continue;
         }
         let Some(exe) = super::tool_exe(&cx.home, tool, &ver) else {
-            out.push((name, Err("not run: no readable receipt".to_string())));
+            out.push((
+                tool.to_string(),
+                ver,
+                SelfCheck::Failed("not run: no readable receipt".to_string()),
+            ));
             continue;
         };
-        out.push((name, run_tool(&exe, &cx.home.root(), 60)));
+        let check = match run_args(&exe, &["__doctor", "--json"], &cx.home.root(), 60, None) {
+            Err(why) => SelfCheck::Failed(why),
+            Ok(ran) => match parse_self_check(&ran.stdout) {
+                None => SelfCheck::Absent,
+                Some(Ok(f)) => SelfCheck::Findings(f),
+                Some(Err(why)) => SelfCheck::Malformed(why),
+            },
+        };
+        out.push((tool.to_string(), ver, check));
     }
     out
 }
 
 pub fn run(cx: &mut Cx, a: &DoctorArgs) -> Result<Report, InstallerError> {
     let items = findings(cx, a);
-    let actions = items.iter().filter(|i| i.sev == Sev::Action).count();
-    let notes = items.iter().filter(|i| i.sev == Sev::Note).count();
+    let mut actions = items.iter().filter(|i| i.sev == Sev::Action).count();
+    let mut notes = items.iter().filter(|i| i.sev == Sev::Note).count();
+    let mut first_fix = items
+        .iter()
+        .find(|i| i.sev == Sev::Action)
+        .and_then(|i| i.fix.clone());
     for i in &items {
         let icon = match i.sev {
             Sev::Ok => Icon::Done,
@@ -1040,24 +1139,81 @@ pub fn run(cx: &mut Cx, a: &DoctorArgs) -> Result<Report, InstallerError> {
     }
     let mut tools_json = Vec::new();
     if a.tools {
-        for (name, res) in tool_doctors(cx) {
-            let (icon, text) = match &res {
-                Ok(t) => (Icon::Note, t.clone()),
-                Err(why) => (Icon::Note, format!("could not be run: {why}")),
-            };
-            let mut r = Report::new(icon, format!("{name} doctor"));
-            for l in text.lines() {
-                r = r.detail(l.to_string());
+        for (tool, ver, check) in tool_doctors(cx) {
+            let name = format!("{tool} {ver}");
+            cx.ui
+                .say(&Report::new(Icon::Note, format!("{name}: its own checks")));
+            let (findings, code, said): (Vec<ToolFinding>, Option<&str>, Option<String>) =
+                match check {
+                    SelfCheck::Findings(f) => (f, None, None),
+                    SelfCheck::Absent => (
+                        Vec::new(),
+                        None,
+                        Some(format!(
+                            "this {tool} build has no self-check; it needs a newer build"
+                        )),
+                    ),
+                    SelfCheck::Malformed(why) => (
+                        Vec::new(),
+                        Some("E1879"),
+                        Some(format!(
+                            "{name} answered its self-check in a shape I cannot read: {why}"
+                        )),
+                    ),
+                    SelfCheck::Failed(why) => (
+                        Vec::new(),
+                        Some("E1864"),
+                        Some(format!("{name} could not be checked: {why}")),
+                    ),
+                };
+            let mut json_findings = Vec::new();
+            for f in &findings {
+                let icon = match f.sev {
+                    Sev::Ok => Icon::Done,
+                    Sev::Note => Icon::Note,
+                    Sev::Action => Icon::Refused,
+                };
+                match f.sev {
+                    Sev::Action => {
+                        actions += 1;
+                        if first_fix.is_none() {
+                            first_fix = f.fix.clone();
+                        }
+                    }
+                    Sev::Note => notes += 1,
+                    Sev::Ok => {}
+                }
+                let mut r = Report::new(icon, format!("{tool}: {}: {}", f.check, f.found));
+                if !f.because.is_empty() {
+                    r = r.detail(format!("because I checked {}", f.because));
+                }
+                if let Some(x) = &f.fix {
+                    r = r.next(x.clone());
+                }
+                cx.ui.say(&r);
+                json_findings.push(json!({
+                    "section": f.check,
+                    "severity": f.sev.word(),
+                    "found": f.found,
+                    "because": f.because,
+                    "fix": f.fix,
+                }));
             }
-            if res.is_err() {
-                r = r.code("E1864");
+            if let Some(text) = &said {
+                notes += 1;
+                let mut r = Report::new(Icon::Note, text.clone());
+                if let Some(c) = code {
+                    r = r.code(c);
+                }
+                cx.ui.say(&r);
             }
-            cx.ui.say(&r);
             tools_json.push(json!({
                 "tool": name,
-                "ok": res.is_ok(),
-                "output": text,
-                "code": if res.is_err() { json!("E1864") } else { json!(null) },
+                "ok": code.is_none(),
+                "self_check": said.is_none(),
+                "findings": json_findings,
+                "note": said,
+                "code": code,
             }));
         }
     } else {
@@ -1078,12 +1234,8 @@ pub fn run(cx: &mut Cx, a: &DoctorArgs) -> Result<Report, InstallerError> {
             items.len()
         ))
     } else {
-        let first = items
-            .iter()
-            .find(|i| i.sev == Sev::Action)
-            .and_then(|i| i.fix.clone());
         let r = Report::new(Icon::Refused, format!("{actions} thing(s) need action"));
-        match first {
+        match first_fix {
             Some(f) => r.next(f),
             None => r,
         }
@@ -1111,7 +1263,7 @@ mod tests {
         let t = tempfile::tempdir().unwrap();
         let home = tempfile::tempdir().unwrap();
         let exe = script(t.path(), "pwd");
-        let out = run_tool(&exe, home.path(), 20).unwrap();
+        let out = run_args(&exe, &[], home.path(), 20, None).unwrap().stdout;
         assert_eq!(
             Path::new(out.trim()).canonicalize().unwrap(),
             home.path().canonicalize().unwrap()
@@ -1125,9 +1277,9 @@ mod tests {
             t.path(),
             "head -c 2000000 /dev/zero | tr '\\0' x; head -c 2000000 /dev/zero | tr '\\0' y >&2",
         );
-        let out = run_tool(&exe, t.path(), 30).unwrap();
-        assert_eq!(out.matches('x').count(), TOOL_OUTPUT_CAP);
-        assert_eq!(out.matches('y').count(), TOOL_OUTPUT_CAP);
+        let ran = run_args(&exe, &[], t.path(), 30, None).unwrap();
+        assert_eq!(ran.stdout.matches('x').count(), TOOL_OUTPUT_CAP);
+        assert_eq!(ran.stderr.matches('y').count(), TOOL_OUTPUT_CAP);
     }
 
     #[test]
@@ -1136,7 +1288,7 @@ mod tests {
         // the tool starts a helper that keeps the pipes open, then never finishes itself
         let exe = script(t.path(), "echo started; sleep 60 & sleep 60");
         let began = Instant::now();
-        let err = run_tool(&exe, t.path(), 1).unwrap_err();
+        let err = run_args(&exe, &[], t.path(), 1, None).unwrap_err();
         assert!(err.contains("did not finish"), "{err}");
         assert!(
             began.elapsed() < Duration::from_secs(10),

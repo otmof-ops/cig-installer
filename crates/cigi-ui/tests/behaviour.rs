@@ -702,7 +702,7 @@ fn results_go_to_stdout_and_chatter_to_stderr() {
 
 // ---- the registry -----------------------------------------------------------------------
 
-const SPEC_CODES: [(u32, &str); 76] = [
+const SPEC_CODES: [(u32, &str); 78] = [
     (1800, "combination refused"),
     (1801, "a product needs another"),
     (1802, "a stick does not fit its carton"),
@@ -732,6 +732,10 @@ const SPEC_CODES: [(u32, &str); 76] = [
     (1826, "unsafe archive"),
     (1827, "sidecar missing or disagrees"),
     (1828, "attestation failed"),
+    (
+        1829,
+        "cigo's guard could not be taken down, so cigo was not removed",
+    ),
     (1830, "an owned file is unreadable or too new"),
     (1831, "installed file differs from its receipt"),
     (1832, "an interrupted change was recovered"),
@@ -783,6 +787,10 @@ const SPEC_CODES: [(u32, &str); 76] = [
     (1876, "the license notice was not confirmed"),
     (1877, "no build of that tool to list a license for"),
     (1878, "no license file for that build"),
+    (
+        1879,
+        "a tool's self-check answered in a shape the installer cannot read",
+    ),
     (1890, "a bug in the installer"),
     (1891, "a journal could not be recovered"),
 ];
