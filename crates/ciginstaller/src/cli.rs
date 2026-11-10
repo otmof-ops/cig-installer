@@ -107,6 +107,38 @@ pub enum Command {
         #[arg(long, value_name = "FILE")]
         script: Option<PathBuf>,
     },
+    // ---- offline: bundle, mirror ----
+    /// One file with a carton's manifest and the builds of chosen targets, for a machine with no
+    /// network. Unsigned until #9; install it with `install --from <file>`.
+    Bundle {
+        /// An exact carton or a pin such as 0.1 (default: the newest that is not yanked).
+        #[arg(long, value_name = "V")]
+        carton: Option<String>,
+        /// Targets to include, such as linux-x86_64,windows-x86_64 (default: this machine's).
+        #[arg(long, value_delimiter = ',', value_name = "TARGET")]
+        targets: Vec<String>,
+        /// The file to write.
+        #[arg(long, value_name = "FILE")]
+        out: PathBuf,
+    },
+    /// Fill a directory with the channel's manifest and builds, each admitted, so a team can
+    /// serve it (`mirror = https://...`, or `install --from <dir>`). Run it again to bring it up
+    /// to date; it removes nothing.
+    Mirror {
+        /// The directory to fill (made when missing).
+        dir: PathBuf,
+        /// Only this carton's builds (an exact carton or a pin); default every carton that is
+        /// not yanked.
+        #[arg(long, value_name = "V")]
+        carton: Option<String>,
+        /// The channel to mirror for this run (stable, beta or nightly).
+        #[arg(long, value_name = "CHANNEL")]
+        channel: Option<String>,
+        /// Only these targets (default: every target the builds are published for).
+        #[arg(long, value_delimiter = ',', value_name = "TARGET")]
+        targets: Vec<String>,
+    },
+    // ---- end of the offline block ----
     // ---- the update lifecycle: update, rollback ----
     /// Check, choose, verify, trial and switch to a newer carton.
     Update(UpdateCmd),
@@ -226,8 +258,8 @@ pub struct InstallCmd {
     /// bash, zsh, fish, sh or powershell (default: from $SHELL).
     #[arg(long, global = true, value_name = "SHELL")]
     pub shell: Option<String>,
-    /// A mirror directory to install from.
-    #[arg(long, global = true, value_name = "DIR")]
+    /// A mirror directory, or a bundle file made by `ciginstaller bundle`, to install from.
+    #[arg(long, global = true, value_name = "DIR|FILE.tar")]
     pub from: Option<PathBuf>,
     /// Raise the trust floor: pinned, attested or checksummed.
     #[arg(long, global = true, value_name = "LEVEL")]

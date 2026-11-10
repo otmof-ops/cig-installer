@@ -7,7 +7,7 @@ use cigi_home::{
     HomeError, HumidorError, JournalError, LockError, PathError, ShimError, StateError, StoreError,
     ToolchainError,
 };
-use cigi_source::{ArchiveError, FetchError, TrustError};
+use cigi_source::{ArchiveError, BundleError, FetchError, TrustError};
 use cigi_ui::InstallerError;
 
 /// An error that carries an `E18xx` code and a message.
@@ -30,7 +30,8 @@ coded!(
     HumidorError,
     FetchError,
     TrustError,
-    ArchiveError
+    ArchiveError,
+    BundleError
 );
 
 impl Coded for ManifestError {

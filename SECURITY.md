@@ -57,9 +57,23 @@ Around those levels:
   not be lower than the highest the installer has seen for that channel, which
   stops an old manifest being replayed. The first manifest a machine ever
   fetches is trusted on first use, and its `sequence` is recorded from then on.
-- **A mirror is one source.** A mirror directory serves both the manifest and
-  the builds, so the two sources are not independent. The receipt says so, and
-  the doctor says so.
+- **A mirror is one source, and so is a bundle.** A mirror directory serves
+  both the manifest and the builds, so the two sources are not independent. A
+  bundle (`install --from <file.tar>`) is the same thing in one file: the
+  manifest, the checksums and the builds all come out of it, so it is treated
+  exactly as a mirror is. It reaches `pinned` only for builds whose digests are
+  compiled into this installer, and otherwise is refused (E1822) unless
+  `allow_single_source` is set. Nothing about a bundle lowers the `trust`
+  floor, and no flag, variable or file in it can. The receipt says so, and the
+  doctor says so. **Bundles are unsigned until #9:** anyone who can write the
+  file can write a manifest, its checksum and builds that agree with each
+  other, which is why the digests compiled into the installer are what count.
+  Unpacking refuses anything but plain files with plain names, in a private
+  directory inside the home that is removed afterwards, and every build is
+  checked against the manifest inside the bundle before it is used. `mirror`
+  admits every build before it writes it, writes through a partial file and a
+  rename, puts the manifest in last, never removes a file, and refuses to write
+  a manifest older than the one already in the directory.
 - **Downloads are plain and narrow.** One HTTPS client, `GET` only, with
   `User-Agent: ciginstaller`. Redirects stay on the same host or go to GitHub's
   release host, never from HTTPS to HTTP, and stop after five. It downloads the

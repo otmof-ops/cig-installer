@@ -188,7 +188,11 @@ to try any command.
 A manifest is assembled, never written by hand, from the products' own
 releases: `cargo xtask manifest assemble`, described in
 [manifest/README.md](manifest/README.md). `install --from <dir>` installs from a
-mirror directory.
+mirror directory, and `install --from <file.tar>` from a bundle (see below). A
+mirror directory and a bundle are each one source, so they are installed
+`pinned` when this build has the digests compiled in and are otherwise refused
+unless `allow_single_source` is set. Bundles are unsigned until
+[#9](https://github.com/otmof-ops/cig-installer/issues/9).
 
 ### The bootstrap script
 
@@ -244,7 +248,9 @@ lists them all.
 | command | does |
 |---|---|
 | `ciginstaller`, `status` | the status: the carton, what is in it, anything waiting, and the next step, in at most eight lines |
-| `install carton`, `install pack <name>`, `install stick <tool>` | install from one carton, verified, as one transaction. Flags: `--carton`, `--channel`, `--no-path`, `--shell`, `--from`, `--require`, `--allow-yanked`, `--preset` |
+| `install carton`, `install pack <name>`, `install stick <tool>` | install from one carton, verified, as one transaction. Flags: `--carton`, `--channel`, `--no-path`, `--shell`, `--from <dir or file.tar>`, `--require`, `--allow-yanked`, `--preset` |
+| `bundle --carton <v> [--targets a,b] --out <file.tar>` | one file with a carton's manifest and the builds of those targets (default: this machine's), each admitted before it goes in, for a machine with no network. Unsigned until #9. Install it with `install carton --from <file.tar>`; the same inputs make the same bytes |
+| `mirror <dir> [--carton <v>] [--channel <c>] [--targets a,b]` | fill a directory with the channel's manifest and every build of the cartons (default: every carton that is not yanked), each admitted, laid out for `install --from <dir>` and `mirror = ...`. Run it again to bring it up to date; it removes nothing |
 | `carton`, `carton list`, `carton show <v>`, `carton <v>` | which carton this machine is on, what exists, what is inside one, and moving to another |
 | `channel [stable\|beta\|nightly]` | the channel this machine follows, or switch it. Nothing is installed |
 | `use <carton>` | make an installed carton the machine's, with no download |

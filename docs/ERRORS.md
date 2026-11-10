@@ -408,6 +408,9 @@ the installer: fetching and trusting artifacts, the store, toolchains and transa
 | [`E1834`](#e1834-another-ciginstaller-holds-the-lock) | another ciginstaller holds the lock | these are MY ciggies | `ciginstaller doctor` |
 | [`E1835`](#e1835-home-directory-unsafe-or-unwritable) | home directory unsafe or unwritable | these are MY ciggies | `ciginstaller doctor`, or set CIGSCRIPT_HOME to a directory you own |
 | [`E1836`](#e1836-disk-full) | disk full | one of the four; the message says which | `ciginstaller gc --dry-run` |
+| [`E1837`](#e1837-bundle-unreadable-or-unsafe) | bundle unreadable or unsafe | these are MY ciggies | `ciginstaller bundle --out carton.tar`, on a machine with a network, to make a new one |
+| [`E1838`](#e1838-mirror-directory-refused) | mirror directory refused | these are MY ciggies | `ciginstaller mirror ./mirror`, with a directory you can write that is outside the home |
+| [`E1839`](#e1839-bundle-cannot-be-written) | bundle cannot be written | one of the four; the message says which | `ciginstaller bundle --out carton.tar`, with a path in a folder that exists and is writable |
 
 ### E1820 download failed
 
@@ -679,6 +682,60 @@ There is not enough free space to stage and install what you asked for. Nothing 
 1. the filesystem holding the home is full (probe `disk-free`). **Remedy:** `ciginstaller gc` removes cartons and store objects nothing uses
 
 Related: [`E1835`](#e1835-home-directory-unsafe-or-unwritable).
+
+### E1837 bundle unreadable or unsafe
+
+*runtime · since 0.1.0 · arises in any*
+
+**Kind of no:** these are MY ciggies (the door: it knows you and said no; 403 Forbidden; permission denied; a lock; a refusal by policy).
+
+A bundle file given to `install --from` is not a bundle this installer will unpack: it is not a tar, its index is missing or does not match its files, it holds anything but plain files with plain names, or it is over a limit (4096 entries, 1 GiB a file, 8 GiB in all). Nothing was installed and the home is unchanged.
+
+**What to type next:** `ciginstaller bundle --out carton.tar`, on a machine with a network, to make a new one
+
+**Known causes**, ranked; the doctor checks them in this order:
+
+1. the file was cut short or damaged in the copy (probe `file-hash`). **Remedy:** copy it again and compare its sha256 with the one the maker has; `ciginstaller bundle --out carton.tar` makes a fresh one
+2. the file was changed after it was made, or is not a bundle made by ciginstaller (no probe; a suggestion, not a finding). **Remedy:** do not unpack it by hand; ask the maker for a new one, and report it at https://github.com/otmof-ops/cig-installer/issues if it came from us
+3. the bundle holds the manifest of another channel than the one this machine follows (probe `channel-list`). **Remedy:** `ciginstaller install carton --channel beta --from carton.tar` names the channel it holds
+
+Related: [`E1826`](#e1826-unsafe-archive), [`E1827`](#e1827-sidecar-missing-or-disagrees).
+
+### E1838 mirror directory refused
+
+*runtime · since 0.1.0 · arises in any*
+
+**Kind of no:** these are MY ciggies (the door: it knows you and said no; 403 Forbidden; permission denied; a lock; a refusal by policy).
+
+`ciginstaller mirror` will not write to that directory: it cannot be made or written, it is the mirror this run reads from, it is inside the installer's own home, it already holds a newer manifest than the one fetched, or two builds want the same file name. Nothing already in it was removed.
+
+**What to type next:** `ciginstaller mirror ./mirror`, with a directory you can write that is outside the home
+
+**Known causes**, ranked; the doctor checks them in this order:
+
+1. the directory is not writable, or something that is not a directory has its name (probe `path-permissions`). **Remedy:** pick a directory you own, or fix its mode with chmod
+2. the directory already holds a newer manifest, because the source this run read from is behind it (probe `manifest-cache`). **Remedy:** `ciginstaller update --check --refresh` shows what the source serves now; run the mirror again once it has caught up
+3. the directory is the one this run reads from, or lies inside the home (probe `path-exists`). **Remedy:** give `ciginstaller mirror` a directory that is neither
+
+Related: [`E1824`](#e1824-manifest-sequence-went-backwards), [`E1835`](#e1835-home-directory-unsafe-or-unwritable).
+
+### E1839 bundle cannot be written
+
+*runtime · since 0.1.0 · arises in any*
+
+**Kind of no:** one of the four; the message says which (read the operating-system reason in the message; ENOENT, EACCES, ENOSPC and friends, each mapped in the causes below).
+
+`ciginstaller bundle` cannot write its output file: the path is a directory, its folder is not there, the disk refused the write, or a build changed after it was admitted so the bytes were not the ones checked. Any partial file was removed.
+
+**What to type next:** `ciginstaller bundle --out carton.tar`, with a path in a folder that exists and is writable
+
+**Known causes**, ranked; the doctor checks them in this order:
+
+1. the output path is a directory or its folder does not exist (probe `path-exists`). **Remedy:** give `--out` a file path inside a folder that exists
+2. the folder is not writable (probe `path-permissions`). **Remedy:** pick a folder you own, or fix its mode with chmod
+3. a downloaded build changed on disk between being checked and being written (probe `file-hash`). **Remedy:** run the bundle command again; if it repeats, report it at https://github.com/otmof-ops/cig-installer/issues
+
+Related: [`E1836`](#e1836-disk-full), [`E1837`](#e1837-bundle-unreadable-or-unsafe).
 
 
 ## installer (`E1840`–`E1879`)

@@ -31,7 +31,9 @@ Keys are stable once released; new keys may be added. Versions are strings; path
 | command | `data` |
 |---|---|
 | (none), status | `{"carton":"0.1.0","channel":"stable","tools":{"cig":"1.20.0"},"trust":{"pinned":1,"checksummed":2},"waiting":{"update":"0.1.1"\|null,"advisories":[],"yanked":[]}}` |
-| `install` | `{"carton":"0.1.0","tools":{"cig":"1.20.0"},"trust":{"pinned":1,"attested":0,"checksummed":2},"path_block":"added"\|"present"\|"skipped","txn":"<id>","dry_run":false}` |
+| `bundle` | `{"out":"/abs/carton-0.1.0.tar","carton":"0.1.0","channel":"stable","sequence":3,"targets":["linux-x86_64"],"builds":2,"files":[{"name":"manifest-stable.toml","size":1234,"sha256":"..."}],"bytes":123456,"signed":false}` |
+| `mirror` | `{"dir":"/abs/mirror","channel":"stable","sequence":3,"cartons":["0.1.0"],"targets":["linux-x86_64"],"added":["cig-v1.20.0-linux-x86_64"],"kept":0,"bytes_added":123,"manifest_written":true,"left_out_yanked":[]}`; a re-run has `"added":[]` and `"manifest_written":false` |
+| `install` | `{"carton":"0.1.0","tools":{"cig":"1.20.0"},"trust":{"pinned":1,"attested":0,"checksummed":2},"path_block":"added"\|"present"\|"skipped","txn":"<id>","dry_run":false,"source":"github"\|"dir:/path"\|"mirror:https://..."\|"bundle:file.tar"}` |
 | `carton` | `{"carton":"0.1.0","newer":"0.1.1"\|null,"channel":"stable"}` |
 | `carton <v>`, `use`, `rollback` | `{"from":"0.1.0","to":"0.1.1","trial":{"scripts":14,"same":14,"differ":0}\|null}` |
 | `carton list` | `{"channel":"stable","cartons":[{"version":"0.1.1","installed":true,"yanked":false,"changes":[{"tool":"cig","from":"1.20.0","to":"1.20.1"}]}]}` |

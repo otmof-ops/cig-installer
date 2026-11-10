@@ -89,6 +89,8 @@ fn dispatch(cli: Cli, ui: Ui) -> i32 {
         Some(Command::List) => ("list", None),
         Some(Command::Which { cwd, .. }) => ("which", cwd.clone()),
         Some(Command::Resolve { cwd, .. }) => ("resolve", Some(cwd.clone())),
+        Some(Command::Bundle { .. }) => ("bundle", None),
+        Some(Command::Mirror { .. }) => ("mirror", None),
         // ---- the update lifecycle ----
         Some(Command::Update(_)) => ("update", None),
         Some(Command::Rollback { .. }) => ("rollback", None),
@@ -147,6 +149,17 @@ fn dispatch(cli: Cli, ui: Ui) -> i32 {
                     Err(e) => Err(e),
                 }
             }
+            Some(Command::Bundle {
+                carton,
+                targets,
+                out,
+            }) => cmd::bundle::run(&mut cx, carton.as_deref(), targets, out),
+            Some(Command::Mirror {
+                dir,
+                carton,
+                channel,
+                targets,
+            }) => cmd::mirror::run(&mut cx, dir, carton.as_deref(), channel.as_deref(), targets),
             // ---- the update lifecycle ----
             Some(Command::Update(c)) => flows::update::run(&mut cx, &update_args(c)).map(|u| {
                 if u.exit != 0 {
@@ -269,6 +282,8 @@ fn read_only(cmd: &Option<Command>) -> bool {
         Some(Command::Update(c)) => c.check || c.dry_run || c.trial_only,
         Some(Command::Install(c)) => c.dry_run,
         Some(Command::Doctor { .. }) => true,
+        // they write a cache and the directory or file they were given, never the machine's state
+        Some(Command::Bundle { .. } | Command::Mirror { .. }) => true,
         Some(Command::Repair { dry_run, .. })
         | Some(Command::Remove { dry_run, .. })
         | Some(Command::Use { dry_run, .. })

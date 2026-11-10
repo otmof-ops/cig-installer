@@ -37,6 +37,25 @@ Linux, with every build checked first and every change one undoable step.
   `THIRD-PARTY-NOTICES.md` and `REUSE.toml` say the rest, and contributions
   come in under the contributor agreement.
 
+### Offline: bundle, mirror and install from a file (#16)
+
+- **`bundle --carton <v> [--targets a,b] --out <file.tar>`** writes one file
+  holding the manifest and its checksum, every build of the carton for those
+  targets with its checksum, and a small index. Only builds admitted at the
+  usual levels go in, and the bytes are checked again as they are written. The
+  same inputs give the same file.
+- **`install --from <file.tar>`** unpacks the bundle into a private directory in
+  the home, installs from it with no network, and removes it. A bundle is one
+  source, so it is `pinned` or refused exactly as a mirror directory is, and
+  nothing lowers the floor. Bundles are unsigned until #9, and the output says
+  so. The doctor names installs that came from one source, a bundle by name.
+- **`mirror <dir>`** fills a directory with the manifest and every build, each
+  admitted, laid out for `install --from <dir>` and `mirror = ...`. Running it
+  again only adds, repairs a damaged file, and removes nothing. The manifest
+  goes in last, and a manifest older than the one already there is refused.
+- New codes: E1837 (a bundle that cannot be unpacked), E1838 (a mirror
+  directory that is refused), E1839 (a bundle that cannot be written).
+
 ### Documentation
 
 - A README in the family's order, `SECURITY.md` that says what is verified and

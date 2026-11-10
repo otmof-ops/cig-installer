@@ -7,6 +7,7 @@
 #![forbid(unsafe_code)]
 
 pub mod archive;
+pub mod bundle;
 pub mod clock;
 pub mod digest;
 pub mod error;
@@ -20,6 +21,9 @@ pub mod source;
 pub mod trust;
 
 pub use archive::unpack_tar_gz;
+pub use bundle::{
+    unpack_bundle, write_bundle, BundleData, BundleError, BundleFile, BundleSource, Unpacked,
+};
 pub use error::{ArchiveError, FetchError, SidecarError, TrustError};
 pub use fetch::{
     get_artifact, get_artifact_for, get_manifest, get_manifest_with, stage_artifact,

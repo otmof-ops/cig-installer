@@ -133,7 +133,7 @@ pub fn finding_error(f: &cig_compat::Finding) -> InstallerError {
     e
 }
 
-fn pick_carton<'m>(
+pub(super) fn pick_carton<'m>(
     cx: &Cx,
     m: &'m Manifest,
     a: &InstallArgs,
@@ -547,12 +547,18 @@ pub fn run_locked(cx: &mut Cx, a: &InstallArgs) -> Result<Report, InstallerError
             }
         }
         let independent = fetched.iter().all(|f| f.staged.verified.independent);
+        let from_bundle = cx.source.name().starts_with("bundle:");
         let how = if independent {
             " (two sources agree)"
+        } else if from_bundle {
+            " (a bundle: one file, so the sources are not independent)"
         } else {
             " (a mirror: the sources are not independent)"
         };
         rep = rep.detail(format!("trust: {}{how}", parts.join(", ")));
+        if from_bundle {
+            rep = rep.detail("the bundle is unsigned until #9; every build was checked against the manifest inside it");
+        }
     }
     for w in &warnings {
         rep = rep.detail(format!("warning {w}"));
@@ -602,6 +608,7 @@ pub fn run_locked(cx: &mut Cx, a: &InstallArgs) -> Result<Report, InstallerError
     Ok(rep.data(json!({
         "carton": cv.to_string(),
         "changed": true,
+        "source": cx.source.name(),
         "preset": a.preset,
         "txn": txn_id,
         "tools": want.iter().map(|(t, v)| json!({

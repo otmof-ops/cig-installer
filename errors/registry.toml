@@ -908,6 +908,84 @@ probe = "disk-free"
 remedy = "`ciginstaller gc` removes cartons and store objects nothing uses"
 
 [[code]]
+code = "E1837"
+title = "bundle unreadable or unsafe"
+meaning = "A bundle file given to `install --from` is not a bundle this installer will unpack: it is not a tar, its index is missing or does not match its files, it holds anything but plain files with plain names, or it is over a limit (4096 entries, 1 GiB a file, 8 GiB in all). Nothing was installed and the home is unchanged."
+fix = "`ciginstaller bundle --out carton.tar`, on a machine with a network, to make a new one"
+no = "these-are-mine"
+arises = ["any"]
+tags = ["installer", "ci-likely"]
+since = "0.1.0"
+related = ["E1826", "E1827"]
+[[code.cause]]
+why = "the file was cut short or damaged in the copy"
+no = "depends"
+probe = "file-hash"
+remedy = "copy it again and compare its sha256 with the one the maker has; `ciginstaller bundle --out carton.tar` makes a fresh one"
+[[code.cause]]
+why = "the file was changed after it was made, or is not a bundle made by ciginstaller"
+no = "these-are-mine"
+probe = "none"
+remedy = "do not unpack it by hand; ask the maker for a new one, and report it at https://github.com/otmof-ops/cig-installer/issues if it came from us"
+[[code.cause]]
+why = "the bundle holds the manifest of another channel than the one this machine follows"
+no = "cant-see-any"
+probe = "channel-list"
+remedy = "`ciginstaller install carton --channel beta --from carton.tar` names the channel it holds"
+
+[[code]]
+code = "E1838"
+title = "mirror directory refused"
+meaning = "`ciginstaller mirror` will not write to that directory: it cannot be made or written, it is the mirror this run reads from, it is inside the installer's own home, it already holds a newer manifest than the one fetched, or two builds want the same file name. Nothing already in it was removed."
+fix = "`ciginstaller mirror ./mirror`, with a directory you can write that is outside the home"
+no = "these-are-mine"
+arises = ["any"]
+tags = ["installer", "ci-likely"]
+since = "0.1.0"
+related = ["E1824", "E1835"]
+[[code.cause]]
+why = "the directory is not writable, or something that is not a directory has its name"
+no = "these-are-mine"
+probe = "path-permissions"
+remedy = "pick a directory you own, or fix its mode with chmod"
+[[code.cause]]
+why = "the directory already holds a newer manifest, because the source this run read from is behind it"
+no = "dont-have-any"
+probe = "manifest-cache"
+remedy = "`ciginstaller update --check --refresh` shows what the source serves now; run the mirror again once it has caught up"
+[[code.cause]]
+why = "the directory is the one this run reads from, or lies inside the home"
+no = "these-are-mine"
+probe = "path-exists"
+remedy = "give `ciginstaller mirror` a directory that is neither"
+
+[[code]]
+code = "E1839"
+title = "bundle cannot be written"
+meaning = "`ciginstaller bundle` cannot write its output file: the path is a directory, its folder is not there, the disk refused the write, or a build changed after it was admitted so the bytes were not the ones checked. Any partial file was removed."
+fix = "`ciginstaller bundle --out carton.tar`, with a path in a folder that exists and is writable"
+no = "depends"
+arises = ["any"]
+tags = ["installer"]
+since = "0.1.0"
+related = ["E1836", "E1837"]
+[[code.cause]]
+why = "the output path is a directory or its folder does not exist"
+no = "cant-see-any"
+probe = "path-exists"
+remedy = "give `--out` a file path inside a folder that exists"
+[[code.cause]]
+why = "the folder is not writable"
+no = "these-are-mine"
+probe = "path-permissions"
+remedy = "pick a folder you own, or fix its mode with chmod"
+[[code.cause]]
+why = "a downloaded build changed on disk between being checked and being written"
+no = "none"
+probe = "file-hash"
+remedy = "run the bundle command again; if it repeats, report it at https://github.com/otmof-ops/cig-installer/issues"
+
+[[code]]
 code = "E1840"
 title = "nothing installed for this tool"
 meaning = "A shim was run and no installed carton or stick has this tool, or the build it points to is gone."

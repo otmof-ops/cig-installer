@@ -730,6 +730,40 @@ fn freshness(cx: &Cx, v: &mut Vec<Item>) {
             "the trust entry of every receipt",
         ));
     }
+    // installs that came from one place (a mirror, a directory or a bundle): no second source
+    // agreed with them. A bundle is also unsigned until #9, which is why it is said by name.
+    let mut one_source: std::collections::BTreeMap<String, Vec<String>> = Default::default();
+    for (t, ver) in installed(&cx.home) {
+        if let Ok(r) = read_receipt(&cx.home, &t, &ver) {
+            if !r.trust.independent {
+                one_source
+                    .entry(r.source.origin.clone())
+                    .or_default()
+                    .push(format!("{t} {ver}"));
+            }
+        }
+    }
+    if !one_source.is_empty() {
+        let text: Vec<String> = one_source
+            .iter()
+            .map(|(origin, who)| {
+                let what = if let Some(file) = origin.strip_prefix("bundle:") {
+                    format!("the bundle {file}, which is unsigned until #9")
+                } else {
+                    format!("a mirror ({origin})")
+                };
+                format!("{} from {what}", who.join(", "))
+            })
+            .collect();
+        v.push(note(
+            "trust",
+            format!(
+                "one source served the manifest and the builds, so no second place agreed with it: {}",
+                text.join("; ")
+            ),
+            "the origin and independence entries of every receipt",
+        ));
+    }
     let last = st
         .history
         .iter()

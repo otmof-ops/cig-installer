@@ -702,7 +702,7 @@ fn results_go_to_stdout_and_chatter_to_stderr() {
 
 // ---- the registry -----------------------------------------------------------------------
 
-const SPEC_CODES: [(u32, &str); 68] = [
+const SPEC_CODES: [(u32, &str); 71] = [
     (1800, "combination refused"),
     (1801, "a product needs another"),
     (1802, "a stick does not fit its carton"),
@@ -739,6 +739,9 @@ const SPEC_CODES: [(u32, &str); 68] = [
     (1834, "another ciginstaller holds the lock"),
     (1835, "home directory unsafe or unwritable"),
     (1836, "disk full"),
+    (1837, "bundle unreadable or unsafe"),
+    (1838, "mirror directory refused"),
+    (1839, "bundle cannot be written"),
     (1840, "nothing installed for this tool"),
     (1841, "pin file unreadable"),
     (1842, "pinned carton unavailable and fetching refused"),
