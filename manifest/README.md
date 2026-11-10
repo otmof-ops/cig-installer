@@ -15,6 +15,8 @@ cargo xtask manifest assemble --carton 0.1.0 --cig 1.20.0 --cigo 1.17.0 --cigcom
   --notes "first carton: cig, cigo, cigcompile" [--previous manifest-stable.toml]
 ```
 
+`--cigar <version>` names a CigarScript build the same way, once CigarScript has a release; `tools.toml` already describes it.
+
 It refuses in any of these cases:
 - a sidecar is missing, or disagrees with GitHub's own digest of the asset;
 - a version is yanked;

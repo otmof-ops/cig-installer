@@ -11,7 +11,7 @@ use xtask::assemble::{assemble, latest_members, next_candidate, sidecar_line, Ki
 
 const USAGE: &str = "\
 usage:
-  cargo xtask manifest assemble --carton <v> [--cig <v>] [--cigo <v>] [--cigcompile <v>]
+  cargo xtask manifest assemble --carton <v> [--cig <v>] [--cigo <v>] [--cigcompile <v>] [--cigar <v>]
         [--installer <v>] [--tool <name>=<v>]... [--pack <name>=<tool>,<tool>]...
         [--notes <text>] [--channel stable] [--previous <manifest.toml>]
         [--expires-days 30] [--out <file>]
@@ -103,7 +103,7 @@ fn assemble_cmd(rest: &[&str]) {
         };
         match *flag {
             "--carton" => carton = Some(version(&value(), "--carton")),
-            "--cig" | "--cigo" | "--cigcompile" | "--installer" => {
+            "--cig" | "--cigo" | "--cigcompile" | "--cigar" | "--installer" => {
                 let tool = match *flag {
                     "--installer" => "ciginstaller",
                     f => &f[2..],

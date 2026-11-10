@@ -163,6 +163,15 @@ Linux, with every build checked first and every change one undoable step.
 - **`status --json`** gains `cartons` and `rollout` (`percent`, `in_share`,
   `reason`) for an organization's own inventory tools. It makes no request.
 
+### CigarScript in the carton's tools (#1, #3)
+
+- **`[tool.cigar]`** in `manifest/tools.toml`, as CigarScript's release
+  workflow names its builds (`cigar-v{version}-{os}-{arch}{exe}` with a
+  `.sha256`, five targets, attested), with the `cigar` shim, and
+  `cargo xtask manifest assemble --cigar <version>`. No carton names it until
+  CigarScript has a release. CigarScript ships one binary, so there is no
+  `cigar-lsp` shim yet.
+
 ### Licenses (#27)
 
 - **`ciginstaller licences [tool] [--text] [--json]`** lists the installer and
