@@ -18,15 +18,15 @@ use cigi_home::path::block_state;
 use cigi_home::platform;
 use cigi_home::uninstall::leftover_asides;
 use cigi_home::{
-    installed, list_txns, read_receipt, verify_toolchain, Damage, PathChange, Shell, TxnStatus,
+    installed, list_txns, read_receipt, recorded_shells, verify_toolchain, Damage, PathChange,
+    Shell, TxnStatus,
 };
 use cigi_ui::{Icon, InstallerError, Report};
 use serde_json::json;
 
 use super::gc::{self, PENDING_KEY};
 use super::health::{
-    builds, humidor_bad, index_state, missing_shims, recorded_shell, shim_names, size_text,
-    IndexState,
+    builds, humidor_bad, index_state, missing_shims, shim_names, size_text, IndexState,
 };
 use crate::cx::{now_override, Cx};
 
@@ -506,14 +506,53 @@ fn path_block_item(cx: &Cx, v: &mut Vec<Item>) {
     if cx.state.machine_carton.is_none() && cx.state.cartons.is_empty() {
         return;
     }
-    let recorded = recorded_shell(&cx.state);
-    let shell = recorded
-        .or_else(|| {
-            std::env::var("SHELL")
-                .ok()
-                .and_then(|s| Shell::from_program(&s))
-        })
-        .unwrap_or(Shell::Sh);
+    let recorded = recorded_shells(&cx.state);
+    let shells: Vec<Shell> = if !recorded.is_empty() {
+        recorded.clone()
+    } else if cfg!(windows) {
+        Shell::windows_defaults().to_vec()
+    } else {
+        vec![std::env::var("SHELL")
+            .ok()
+            .and_then(|s| Shell::from_program(&s))
+            .unwrap_or(Shell::Sh)]
+    };
+    for shell in shells {
+        let agreed = recorded.contains(&shell);
+        path_block_one(home, shell, agreed, v);
+    }
+    registry_item(cx, v);
+}
+
+/// The user PATH in the registry, when `install` recorded that it put an entry there.
+fn registry_item(cx: &Cx, v: &mut Vec<Item>) {
+    let Some(rec) = cigi_home::recorded_registry(&cx.state) else {
+        return;
+    };
+    let what = cigi_home::path::REGISTRY_PATH;
+    match cigi_home::registry_path_has(&rec.entry) {
+        Ok(true) => v.push(ok(
+            "PATH registry",
+            format!("{what} has {}", rec.entry.display()),
+            what,
+        )),
+        Ok(false) => v.push(
+            act(
+                "PATH registry",
+                format!(
+                    "the PATH entry you agreed to is gone from {what}: {}",
+                    rec.entry.display()
+                ),
+                what,
+            )
+            .fix("ciginstaller repair")
+            .code("E1845"),
+        ),
+        Err(e) => v.push(note("PATH registry", e.to_string(), what)),
+    }
+}
+
+fn path_block_one(home: &cigi_home::Home, shell: Shell, agreed: bool, v: &mut Vec<Item>) {
     let (profile, _) = cigi_home::path_block(shell, home);
     match block_state(shell, home) {
         Ok(PathChange::AlreadyPresent) => v.push(ok(
@@ -521,7 +560,7 @@ fn path_block_item(cx: &Cx, v: &mut Vec<Item>) {
             format!("the PATH block is in {}", profile.display()),
             format!("{} for the marked block", profile.display()),
         )),
-        Ok(PathChange::NotPresent) if recorded.is_some() => v.push(
+        Ok(PathChange::NotPresent) if agreed => v.push(
             act(
                 "PATH block",
                 format!("the PATH block you agreed to is gone from {}", profile.display()),

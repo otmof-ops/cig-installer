@@ -21,9 +21,9 @@ use cigi_home::state::HistoryEntry;
 use cigi_home::toolchain::referenced_objects;
 use cigi_home::uninstall::{discard_aside, move_installer_aside};
 use cigi_home::{
-    installed, now_rfc3339, path_block, read_receipt, remove_all_humidor_mirrors,
-    remove_humidor_mirror, remove_path_block, remove_shims, shim_path, Home, Journal, ObjectId,
-    PathChange, Shell, State, Txn,
+    installed, now_rfc3339, path_block, read_receipt, recorded_registry, registry_path_has,
+    registry_path_remove, remove_all_humidor_mirrors, remove_humidor_mirror, remove_path_block,
+    remove_shims, shim_path, Home, Journal, ObjectId, PathChange, Shell, State, Txn,
 };
 use cigi_ui::{Icon, InstallerError, Question, Report, EXIT_REFUSED, EXIT_USAGE};
 use serde_json::json;
@@ -318,6 +318,7 @@ fn profiles(home: &Home) -> Vec<(Shell, PathBuf, PathChange)> {
         Shell::Zsh,
         Shell::Fish,
         Shell::PowerShell,
+        Shell::WindowsPowerShell,
     ] {
         let (profile, _) = path_block(shell, home);
         if !seen.insert(profile.clone()) {
@@ -415,6 +416,20 @@ fn all(cx: &mut Cx, a: &UninstallArgs) -> Result<Report, InstallerError> {
             plan.push(format!("the PATH block in {}", p.display()));
         }
     }
+    // the registry entry the install recorded as its own: exactly that entry, nothing else in the
+    // value (an entry that was on the user's PATH before the install is not the installer's)
+    let registry = State::load(&home)
+        .ok()
+        .and_then(|s| recorded_registry(&s))
+        .filter(|r| !r.preexisting && registry_path_has(&r.entry).unwrap_or(false))
+        .map(|r| r.entry);
+    if let Some(e) = &registry {
+        plan.push(format!(
+            "{}: {} (the entry the install added)",
+            cigi_home::path::REGISTRY_PATH,
+            e.display()
+        ));
+    }
     plan.push(format!(
         "{} (the installer's state, your ciginstaller settings in installer/config, the manifest cache and the journals)",
         home.installer().display()
@@ -489,6 +504,18 @@ fn all(cx: &mut Cx, a: &UninstallArgs) -> Result<Report, InstallerError> {
     // went, and a failure to write it changes nothing about the home.
     let _ = txn.commit();
     cx.release_lock();
+
+    // the registry PATH goes after the commit, like the install's add: the entry the state
+    // recorded, then the broadcast (done by the removal), so a terminal opened now is clean
+    if let Some(e) = &registry {
+        if let Err(err) = registry_path_remove(e) {
+            notes.push(format!(
+                "could not take {} out of {} (E1845): {err}; remove it by hand in Settings, System, About, Advanced system settings, Environment Variables",
+                e.display(),
+                cigi_home::path::REGISTRY_PATH
+            ));
+        }
+    }
 
     let kept = a.keep_journal;
     if kept {

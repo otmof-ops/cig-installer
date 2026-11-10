@@ -1511,6 +1511,7 @@ no = "dont-have-any"
 arises = ["any"]
 tags = ["installer", "ci-likely"]
 since = "0.1.0"
+retired = true
 related = ["E1815", "E1807"]
 [[code.cause]]
 why = "this architecture has no builds in any carton"

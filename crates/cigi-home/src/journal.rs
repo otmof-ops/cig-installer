@@ -240,7 +240,10 @@ pub struct Txn {
     home: Home,
     id: String,
     dir: PathBuf,
-    file: File,
+    /// The journal, open for append. Closed by `release_journal` for the moment a rename moves
+    /// the directory it lives in (Windows will not move a directory with an open file in it),
+    /// and opened again by path at the next line.
+    file: Option<File>,
     seq: u64,
     flipped: bool,
     saved_n: u32,
@@ -282,7 +285,7 @@ impl Txn {
             home: home.clone(),
             id,
             dir,
-            file,
+            file: Some(file),
             seq: 0,
             flipped: false,
             saved_n: 0,
@@ -353,9 +356,11 @@ impl Txn {
             .map_err(|e| JournalError::Misuse(format!("cannot encode journal line: {e}")))?;
         text.push('\n');
         let jp = self.journal_path();
-        self.file.write_all(text.as_bytes()).map_err(jio(&jp))?;
+        self.journal_file()?
+            .write_all(text.as_bytes())
+            .map_err(jio(&jp))?;
         if sync {
-            self.file.sync_data().map_err(jio(&jp))?;
+            self.journal_file()?.sync_data().map_err(jio(&jp))?;
             self.unsynced = false;
         } else {
             self.unsynced = true;
@@ -384,10 +389,38 @@ impl Txn {
         }
         if self.unsynced {
             let jp = self.journal_path();
-            self.file.sync_data().map_err(jio(&jp))?;
+            self.journal_file()?.sync_data().map_err(jio(&jp))?;
             self.unsynced = false;
         }
         Ok(())
+    }
+
+    /// The journal file, opened again by path when `release_journal` closed it.
+    fn journal_file(&mut self) -> Result<&mut File, JournalError> {
+        if self.file.is_none() {
+            let jp = self.journal_path();
+            let f = OpenOptions::new()
+                .append(true)
+                .open(&jp)
+                .map_err(jio(&jp))?;
+            self.file = Some(f);
+        }
+        self.file
+            .as_mut()
+            .ok_or_else(|| JournalError::Misuse("the journal is not open".into()))
+    }
+
+    /// Make the journal durable and close it, so the directory it is in can be renamed on
+    /// Windows. The next line opens it again by path.
+    pub(crate) fn release_journal(&mut self) -> Result<(), JournalError> {
+        self.sync_journal()?;
+        self.file = None;
+        Ok(())
+    }
+
+    /// The transaction directory moved (the uninstall's aside rename): later lines go to `dir`.
+    pub(crate) fn relocate(&mut self, dir: PathBuf) {
+        self.dir = dir;
     }
 
     fn next_saved(&mut self) -> (String, PathBuf) {
@@ -412,7 +445,7 @@ impl Txn {
                     )))
                 }
             }
-            Ok(md) if md.file_type().is_symlink() => Err(JournalError::Refused {
+            Ok(md) if platform::is_link_md(&md, path) => Err(JournalError::Refused {
                 path: path.to_path_buf(),
                 why: "is a symbolic link, and the installer does not write through one".into(),
             }),
@@ -460,9 +493,11 @@ impl Txn {
     /// `installer/` and `store/`, 0755 elsewhere inside the home, and the
     /// platform default outside it (a user's `~/.config/fish` is theirs).
     fn dir_mode_for(&self, path: &Path) -> Option<u32> {
-        if path.starts_with(self.home.installer()) || path.starts_with(self.home.store()) {
+        if platform::starts_with(path, &self.home.installer())
+            || platform::starts_with(path, &self.home.store())
+        {
             Some(0o700)
-        } else if path.starts_with(self.home.root()) {
+        } else if platform::starts_with(path, &self.home.root()) {
             Some(0o755)
         } else {
             None
@@ -511,7 +546,7 @@ impl Txn {
             false, // an object without its line is garbage for `gc`, never damage
         )?;
         let id = store.publish(staged)?;
-        if !existed {
+        if !existed && platform::BATCHED_FSYNC {
             self.pending.push(store.object_path(&id));
         }
         Ok(id)
@@ -521,10 +556,8 @@ impl Txn {
     /// existing `to` that is not already the same file is replaced atomically
     /// and its old content saved for rollback.
     pub fn link(&mut self, from: &Path, to: &Path) -> Result<(), JournalError> {
-        if let (Some(a), Some(b)) = (platform::ino(from), platform::ino(to)) {
-            if a == b {
-                return Ok(());
-            }
+        if platform::same_file(from, to) {
+            return Ok(());
         }
         let before = self.snapshot(to, false)?;
         let in_partial = to.ancestors().any(|a| {
@@ -546,8 +579,8 @@ impl Txn {
         } else {
             let tmp = util::temp_sibling(to);
             util::link_or_copy(from, &tmp).map_err(jio(&tmp))?;
-            fs::rename(&tmp, to).map_err(|e| {
-                let _ = fs::remove_file(&tmp);
+            platform::rename(&tmp, to).map_err(|e| {
+                let _ = platform::remove_file(&tmp);
                 jio(to)(e)
             })
         }
@@ -571,7 +604,7 @@ impl Txn {
             },
             true,
         )?;
-        fs::rename(from, to).map_err(jio(to))?;
+        platform::rename(from, to).map_err(jio(to))?;
         if let Some(p) = to.parent() {
             let _ = platform::sync_dir(p);
         }
@@ -651,7 +684,7 @@ impl Txn {
         let plain = path
             .components()
             .all(|c| !matches!(c, std::path::Component::ParentDir));
-        if !plain || !path.starts_with(base) || path == base {
+        if !plain || !platform::starts_with(path, base) || platform::same_path(path, base) {
             return Err(JournalError::Refused {
                 path: path.to_path_buf(),
                 why: format!("is not a path inside {}", base.display()),
@@ -659,10 +692,10 @@ impl Txn {
         }
         // no directory between `base` and the path may be a link: a remove goes through it
         for dir in path.ancestors().skip(1) {
-            if dir == base || !dir.starts_with(base) {
+            if platform::same_path(dir, base) || !platform::starts_with(dir, base) {
                 break;
             }
-            if fs::symlink_metadata(dir).is_ok_and(|m| m.file_type().is_symlink()) {
+            if platform::is_link(dir) {
                 return Err(JournalError::Refused {
                     path: dir.to_path_buf(),
                     why: "is a symbolic link where a directory of the installer's should be".into(),
@@ -674,7 +707,7 @@ impl Txn {
             Err(e) => return Err(jio(path)(e)),
             Ok(md) => md,
         };
-        if md.file_type().is_symlink() {
+        if platform::is_link_md(&md, path) {
             let target = fs::read_link(path).map_err(jio(path))?;
             self.log(
                 &JournalOp::Delete {
@@ -686,7 +719,7 @@ impl Txn {
                 true,
             )?;
             // `remove_file` on a link removes the link itself
-            fs::remove_file(path).map_err(jio(path))?;
+            platform::remove_file(path).map_err(jio(path))?;
         } else if md.is_dir() {
             let (rel, abs) = self.next_saved();
             self.log(
@@ -696,7 +729,7 @@ impl Txn {
                 },
                 true,
             )?;
-            fs::rename(path, &abs).map_err(jio(path))?;
+            platform::rename(path, &abs).map_err(jio(path))?;
         } else {
             let before = self.snapshot(path, false)?;
             self.log(
@@ -706,7 +739,7 @@ impl Txn {
                 },
                 true,
             )?;
-            fs::remove_file(path).map_err(jio(path))?;
+            platform::remove_file(path).map_err(jio(path))?;
         }
         if let Some(p) = path.parent() {
             let _ = platform::sync_dir(p);
@@ -791,9 +824,9 @@ impl Journal for Txn {
             return Ok(());
         }
         if index_sha == previous_sha {
-            let _ = fs::remove_file(&new_path);
+            let _ = platform::remove_file(&new_path);
         } else {
-            fs::rename(&new_path, &idx).map_err(jio(&idx))?;
+            platform::rename(&new_path, &idx).map_err(jio(&idx))?;
             if let Some(p) = idx.parent() {
                 let _ = platform::sync_dir(p);
             }
@@ -818,7 +851,7 @@ fn sync_files_parallel(paths: &[PathBuf]) -> Result<(), JournalError> {
     const THREADS: usize = 8;
     if paths.len() < 16 {
         for p in paths {
-            File::open(p).and_then(|f| f.sync_all()).map_err(jio(p))?;
+            platform::sync_file(p).map_err(jio(p))?;
         }
         return Ok(());
     }
@@ -829,7 +862,7 @@ fn sync_files_parallel(paths: &[PathBuf]) -> Result<(), JournalError> {
             .map(|c| {
                 s.spawn(move || -> Result<(), JournalError> {
                     for p in c {
-                        File::open(p).and_then(|f| f.sync_all()).map_err(jio(p))?;
+                        platform::sync_file(p).map_err(jio(p))?;
                     }
                     Ok(())
                 })
@@ -937,16 +970,14 @@ fn restore_saved(txn_dir: &Path, saved: &str, sha: Option<&str>, to: &Path) -> R
             return Err(format!("saved copy {saved} changed (hash {got})"));
         }
     }
-    if let (Some(a), Some(b)) = (platform::ino(&s), platform::ino(to)) {
-        if a == b {
-            return Ok(()); // already that very file
-        }
+    if platform::same_file(&s, to) {
+        return Ok(()); // already that very file
     }
     let tmp = util::temp_sibling(to);
     util::link_or_copy(&s, &tmp).map_err(|e| format!("{}: {e}", tmp.display()))?;
-    let res = fs::rename(&tmp, to).map_err(|e| format!("{}: {e}", to.display()));
+    let res = platform::rename(&tmp, to).map_err(|e| format!("{}: {e}", to.display()));
     // rename(2) leaves the source in place when both are links of one file
-    let _ = fs::remove_file(&tmp);
+    let _ = platform::remove_file(&tmp);
     res
 }
 
@@ -1014,7 +1045,7 @@ fn object_in_use(home: &Home, cache: &mut Option<InUse>, id: &ObjectId) -> bool 
 
 /// Is this a toolchain work-in-progress directory the installer owns outright?
 fn is_partial_dir(home: &Home, path: &Path) -> bool {
-    path.starts_with(home.toolchains())
+    platform::starts_with(path, &home.toolchains())
         && path
             .file_name()
             .map(|n| {
@@ -1028,7 +1059,7 @@ fn is_partial_dir(home: &Home, path: &Path) -> bool {
 /// there since (a shell's own config, say) is the user's and stays.
 fn undo_mkdir(home: &Home, path: &Path, notes: &mut Vec<String>) -> Result<(), String> {
     if is_partial_dir(home, path) {
-        return util::remove_any(path).map_err(|e| format!("{}: {e}", path.display()));
+        return platform::remove_any(path).map_err(|e| format!("{}: {e}", path.display()));
     }
     match fs::symlink_metadata(path) {
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
@@ -1073,8 +1104,31 @@ fn undo_file(path: &Path, notes: &mut Vec<String>) -> Result<(), String> {
             ));
             Ok(())
         }
-        Ok(_) => fs::remove_file(path).map_err(|e| format!("{}: {e}", path.display())),
+        Ok(_) => platform::remove_file(path).map_err(|e| format!("{}: {e}", path.display())),
     }
+}
+
+/// Undo a `move`: put what was moved back where it came from, whole. A toolchain flip
+/// (a `.partial-` directory moved into place) is the one move the installer undoes by removing
+/// what arrived: that tree is its own, and the next install builds it again. Idempotent: with
+/// nothing at `to` the move has not happened or is already undone.
+fn undo_move(home: &Home, from: &Path, to: &Path, notes: &mut Vec<String>) -> Result<(), String> {
+    if !util::exists_any(to) {
+        return Ok(());
+    }
+    if platform::starts_with(to, &home.toolchains()) && is_partial_dir(home, from) {
+        return platform::remove_any(to).map_err(|e| format!("{}: {e}", to.display()));
+    }
+    if util::exists_any(from) {
+        notes.push(format!(
+            "{} was moved to {}, and something is at {} now; both left in place",
+            from.display(),
+            to.display(),
+            from.display()
+        ));
+        return Ok(());
+    }
+    platform::rename(to, from).map_err(|e| format!("{}: {e}", from.display()))
 }
 
 fn undo_one(
@@ -1084,7 +1138,7 @@ fn undo_one(
     cache: &mut Option<InUse>,
     notes: &mut Vec<String>,
 ) -> Result<(), String> {
-    let rm = |p: &Path| util::remove_any(p).map_err(|e| format!("{}: {e}", p.display()));
+    let rm = |p: &Path| platform::remove_any(p).map_err(|e| format!("{}: {e}", p.display()));
     match op {
         JournalOp::Begin { .. } | JournalOp::Commit { .. } | JournalOp::RollbackDone => Ok(()),
         JournalOp::Mkdir { path, before } => match before {
@@ -1119,14 +1173,11 @@ fn undo_one(
             } => restore_saved(txn_dir, s, sha256.as_deref(), to),
             _ => Ok(()),
         },
-        JournalOp::Move { to, before, .. } => {
+        JournalOp::Move { from, to, before } => {
             // the receipts on disk change here: the in-use set is stale
             *cache = None;
             match before {
-                // a whole tree is the installer's own only under toolchains/
-                Before::Absent if to.starts_with(home.toolchains()) => rm(to),
-                Before::Absent if to.is_dir() => undo_mkdir(home, to, notes),
-                Before::Absent => undo_file(to, notes),
+                Before::Absent => undo_move(home, from, to, notes),
                 _ => Ok(()),
             }
         }
@@ -1140,7 +1191,7 @@ fn undo_one(
             saved,
         } => {
             let idx = home.shim_index_path();
-            let _ = fs::remove_file(idx.with_file_name("shim-index.new"));
+            let _ = platform::remove_file(&idx.with_file_name("shim-index.new"));
             let cur = util::sha256_file(&idx).ok().map(|(h, _)| h);
             if cur.as_deref() == Some(index_sha256.as_str()) && index_sha256 != previous_sha256 {
                 match saved {
@@ -1198,12 +1249,12 @@ fn undo_delete(txn_dir: &Path, path: &Path, before: &Before) -> Result<(), Strin
             // `ensure_layout` runs before `recover` and makes an empty directory where a whole
             // one was moved aside (`uninstall --all`): an empty one is not what was deleted
             if path.is_dir() && abs.is_dir() && only_empty_dirs(path) {
-                fs::remove_dir_all(path).map_err(|e| format!("{}: {e}", path.display()))?;
+                platform::remove_dir_all(path).map_err(|e| format!("{}: {e}", path.display()))?;
             }
             if util::exists_any(path) {
                 Ok(())
             } else if abs.is_dir() {
-                fs::rename(&abs, path).map_err(|e| format!("{}: {e}", path.display()))
+                platform::rename(&abs, path).map_err(|e| format!("{}: {e}", path.display()))
             } else {
                 Err(format!("saved directory {s} is missing"))
             }
@@ -1332,7 +1383,7 @@ fn recover_one(home: &Home, dir: &Path, id: &str) -> Result<Option<Recovered>, J
     let jpath = dir.join("journal.jsonl");
     if !jpath.is_file() {
         // a crash between creating the directory and the first journal line
-        let _ = fs::remove_dir_all(dir);
+        let _ = platform::remove_dir_all(dir);
         return Ok(None);
     }
     let mk = |label: String, outcome| {
@@ -1377,7 +1428,7 @@ fn recover_one(home: &Home, dir: &Path, id: &str) -> Result<Option<Recovered>, J
     let label = label_of(&jr.lines);
     if jr.lines.is_empty() {
         // torn before the first line was complete: nothing ever began
-        let _ = fs::remove_dir_all(dir);
+        let _ = platform::remove_dir_all(dir);
         return Ok(None);
     }
     if jr
@@ -1437,7 +1488,7 @@ fn recover_one(home: &Home, dir: &Path, id: &str) -> Result<Option<Recovered>, J
     };
     let next = jr.lines.len() as u64;
     if forward {
-        let _ = fs::remove_file(home.shim_index_path().with_file_name("shim-index.new"));
+        let _ = platform::remove_file(&home.shim_index_path().with_file_name("shim-index.new"));
         append(JournalOp::Commit { recovered: true }, next)?;
         return mk(label, RecoverOutcome::RolledForward);
     }
@@ -1483,14 +1534,14 @@ fn settled_prefix(path: &Path) -> Option<(String, u64)> {
 /// store stagings, half-built toolchain directories and shim-index debris.
 fn sweep_debris(home: &Home) {
     Store::new(home).sweep_tmp();
-    let _ = fs::remove_file(home.shim_index_path().with_file_name("shim-index.new"));
+    let _ = platform::remove_file(&home.shim_index_path().with_file_name("shim-index.new"));
     if let Ok(tools) = fs::read_dir(home.toolchains()) {
         for t in tools.flatten() {
             if let Ok(vs) = fs::read_dir(t.path()) {
                 for v in vs.flatten() {
                     let n = v.file_name().to_string_lossy().into_owned();
                     if n.starts_with('.') && n.contains(".partial-") {
-                        let _ = util::remove_any(&v.path());
+                        let _ = platform::remove_any(&v.path());
                     }
                 }
             }
@@ -1588,7 +1639,7 @@ pub fn prune_txns(
             .ok()
             .and_then(|m| m.elapsed().ok());
         if age.map(|a| a >= max_age).unwrap_or(false) {
-            fs::remove_dir_all(&dir).map_err(jio(&dir))?;
+            platform::remove_dir_all(&dir).map_err(jio(&dir))?;
             gone.push(t.id);
         }
     }

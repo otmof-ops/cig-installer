@@ -202,13 +202,22 @@ jobs:
       - name: cargo build (every target, tests included)
         run: cargo build --workspace --all-targets --locked
       # The platform-neutral tests, exactly: pure logic with no shell-script products, links, modes or
-      # owners. cigi-home, cigi-shim, ciginstaller and the xtask tests wait for the Windows runtime.
+      # owners. The Windows runtime's own tests follow; the rest of cigi-home, cigi-shim and
+      # ciginstaller drive fixture products that are shell scripts, which Windows cannot run yet.
       - name: cargo test (platform-neutral)
         run: |
           cargo test --locked -p cig-compat
           cargo test --locked -p cigi-source --lib
           cargo test --locked -p cigi-ui --lib --test behaviour --test catalogue --test design
           cargo test --locked -p cigi-testkit --lib
+      - name: cargo test (the Windows runtime)
+        # file rules and the journal, self-update and the shim, the PATH in the registry and the
+        # PowerShell profiles; the registry tests write this runner's own HKCU and put it back
+        run: |
+          cargo test --locked -p cigi-home --lib --test windows_files --test move_rollback
+          cargo test --locked -p cigi-shim --lib --test windows
+          cargo test --locked -p ciginstaller --bin ciginstaller -- on_windows
+          cargo test --locked -p ciginstaller --test a2_path_block
 
   # macOS (#21): the full suite, on Apple silicon and Intel. `script(1)` takes its BSD arguments
   # there (cigi_testkit::script_args), and the bootstrap script test uses shasum and bsdtar.

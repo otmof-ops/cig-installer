@@ -14,6 +14,7 @@ use cig_compat::Version;
 use crate::error::ToolchainError;
 use crate::home::Home;
 use crate::journal::Txn;
+use crate::platform;
 use crate::store::ObjectId;
 use crate::util;
 
@@ -185,7 +186,13 @@ fn clean_rel(p: &Path) -> Result<String, ToolchainError> {
     let mut parts = Vec::new();
     for c in p.components() {
         match c {
-            Component::Normal(s) => parts.push(s.to_str().ok_or_else(bad)?.to_string()),
+            Component::Normal(s) => {
+                let name = s.to_str().ok_or_else(bad)?;
+                if let Some(why) = platform::windows_name_problem(name) {
+                    return Err(ToolchainError::BadPath(format!("{} {why}", p.display())));
+                }
+                parts.push(name.to_string());
+            }
             _ => return Err(bad()),
         }
     }
@@ -197,12 +204,16 @@ fn clean_rel(p: &Path) -> Result<String, ToolchainError> {
 
 /// A path a receipt may name inside its toolchain: relative, `/`-separated, every part a plain
 /// name (no `..`, no `.`, no empty part, no backslash, no drive or NUL), and not the receipt itself.
+/// A part must also be a name Windows can make: not a reserved device name (`CON`, `NUL`, ...),
+/// not ending in a dot or a space, no colon (an alternate data stream).
 pub fn safe_rel(p: &str) -> bool {
     !p.is_empty()
         && p != RECEIPT_NAME
         && !p.contains(['\\', '\0'])
         && p.as_bytes().get(1) != Some(&b':')
-        && p.split('/').all(|c| !c.is_empty() && c != "." && c != "..")
+        && p.split('/').all(|c| {
+            !c.is_empty() && c != "." && c != ".." && platform::windows_name_problem(c).is_none()
+        })
 }
 
 /// Read and check `.cigi-receipt.json` of an installed toolchain.
@@ -369,7 +380,7 @@ pub fn verify_toolchain(home: &Home, tool: &str, v: &Version) -> Vec<Damage> {
                     actual,
                 }),
                 Ok(_) => {
-                    if let Some(m) = crate::platform::mode_of(&p) {
+                    if let Some(m) = platform::mode_of(&p) {
                         if (m & 0o111 != 0) != f.exec {
                             out.push(Damage::Mode {
                                 path: f.path.clone(),
@@ -452,10 +463,10 @@ pub fn referenced_objects(home: &Home) -> BTreeMap<ObjectId, Vec<(String, Versio
         }
     }
     // Who links to the store by inode: bin/ and toolchains we cannot read.
-    let mut by_inode: BTreeMap<u64, Vec<(String, Version)>> = BTreeMap::new();
+    let mut by_inode: BTreeMap<platform::FileId, Vec<(String, Version)>> = BTreeMap::new();
     let mut keep_all: Option<(String, Version)> = None;
     let zero = Version::parse("0.0.0").ok();
-    let mut note_file = |p: &Path, who: (String, Version)| match crate::platform::ino(p) {
+    let mut note_file = |p: &Path, who: (String, Version)| match platform::file_id(p) {
         Some(i) => by_inode.entry(i).or_default().push(who),
         None => keep_all = Some(who),
     };
@@ -501,7 +512,7 @@ pub fn referenced_objects(home: &Home) -> BTreeMap<ObjectId, Vec<(String, Versio
     for (id, _) in store.all() {
         if let Some(who) = &keep_all {
             m.entry(id).or_default().push(who.clone());
-        } else if let Some(i) = crate::platform::ino(&store.object_path(&id)) {
+        } else if let Some(i) = platform::file_id(&store.object_path(&id)) {
             if let Some(whos) = by_inode.get(&i) {
                 m.entry(id).or_default().extend(whos.iter().cloned());
             }
@@ -514,7 +525,10 @@ pub fn referenced_objects(home: &Home) -> BTreeMap<ObjectId, Vec<(String, Versio
 /// rules allow and a version that is plain text may reach a path.
 fn check_toolchain_name(tool: &str, v: &Version) -> Result<(), ToolchainError> {
     let version = v.to_string();
-    if !crate::shims::shim_name_ok(tool) || version.contains(['/', '\\']) || version.contains("..")
+    if !crate::shims::shim_name_ok(tool)
+        || platform::windows_name_problem(tool).is_some()
+        || version.contains(['/', '\\'])
+        || version.contains("..")
     {
         return Err(ToolchainError::BadPath(format!(
             "{tool} {version} is not a toolchain name"
@@ -528,7 +542,7 @@ fn check_toolchain_name(tool: &str, v: &Version) -> Result<(), ToolchainError> {
 fn check_real_dirs(home: &Home, tool: &str, v: &Version) -> Result<(), ToolchainError> {
     for p in [home.toolchains().join(tool), home.toolchain(tool, v)] {
         match fs::symlink_metadata(&p) {
-            Ok(m) if m.file_type().is_symlink() => {
+            Ok(m) if platform::is_link_md(&m, &p) => {
                 return Err(ToolchainError::BadPath(format!(
                     "{} is a symbolic link, not a toolchain directory",
                     p.display()
@@ -548,13 +562,13 @@ pub fn remove_toolchain_now(home: &Home, tool: &str, v: &Version) -> Result<(), 
     check_toolchain_name(tool, v)?;
     check_real_dirs(home, tool, v)?;
     let dir = home.toolchain(tool, v);
-    let first = fs::remove_dir_all(&dir);
+    let first = platform::remove_dir_all(&dir);
     if let Err(e) = first {
         if e.kind() != std::io::ErrorKind::NotFound {
             // a toolchain's directories are read-only (SPEC 4.3): open them to the owner, then
             // try once more
             open_to_owner(&dir);
-            match fs::remove_dir_all(&dir) {
+            match platform::remove_dir_all(&dir) {
                 Ok(()) => {}
                 Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
                 Err(e) => return Err(io_err(&dir)(e)),
@@ -589,7 +603,10 @@ fn open_to_owner(dir: &std::path::Path) {
     }
 }
 #[cfg(not(unix))]
-fn open_to_owner(_dir: &std::path::Path) {}
+fn open_to_owner(dir: &std::path::Path) {
+    // Windows: the read-only attribute on a toolchain's files is what blocks a remove
+    platform::clear_readonly_tree(dir);
+}
 
 /// Remove a whole toolchain (journaled: it is moved into the txn directory,
 /// so a rollback puts it back byte for byte).
@@ -622,7 +639,7 @@ pub fn restore_file(
     store.verify(&id)?;
     let tc = home.toolchain(tool, v);
     let dest = tc.join(&file.path);
-    if !dest.starts_with(&tc) {
+    if !platform::starts_with(&dest, &tc) {
         return Err(ToolchainError::BadPath(file.path.clone()));
     }
     if let Some(parent) = dest.parent() {

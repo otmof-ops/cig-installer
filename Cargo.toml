@@ -8,6 +8,7 @@ members = [
     "crates/cigi-shim",
     "crates/ciginstaller",
     "crates/cigi-testkit",
+    "crates/cigi-sys",
     "xtask",
 ]
 
@@ -20,6 +21,8 @@ repository = "https://github.com/otmof-ops/cig-installer"
 publish = false
 
 [workspace.dependencies]
+cigi-sys = { path = "crates/cigi-sys" }
+windows-sys = { version = "0.61", default-features = false }
 sha2 = "0.10"
 hex = "0.4"
 url = "2"

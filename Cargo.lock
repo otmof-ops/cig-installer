@@ -533,6 +533,7 @@ version = "0.1.0"
 dependencies = [
  "cig-compat",
  "cigi-home",
+ "cigi-sys",
  "fs4",
  "hex",
  "serde",
@@ -545,6 +546,9 @@ dependencies = [
 [[package]]
 name = "cigi-shim"
 version = "0.1.0"
+dependencies = [
+ "cigi-sys",
+]
 
 [[package]]
 name = "cigi-source"
@@ -562,6 +566,13 @@ dependencies = [
  "time",
  "ureq",
  "url",
+]
+
+[[package]]
+name = "cigi-sys"
+version = "0.1.0"
+dependencies = [
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -598,6 +609,7 @@ dependencies = [
  "cigi-home",
  "cigi-shim",
  "cigi-source",
+ "cigi-sys",
  "cigi-testkit",
  "cigi-ui",
  "clap",

@@ -388,6 +388,9 @@ impl Fixture {
             .env("NO_COLOR", "1")
             .env("TERM", "dumb")
             .env("LANG", "C")
+            // a test build leaves the runner's own registry PATH alone (a test that is about the
+            // registry removes this)
+            .env("CIGI_NO_REGISTRY_PATH", "1")
             .env("PATH", path);
     }
 }

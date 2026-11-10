@@ -7,7 +7,7 @@ use std::collections::BTreeSet;
 use std::path::Path;
 
 use cig_compat::Version;
-use cigi_home::{installed, read_receipt, Home, ObjectId, Shell, State};
+use cigi_home::{installed, read_receipt, Home, ObjectId, State};
 
 /// Every `(tool, version)` the state names: the cartons' tools and the sticks.
 pub fn builds(state: &State) -> Vec<(String, String)> {
@@ -67,16 +67,6 @@ pub fn installer_objects(home: &Home, state: &State) -> Option<(ObjectId, Object
     None
 }
 
-/// The shell `install` added a PATH block for, when `state.json` says it did.
-pub fn recorded_shell(state: &State) -> Option<Shell> {
-    state
-        .extra
-        .get("path_block")?
-        .get("shell")?
-        .as_str()
-        .and_then(Shell::from_program)
-}
-
 pub fn size_text(n: u64) -> String {
     const UNITS: [&str; 4] = ["B", "KiB", "MiB", "GiB"];
     let mut x = n as f64;
@@ -117,12 +107,12 @@ pub fn missing_shims(home: &Home, state: &State) -> Option<Vec<String>> {
         .into_iter()
         .collect();
     let own: BTreeSet<String> =
-        cigi_home::shims::shims_present(home, &exe, &["ciginstaller", "cigi"])
+        cigi_home::shims::shims_present(home, &exe, super::switch::installer_names())
             .into_iter()
             .collect();
     let mut missing: Vec<String> = names.difference(&present).cloned().collect();
     missing.extend(
-        ["ciginstaller", "cigi"]
+        super::switch::installer_names()
             .iter()
             .filter(|n| !own.contains(**n))
             .map(|n| n.to_string()),

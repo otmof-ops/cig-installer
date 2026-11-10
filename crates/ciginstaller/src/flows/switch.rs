@@ -106,7 +106,22 @@ pub fn shim_names(home: &Home, state: &State) -> BTreeSet<String> {
             }
         }
     }
+    if cfg!(windows) && !builds.is_empty() {
+        // `cigi.exe` is a shim on Windows (see `installer_names`)
+        names.insert("cigi".to_string());
+    }
     names
+}
+
+/// The names `bin/` gives the installer itself. On Windows `cigi` is a shim instead (it is in
+/// `shim_names` there), so that when a new installer cannot start, the shim can put the previous
+/// one back.
+pub fn installer_names() -> &'static [&'static str] {
+    if cfg!(windows) {
+        &["ciginstaller"]
+    } else {
+        &["ciginstaller", "cigi"]
+    }
 }
 
 /// The store object every shim in `bin/` is a link of: `bin/cigi-shim` of the installer's toolchain.

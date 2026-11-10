@@ -1248,7 +1248,7 @@ Related: [`E1842`](#e1842-pinned-carton-unavailable-and-fetching-refused), [`E18
 
 ### E1872 platform not supported
 
-*usage · since 0.1.0 · arises in any*
+*usage · since 0.1.0 · arises in any · retired*
 
 **Kind of no:** don't have any over here (nobody's: right place, right you, nothing there; 404 from the server's side; an empty result).
 

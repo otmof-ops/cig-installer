@@ -15,15 +15,16 @@ use cigi_home::path::block_state;
 use cigi_home::state::HistoryEntry;
 use cigi_home::toolchain::{remove_extra, restore_file};
 use cigi_home::{
-    add_path_block, installed, now_rfc3339, path_block, read_receipt, remirror_humidor, shim_path,
-    sync_shims, verify_toolchain, Damage, ObjectId, PathChange, Receipt, State,
+    add_path_block, installed, now_rfc3339, path_block, read_receipt, recorded_registry,
+    recorded_shells, registry_path_add, registry_path_has, remirror_humidor, shim_path, sync_shims,
+    verify_toolchain, Damage, ObjectId, PathChange, Receipt, Shell, State,
 };
 use cigi_ui::{Icon, InstallerError, Report, EXIT_REFUSED};
 use serde_json::json;
 
 use super::health::{
     builds, humidor_bad, index_state, installer_objects, missing_shims, pending_txns,
-    recorded_shell, remove_committed_txn, shim_names, IndexState,
+    remove_committed_txn, shim_names, IndexState,
 };
 use super::install::{fetch_builds, materialize_fetched};
 use super::{cached_yanked, save_and_flip, settle};
@@ -208,11 +209,30 @@ pub fn run(cx: &mut Cx, a: &RepairArgs) -> Result<Report, InstallerError> {
             mirror.insert(b.ver.clone());
         }
     }
-    let shell = recorded_shell(&state);
-    let path_missing = !scoped
-        && shell.is_some_and(|s| matches!(block_state(s, &home), Ok(PathChange::NotPresent)));
-    let path_edited =
-        !scoped && shell.is_some_and(|s| matches!(block_state(s, &home), Ok(PathChange::Edited)));
+    let shells = recorded_shells(&state);
+    let blocks_missing: Vec<Shell> = if scoped {
+        Vec::new()
+    } else {
+        shells
+            .iter()
+            .copied()
+            .filter(|s| matches!(block_state(*s, &home), Ok(PathChange::NotPresent)))
+            .collect()
+    };
+    // the registry entry the install recorded, gone from the user's PATH (re-added after the
+    // commit, as the install did)
+    let registry_missing = if scoped {
+        None
+    } else {
+        recorded_registry(&state)
+            .filter(|r| matches!(registry_path_has(&r.entry), Ok(false)))
+            .map(|r| r.entry)
+    };
+    let path_missing = !blocks_missing.is_empty() || registry_missing.is_some();
+    let path_edited = !scoped
+        && shells
+            .iter()
+            .any(|s| matches!(block_state(*s, &home), Ok(PathChange::Edited)));
 
     if bad.is_empty()
         && rebuild.is_empty()
@@ -285,8 +305,15 @@ pub fn run(cx: &mut Cx, a: &RepairArgs) -> Result<Report, InstallerError> {
         for v in &mirror {
             r = r.detail(format!("would mirror cig {v} into the humidor again"));
         }
-        if path_missing {
+        if !blocks_missing.is_empty() {
             r = r.detail("would put the PATH block back");
+        }
+        if let Some(e) = &registry_missing {
+            r = r.detail(format!(
+                "would put {} back on {}",
+                e.display(),
+                cigi_home::path::REGISTRY_PATH
+            ));
         }
         return Ok(r
             .next("ciginstaller repair")
@@ -421,7 +448,7 @@ pub fn run(cx: &mut Cx, a: &RepairArgs) -> Result<Report, InstallerError> {
                 let names = shim_names(&home, &new_state);
                 let refs: Vec<&str> = names.iter().map(String::as_str).collect();
                 sync_shims(&mut txn, &home, &refs, &shim_obj).map_err(ie)?;
-                for n in ["ciginstaller", "cigi"] {
+                for n in super::switch::installer_names() {
                     txn.link(&store.object_path(&exe_obj), &shim_path(&home, n))
                         .map_err(ie)?;
                 }
@@ -438,12 +465,10 @@ pub fn run(cx: &mut Cx, a: &RepairArgs) -> Result<Report, InstallerError> {
                 report_lines.push(format!("mirrored cig {ver} into the humidor again"));
             }
         }
-        if !scoped && path_missing {
-            if let Some(s) = shell {
-                let (profile, _) = path_block(s, &home);
-                if add_path_block(&mut txn, s, &home).map_err(ie)? == PathChange::Added {
-                    report_lines.push(format!("put the PATH block back in {}", profile.display()));
-                }
+        for s in &blocks_missing {
+            let (profile, _) = path_block(*s, &home);
+            if add_path_block(&mut txn, *s, &home).map_err(ie)? == PathChange::Added {
+                report_lines.push(format!("put the PATH block back in {}", profile.display()));
             }
         }
         if index_wrong {
@@ -463,6 +488,20 @@ pub fn run(cx: &mut Cx, a: &RepairArgs) -> Result<Report, InstallerError> {
     })();
     settle(txn, applied)?;
     drop(fetched);
+    if let Some(entry) = &registry_missing {
+        match registry_path_add(entry) {
+            Ok(_) => report_lines.push(format!(
+                "put {} back on {}",
+                entry.display(),
+                cigi_home::path::REGISTRY_PATH
+            )),
+            Err(e) => report_lines.push(format!(
+                "could not put {} back on {} (E1845): {e}",
+                entry.display(),
+                cigi_home::path::REGISTRY_PATH
+            )),
+        }
+    }
 
     remove_committed_txn(&home, &txn_id);
     store.sweep_tmp();

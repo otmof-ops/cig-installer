@@ -83,8 +83,12 @@ pub fn move_installer_aside(txn: &mut Txn, home: &Home) -> Result<PathBuf, Journ
         return Err(misuse(format!("{} already exists", aside.display())));
     }
     txn.barrier()?;
+    // Windows will not move a directory with an open file in it: close the journal for the
+    // rename and open it again, by path, where it has gone
+    txn.release_journal()?;
     fault_after("uninstall-before-aside");
-    fs::rename(&from, &aside).map_err(io(&aside))?;
+    platform::rename(&from, &aside).map_err(io(&aside))?;
+    txn.relocate(aside.join("txn").join(txn.id()));
     if let Some(p) = aside.parent() {
         let _ = platform::sync_dir(p);
     }
@@ -164,7 +168,7 @@ pub fn discard_aside(home: &Home, path: &Path) -> Result<(), JournalError> {
 /// the owner first.
 fn remove_tree(path: &Path) -> std::io::Result<()> {
     open_to_owner(path);
-    match fs::remove_dir_all(path) {
+    match platform::remove_dir_all(path) {
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
         r => r,
     }
@@ -192,7 +196,9 @@ fn open_to_owner(dir: &Path) {
     }
 }
 #[cfg(not(unix))]
-fn open_to_owner(_dir: &Path) {}
+fn open_to_owner(dir: &Path) {
+    platform::clear_readonly_tree(dir);
+}
 
 #[cfg(test)]
 mod tests {

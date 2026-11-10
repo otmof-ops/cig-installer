@@ -17,3 +17,6 @@ name = "cigi-shim"
 path = "src/main.rs"
 
 [dependencies]
+
+[target.'cfg(windows)'.dependencies]
+cigi-sys = { workspace = true }
