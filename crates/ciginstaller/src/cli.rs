@@ -490,6 +490,10 @@ pub struct ReportCmd {
 pub struct BugCmd {
     #[command(subcommand)]
     pub sub: Option<BugSub>,
+    /// The product it is about, as the family's messages name it: `ciginstaller bug cigar` is
+    /// `--product cigar`.
+    #[arg(value_name = "PRODUCT", conflicts_with_all = ["product", "run", "last"])]
+    pub product_arg: Option<String>,
     /// It is about this run: an operation of this machine (an id from `history`) or a cig run.
     #[arg(long, value_name = "ID", conflicts_with_all = ["product", "last"])]
     pub run: Option<String>,

@@ -267,7 +267,7 @@ lists them all.
 | `history` | the last installs, updates and rollbacks |
 | `crash list\|show\|send\|delete` | every tool's crash reports, in one queue: `show` prints exactly what `send` sends, nothing leaves without `send`, and `reports = never` refuses |
 | `crash status`, `crash test-route` | the queue, the `reports` setting and each route's last success and failure; one dry search per route, to see which can file a report |
-| `bug` | writes up what went wrong, asked in the voice with plain beside it (or from flags without a terminal), with the run's bundle, the version matrix, the carton, the OS and the doctor's findings, and shows exactly what would travel first; `--save` keeps it here, `--send` sends it through the crash route, `bug list` and `bug show <n>` are the reports saved here |
+| `bug [<product>]` | writes up what went wrong, asked in the voice with plain beside it (or from flags without a terminal), with the run's bundle, the version matrix, the carton, the OS and the doctor's findings, and shows exactly what would travel first; `--save` keeps it here, `--send` sends it through the crash route, `bug list` and `bug show <n>` are the reports saved here |
 | `report [<run>]` | the version block and the bundle a bug report needs: `--out FILE` writes it, `--send` files it through the crash route, and `--block --json` is the block a product puts in its own report; otherwise nothing is written or sent |
 | `bench` | measure this machine against the performance budgets (shim dispatch, check, switch, sizes, first lines), locally and read-only, with the median and p95 of each; nothing is sent anywhere |
 | `self update` | update ciginstaller itself |

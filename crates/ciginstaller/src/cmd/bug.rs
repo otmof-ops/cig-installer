@@ -127,6 +127,11 @@ fn question(text: String, choices: Vec<Choice>, default: usize) -> Question {
 // ----- the receipt ------------------------------------------------------------------------
 
 /// The bug reports saved here, newest first.
+/// The product named by `--product`, or by the positional the family's messages use.
+fn product_of(c: &BugCmd) -> Option<&str> {
+    c.product.as_deref().or(c.product_arg.as_deref())
+}
+
 fn mine(env: &crash_cmd::Env) -> Result<Vec<Saved>, InstallerError> {
     let l =
         crash::list(&env.root).map_err(|e| usage(format!("the ashtray cannot be read: {e}")))?;
@@ -361,7 +366,7 @@ fn write_up(
         Some(w @ ("yes" | "no" | "unsure")) => Some(w.to_string()),
         Some(w) => return Err(usage(format!("`{w}` is not yes, no or unsure"))),
     };
-    let flagged_part = match c.product.as_deref().or(c.part.as_deref()) {
+    let flagged_part = match product_of(c).or(c.part.as_deref()) {
         Some(p) => Some(flow::part_of(p)?),
         None => None,
     };
@@ -416,7 +421,7 @@ fn write_up(
                 .with_fix("ciginstaller history"))
             }
         }
-    } else if facts.run.is_none() && c.product.is_none() && interactive {
+    } else if facts.run.is_none() && product_of(c).is_none() && interactive {
         if let Some(cx) = cx.as_ref() {
             facts.run = ask_run(ui, cx)?;
         }

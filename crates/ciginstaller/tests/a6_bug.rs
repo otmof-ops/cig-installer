@@ -315,6 +315,13 @@ fn without_a_verified_repro_it_says_so_and_still_goes() {
     assert_eq!(p["bug"]["report"]["details"]["part"], "cigo");
     assert_eq!(p["bug"]["report"]["details"]["doctor"]["for"], "cigo");
     assert!(p["bug"]["report"]["details"].get("run").is_none());
+    // the family's messages name the product as a word: `ciginstaller bug cigo`
+    let w = data(&fx, &[], &["bug", "cigo", "--save"]);
+    assert_eq!(w["bug"]["report"]["details"]["part"], "cigo");
+    assert_eq!(w["bug"]["report"]["details"]["doctor"]["for"], "cigo");
+    // and `list` is still the receipt, not a product
+    let l = data(&fx, &[], &["bug", "list"]);
+    assert!(l["reports"].as_array().is_some_and(|a| a.len() >= 2), "{l}");
 }
 
 #[test]

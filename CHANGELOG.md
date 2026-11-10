@@ -77,7 +77,7 @@ Linux, with every build checked first and every change one undoable step.
 
 - **`ciginstaller bug`** writes up what went wrong, in the person's words, with
   the evidence for it, and shows exactly what would travel before anything is
-  saved. `bug --run <id>`, `bug --product <part>`, `bug --last`, and
+  saved. `bug --run <id>`, `bug <product>` (or `--product`), `bug --last`, and
   `bug list` / `bug show <n>` for the reports saved here (the receipt).
   - **The conversation**: which part, what you were doing, what you expected,
     what happened, which run; in the voice with plain beside it, every
