@@ -23,7 +23,9 @@ mod resolve;
 
 use std::path::Path;
 
-use cigi_ui::{GlobalFlags, InstallerError, Report, Ui, EXIT_SHIM, EXIT_USAGE};
+use cigi_ui::{
+    GlobalFlags, InstallerError, Report, ThemeChoice, Ui, VoiceChoice, EXIT_SHIM, EXIT_USAGE,
+};
 use clap::Parser;
 
 use cli::{Cli, Command, SelfCmd, SelfSub};
@@ -59,18 +61,7 @@ fn main() {
             std::process::exit(code);
         }
     };
-    let flags = GlobalFlags {
-        json: cli.json,
-        plain: cli.plain,
-        no_color: cli.no_color,
-        quiet: cli.quiet,
-        yes: cli.yes,
-        yes_irreversible: cli.yes_irreversible,
-        verbose: cli.verbose,
-        offline: cli.offline,
-        home: cli.home.clone(),
-        ..GlobalFlags::default()
-    };
+    let flags = flags_of(&cli);
     let ui = Ui::from_env_and_flags(&flags);
     let ui = if matches!(cli.command, Some(Command::Resolve { .. })) {
         ui.all_to_stderr()
@@ -120,7 +111,7 @@ fn dispatch(cli: Cli, ui: Ui) -> i32 {
         return explain(&ui, code.as_deref(), cli.plain);
     }
     let result = (|| -> Result<Outcome, InstallerError> {
-        let mut cx = Cx::new(ui_clone(&cli), globals, cwd)?;
+        let mut cx = Cx::new(ui.duplicate(), globals, cwd)?;
         let result = match &cli.command {
             Some(Command::Install(c)) => cmd::install::run(&mut cx, c),
             Some(Command::Carton(c)) => cmd::carton::run(&mut cx, c),
@@ -253,8 +244,16 @@ fn read_only(cmd: &Option<Command>) -> bool {
     }
 }
 
-fn ui_clone(cli: &Cli) -> Ui {
-    let ui = Ui::from_env_and_flags(&GlobalFlags {
+/// The global flags, with `theme` and `voice` read from `installer/config` (#31, #32).
+fn flags_of(cli: &Cli) -> GlobalFlags {
+    let over = cli.home.clone().map(std::path::PathBuf::into_os_string);
+    let home = cigi_home::Home::discover_with(&|k| match (k, &over) {
+        ("CIGSCRIPT_HOME", Some(h)) => Some(h.clone()),
+        _ => std::env::var_os(k),
+    });
+    let cfg = home.ok().and_then(|h| cigi_home::Config::load(&h).ok());
+    let get = |k: &str| cfg.as_ref().map(|c| c.get(k)).unwrap_or_default();
+    GlobalFlags {
         json: cli.json,
         plain: cli.plain,
         no_color: cli.no_color,
@@ -264,13 +263,11 @@ fn ui_clone(cli: &Cli) -> Ui {
         verbose: cli.verbose,
         offline: cli.offline,
         home: cli.home.clone(),
-        ..GlobalFlags::default()
-    });
-    // on the shim's slow path stdout is the tool's: every word of ours goes to stderr
-    if matches!(cli.command, Some(Command::Resolve { .. })) {
-        ui.all_to_stderr()
-    } else {
-        ui
+        theme: ThemeChoice::parse(&get("theme")).unwrap_or_default(),
+        voice: VoiceChoice::parse(&get("voice")).unwrap_or_default(),
+        wide: cli.wide,
+        // the shim's slow path must never wait on the terminal
+        no_probe: matches!(cli.command, Some(Command::Resolve { .. })),
     }
 }
 

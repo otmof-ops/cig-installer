@@ -6,3 +6,4 @@ pub mod assemble;
 pub mod errors_doc;
 pub mod gh;
 pub mod pins;
+pub mod tokens;

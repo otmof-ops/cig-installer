@@ -269,7 +269,7 @@ fn a3_trial_difference() {
     let (code, t) = on_tty(&fx, "update", "\n", &[]);
     assert_eq!(code, 2, "{t}");
     // review shows the diff, then accept switches
-    let (code, t) = on_tty(&fx, "update", "r\na\n", &[]);
+    let (code, t) = on_tty(&fx, "update", "ra", &[]);
     assert_eq!(code, 0, "{t}");
     assert!(t.contains("+plan: 2 ops"), "{t}");
     assert!(which_cig(&fx).contains("cig 1.21.0"));

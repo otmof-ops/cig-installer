@@ -32,6 +32,9 @@ pub struct Cli {
     /// Only results and errors.
     #[arg(long, short = 'q', global = true)]
     pub quiet: bool,
+    /// Tables are never cut to the terminal's width.
+    #[arg(long, global = true)]
+    pub wide: bool,
     /// More detail.
     #[arg(long, short = 'v', global = true)]
     pub verbose: bool,

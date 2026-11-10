@@ -1,0 +1,14 @@
+--- stdout ---
+␛[32m✓␛[0m filed: https://github.com/otmof-ops/cig-installer/issues/41
+--- stderr ---
+--- rendered ---
+␛[33m?␛[0m does it happen every time?
+  one question per screen; your answers are part of the preview.
+  [y]es  [n]o  [S]ometimes                                   ␛[2m(enter = sometimes)␛[0m
+┌─ ␛[1mpreview: this is exactly what is sent␛[0m ───────────────────────────────────────
+│ ciginstaller 0.1.0 on linux x86_64
+│ update stopped at the trial; no files changed
+└───────────────────────────────────────────────────────────────────────────────
+␛[33m?␛[0m send it?
+  a public issue on otmof-ops/cig-installer; nothing else leaves the machine.
+  [y]es  [N]o                                                       ␛[2m(enter = no)␛[0m

@@ -89,8 +89,8 @@ fn json_of(o: &Output) -> serde_json::Value {
 #[test]
 fn a4_menu_on_a_terminal_asks_what_you_are_after_then_the_settings() {
     let fx = simple();
-    // 3 = a carton, s = strict, n = never send crash reports
-    let (code, t) = on_tty(&fx, "install --no-path", "3\ns\nn\n");
+    // one keypress each: 3 = a carton, s = strict, n = never send crash reports
+    let (code, t) = on_tty(&fx, "install --no-path", "3sn");
     assert_eq!(code, 0, "{t}");
     for want in [
         "what are you after?",
@@ -113,8 +113,9 @@ fn a4_menu_on_a_terminal_asks_what_you_are_after_then_the_settings() {
 #[test]
 fn a4_menu_a_stick_asks_which_product_and_installs_only_it() {
     let fx = simple();
-    // 1 = a stick, 1 = the first product (cig), then enter on the preset and reports defaults
-    let (code, t) = on_tty(&fx, "install --no-path", "1\n1\n\n\n");
+    // one keypress each: 1 = a stick, 1 = the first product (cig), then enter takes the
+    // preset's and the reports question's defaults
+    let (code, t) = on_tty(&fx, "install --no-path", "11\n\n");
     assert_eq!(code, 0, "{t}");
     assert!(t.contains("which product?"), "{t}");
     let s = state(&fx);

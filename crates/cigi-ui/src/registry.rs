@@ -6,7 +6,9 @@
 //! `explain` works. The file is embedded; a malformed one is a build defect caught by the
 //! tests, and reads as an empty registry here rather than a panic.
 
+use crate::catalogue;
 use crate::error::Kind;
+use crate::tokens::Role;
 use serde::Deserialize;
 use std::sync::OnceLock;
 
@@ -172,6 +174,55 @@ pub fn catchphrase(code: &str) -> Option<&'static str> {
         None
     } else {
         Some(no.hear.as_str())
+    }
+}
+
+/// The plain form of a code's kind of no ("not found"), written beside the voice in the
+/// catalogue. `None` for `none` and `depends`.
+pub fn plain_label(code: &str) -> Option<&'static str> {
+    let no = lookup(code)?.no_entry()?;
+    catalogue::kind_of_no(&no.id).map(|m| m.plain)
+}
+
+/// The role a code is painted in (#31, "four kinds of no"): `cant-see-any` and `dont-have-any`
+/// are neutral notices (`info`), `these-are-mine` and `never-heard-of-you` are the door's
+/// (`warn`), a bug in the installer is `danger`. A code with no kind of no (`none`) is a
+/// mistake in us or in the arithmetic and is `danger`; `depends` reads the operating system's
+/// reason and is `warn`. An unknown code is `danger`.
+pub fn role_of(code: &str) -> Role {
+    if kind_of(code) == Some(Kind::Internal) {
+        return Role::Danger;
+    }
+    match lookup(code).map(|c| c.no.as_str()) {
+        Some("cant-see-any" | "dont-have-any") => Role::Info,
+        Some("these-are-mine" | "never-heard-of-you" | "depends") => Role::Warn,
+        _ => Role::Danger,
+    }
+}
+
+/// The area a code belongs to, the second word of `error[E1811 carton]`: what the code is
+/// about, in one lowercase word. Ranges follow `errors/registry.toml`.
+pub fn area(code: &str) -> &'static str {
+    match number(code) {
+        Some(1800..=1809) => "check",
+        Some(1810) => "manifest",
+        Some(1811 | 1816..=1818) => "carton",
+        Some(1812) => "channel",
+        Some(1813) => "pack",
+        Some(1814) => "tool",
+        Some(1815) => "platform",
+        Some(1820..=1821) => "fetch",
+        Some(1822..=1829) => "trust",
+        Some(1830..=1836) => "store",
+        Some(1840..=1841 | 1844..=1845) => "shim",
+        Some(1842..=1843 | 1846..=1848) => "pin",
+        Some(1850..=1856) => "update",
+        Some(1860..=1862) => "repair",
+        Some(1870..=1873) => "usage",
+        Some(1874) => "shim",
+        Some(1875) => "config",
+        Some(1890..=1899) => "internal",
+        _ => "installer",
     }
 }
 

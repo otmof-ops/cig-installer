@@ -1,0 +1,7 @@
+--- stdout ---
+--- stderr ---
+--- rendered ---
+␛[38;2;251;191;36m?␛[0m the new cig plans 1 script differently
+  ~/work/site/deploy.cig   2 ops in the old plan, 3 in the new:
+    + fs.mkdir  root0/d1            (new: the folder is created first now)
+  [a]ccept  [r]eview in full  [K]eep 0.1.0                  ␛[38;2;156;163;175m(enter = keep 0.1.0)␛[0m

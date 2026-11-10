@@ -74,6 +74,11 @@ pub const KEYS: &[KeySpec] = &[
         values: Some(&["auto", "dark", "light"]),
         default: "auto",
     },
+    KeySpec {
+        key: "voice",
+        values: Some(&["voice", "plain"]),
+        default: "voice",
+    },
 ];
 
 fn spec(key: &str) -> Option<&'static KeySpec> {

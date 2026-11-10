@@ -1,0 +1,7 @@
+--- stdout ---
+  ␛[2mid␛[0m       ␛[2mwhen␛[0m               ␛[2mtool␛[0m         ␛[2mversion␛[0m   ␛[2mstate␛[0m
+  c-0007   2026-11-09 21:14   cig           1.20.0   ␛[93mwaiting for you to read it␛[0m
+  c-0006   2026-11-02 08:40   CigCompile     0.2.0   sent, fixed in 0.2.1
+␛[32m✓␛[0m 2 reports; 1 waiting
+  ␛[93m→␛[0m ciginstaller crash show c-0007
+--- stderr ---

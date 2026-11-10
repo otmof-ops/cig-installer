@@ -1,0 +1,7 @@
+--- stdout ---
+  id       when               tool         version   state
+  c-0007   2026-11-09 21:14   cig           1.20.0   waiting for you to read it
+  c-0006   2026-11-02 08:40   CigCompile     0.2.0   sent, fixed in 0.2.1
+ok: 2 reports; 1 waiting
+  next: ciginstaller crash show c-0007
+--- stderr ---

@@ -6,8 +6,8 @@
 
 use cig_compat::check::{Finding, Severity};
 use cigi_ui::registry::{self, number};
-use cigi_ui::tokens::{paint, sgr};
 use cigi_ui::*;
+use cigi_ui::{paint, sgr};
 use std::collections::BTreeSet;
 
 fn tty() -> Env {
@@ -108,7 +108,26 @@ fn safe_default_without_a_tty() {
     let a = ui.ask(&q);
     assert_eq!((a.key, a.how, a.refusal), ('n', How::NoTty, true));
     assert_eq!(a.exit_code(), Some(3));
-    assert!(cap.err().contains("no terminal to ask on"));
+    assert!(
+        cap.err().contains("nobody's at the keyboard to ask"),
+        "{}",
+        cap.err()
+    );
+    // plain says the same facts in neutral words
+    let (plain, pcap) = Ui::from_env(
+        &GlobalFlags {
+            plain: true,
+            ..flags()
+        },
+        &Env::default(),
+    )
+    .captured();
+    plain.ask(&q);
+    assert!(
+        pcap.err().contains("no terminal to ask on"),
+        "{}",
+        pcap.err()
+    );
     // a non-refusing default does not force exit 3
     let a = ui.ask(&Question::yes_no("go on?", true));
     assert_eq!((a.key, a.exit_code()), ('y', None));
@@ -259,9 +278,13 @@ fn icons_fall_back_to_ascii() {
             && all.contains("[-] a notice"),
         "{all}"
     );
+    // the ASCII set is `[?]` for a question and `[!]` for an irreversible one (#32)
     assert!(ui
         .render_prompt(&Question::irreversible("sure?"))
-        .starts_with("? sure?"));
+        .starts_with("[!] sure?"));
+    assert!(ui
+        .render_prompt(&Question::yes_no("sure?", true))
+        .starts_with("[?] sure?"));
     assert!(all.contains("-> next"));
     let (ui, cap) = Ui::from_env(&flags(), &Env::default().with("LANG", "en_US.UTF-8")).captured();
     ui.say(&Report::done("x").next("y"));
@@ -552,7 +575,7 @@ fn detection() {
 
 #[test]
 fn palette_roles_fall_back_by_depth() {
-    use tokens::{ColorMode as C, Role as R, Theme as T};
+    use cigi_ui::{ColorMode as C, Role as R, Theme as T};
     assert_eq!(
         sgr(C::True, T::Dark, R::Ember).as_deref(),
         Some("\x1b[38;2;249;115;22m")
@@ -949,7 +972,7 @@ fn errors_get_kind_exit_and_catchphrase_from_the_registry() {
     ));
     let err = cap.err();
     assert!(err.starts_with(
-        "✗ error[E1811 installer]: can't see any ciggies bro: there's no carton 1.4 on stable\n"
+        "✗ error[E1811 carton]: can't see any ciggies bro: there's no carton 1.4 on stable\n"
     ));
     assert!(
         err.contains("  = explain: ciginstaller explain E1811\n")

@@ -5,11 +5,15 @@
 //! prompt). Without a terminal nothing is asked: the safe default is taken, one line says
 //! so, and the answer tells the caller to exit 3 when that default was a refusal.
 //!
-//! The answer is read as a line (type the letter, then enter). A true single keypress needs
-//! raw terminal mode, which needs `unsafe` or a terminal crate; not built (see the report).
-//! Passwords and OS authentication never go through here: they go to the OS.
+//! On a terminal one keypress answers, with no enter (see `detect::read_key`: terminal modes
+//! are set and restored by a trapped `sh` script, so there is no `unsafe` and a Ctrl-C leaves
+//! the terminal as it was). Off a terminal the answer is a line from the input. Raw mode is
+//! never used anywhere but on a terminal. Passwords and OS authentication never go through
+//! here: they go to the OS.
 
+use crate::catalogue as cat;
 use crate::error::EXIT_USAGE;
+use crate::grammar::Icon;
 use crate::tokens::Role;
 use crate::ui::{Mode, Stream, Ui};
 
@@ -152,7 +156,11 @@ impl Ui {
                         "{} ({}{})",
                         c.label,
                         c.key.to_ascii_lowercase(),
-                        if i == q.default { ", default" } else { "" }
+                        if i == q.default {
+                            format!(", {}", self.msg(&cat::CHOICES_DEFAULT, &[]))
+                        } else {
+                            String::new()
+                        }
                     )
                 })
                 .collect();
@@ -187,24 +195,26 @@ impl Ui {
             Some(sum) => format!("{}  {sum}", q.text),
             None => q.text.clone(),
         };
-        let lead = if self.mode == Mode::Plain {
-            "question:"
+        // An irreversible question leads with `!` in `danger`, an ordinary one with `?` in `warn`.
+        let (icon, role) = if q.irreversible {
+            (Icon::Irreversible, Role::Danger)
         } else {
-            "?"
+            (Icon::Ask, Role::Warn)
         };
-        let mut out = format!(
-            "{} {}\n",
-            self.paint(s, Role::Warn, lead),
-            self.glyphs(&head)
-        );
+        let lead = if self.mode == Mode::Plain {
+            icon.plain_prefix()
+        } else {
+            icon.glyph(self.ascii)
+        };
+        let mut out = format!("{} {}\n", self.paint(s, role, lead), self.glyphs(&head));
         for d in &q.detail {
             out.push_str(&format!("  {}\n", self.glyphs(d)));
         }
         let default = q.choices.get(q.default).map_or("no", |c| c.label.as_str());
         let enter = if q.irreversible {
-            format!("(enter = {default}; this cannot be undone)")
+            self.msg(&cat::ENTER_DEFAULT_IRREVERSIBLE, &[default])
         } else {
-            format!("(enter = {default})")
+            self.msg(&cat::ENTER_DEFAULT, &[default])
         };
         let line = self.choices_line(q);
         if self.mode == Mode::Plain {
@@ -230,28 +240,26 @@ impl Ui {
         let said_yes =
             (self.yes || self.yes_irreversible) && (!q.irreversible || self.yes_irreversible);
         if let (true, Some(i)) = (said_yes, affirmative) {
-            self.chatter(&format!("--yes: {} to \"{}\"", q.choices[i].label, q.text));
+            self.chatter(&self.msg(&cat::FLAG_ANSWERED, &[&q.choices[i].label, &q.text]));
             return self.pick(q, i, How::Flag);
         }
         let can_ask = self.mode != Mode::Json && self.tty_in && self.tty_err;
         if !can_ask {
             let def = q.choices.get(q.default).map_or("no", |c| c.label.as_str());
             let why = if self.yes && q.irreversible {
-                "this step is irreversible: pass --yes-irreversible to say yes"
+                self.msg(&cat::WHY_IRREVERSIBLE, &[])
             } else {
-                "pass --yes to say yes"
+                self.msg(&cat::WHY_PASS_YES, &[])
             };
-            self.chatter(&format!(
-                "no terminal to ask on: took \"{def}\" for \"{}\" ({why})",
-                q.text
-            ));
+            self.chatter(&self.msg(&cat::NO_TERMINAL, &[def, &q.text, &why]));
             return self.pick(q, q.default, How::NoTty);
         }
         self.write(Stream::Err, &self.render_prompt(q));
         for _ in 0..3 {
-            let Some(line) = self.read_line() else { break };
-            let typed = line.trim().chars().next().map(|c| c.to_ascii_lowercase());
-            match typed {
+            let Some(answer) = self.read_answer() else {
+                break;
+            };
+            match answer.map(|c| c.to_ascii_lowercase()) {
                 None => return self.pick(q, q.default, How::Enter),
                 Some(k) => {
                     if let Some(i) = q
@@ -266,7 +274,8 @@ impl Ui {
                         .iter()
                         .map(|c| c.key.to_ascii_lowercase().to_string())
                         .collect();
-                    self.write(Stream::Err, &format!("  pick one of: {}\n", keys.join(" ")));
+                    let said = self.msg(&cat::PICK_ONE, &[&keys.join(" ")]);
+                    self.write(Stream::Err, &format!("  {said}\n"));
                 }
             }
         }

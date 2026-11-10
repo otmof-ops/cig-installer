@@ -57,7 +57,7 @@ impl From<String> for Cell {
 pub struct Table {
     pub columns: Vec<Column>,
     pub rows: Vec<Vec<Cell>>,
-    /// `--wide`: never truncate.
+    /// `--wide` for this table: never truncate (the global `--wide` does the same, see `Ui::wide`).
     pub wide: bool,
 }
 
@@ -120,12 +120,13 @@ impl Ui {
         let others: usize = widths[..n - 1].iter().map(|w| w + GAP).sum();
         let room = self.width.saturating_sub(INDENT + others);
         let ellipsis = if self.ascii { "..." } else { "…" };
-        if !t.wide && widths[n - 1] > room && room >= 8 {
+        let wide = t.wide || self.wide;
+        if !wide && widths[n - 1] > room && room >= 8 {
             widths[n - 1] = room;
         }
         let s = Stream::Out;
         let put = |text: &str, i: usize, role: Option<Role>| -> String {
-            let text = if i == n - 1 && !t.wide {
+            let text = if i == n - 1 && !wide {
                 truncate(text, widths[i], ellipsis)
             } else {
                 text.to_string()
@@ -163,6 +164,29 @@ impl Ui {
                     .collect(),
             ));
         }
+        out
+    }
+
+    /// A boxed section, for showing exactly what will travel (`crash show`, `bug`): a title on
+    /// the top rule, every line behind a bar, a closing rule, all as wide as the terminal.
+    /// ASCII terminals get `+`, `-` and `|`. Lines are cleaned like all output.
+    pub fn render_box(&self, title: &str, lines: &[String]) -> String {
+        let (tl, h, v, bl) = if self.ascii {
+            ("+", "-", "|", "+")
+        } else {
+            ("┌", "─", "│", "└")
+        };
+        let title = self.glyphs(title);
+        let rule = |used: usize| h.repeat(self.width.saturating_sub(used).max(2));
+        let mut out = format!(
+            "{tl}{h} {} {}\n",
+            self.paint(Stream::Out, Role::Bold, &title),
+            rule(title.chars().count() + 4)
+        );
+        for l in lines {
+            out.push_str(&format!("{v} {}\n", self.glyphs(l)));
+        }
+        out.push_str(&format!("{bl}{}\n", rule(1)));
         out
     }
 
