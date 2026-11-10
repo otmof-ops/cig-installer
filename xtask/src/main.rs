@@ -15,7 +15,8 @@ usage:
         [--installer <v>] [--tool <name>=<v>]... [--pack <name>=<tool>,<tool>]...
         [--notes <text>] [--channel stable] [--previous <manifest.toml>]
         [--expires-days 30] [--out <file>]
-  cargo xtask pins <manifest.toml>";
+  cargo xtask pins <manifest.toml>
+  cargo xtask errors-doc";
 
 fn fail(msg: &str) -> ! {
     eprintln!("xtask: {msg}");
@@ -53,6 +54,7 @@ fn main() {
     {
         ["manifest", "assemble", rest @ ..] => assemble_cmd(rest),
         ["pins", manifest] => pins_cmd(Path::new(manifest)),
+        ["errors-doc"] => errors_doc_cmd(),
         _ => usage("what to do?"),
     }
 }
@@ -147,4 +149,11 @@ fn pins_cmd(manifest: &Path) {
         "wrote {}; review the diff, then build",
         dest.strip_prefix(root()).unwrap_or(&dest).display()
     );
+}
+
+fn errors_doc_cmd() {
+    let dest = root().join("docs/ERRORS.md");
+    let text = xtask::errors_doc::render(cigi_ui::registry::registry());
+    std::fs::write(&dest, text).unwrap_or_else(|e| fail(&format!("{}: {e}", dest.display())));
+    println!("wrote docs/ERRORS.md from errors/registry.toml");
 }

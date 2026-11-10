@@ -11,7 +11,7 @@ SPDX-FileCopyrightText = "2026 Jay Taylor (https://github.com/otmof-ops/cig-inst
 SPDX-License-Identifier = "FSL-1.1-ALv2"
 
 [[annotations]]
-path = ["docs/**", "design/**", "manifest/*.md", "README.md", "LICENSING.md", "CONTRIBUTING.md", "SECURITY.md", "TRADEMARKS.md", "THIRD-PARTY-NOTICES.md", "NOTICE"]
+path = ["docs/**", "design/**", "manifest/*.md", "README.md", "LICENSING.md", "CONTRIBUTING.md", "SECURITY.md", "SUPPORT.md", "CHANGELOG.md", "TRADEMARKS.md", "THIRD-PARTY-NOTICES.md", "NOTICE"]
 precedence = "aggregate"
 SPDX-FileCopyrightText = "2026 Jay Taylor (https://github.com/otmof-ops/cig-installer)"
 SPDX-License-Identifier = "CC-BY-4.0"

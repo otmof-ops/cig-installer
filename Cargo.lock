@@ -2826,6 +2826,7 @@ version = "0.1.0"
 dependencies = [
  "cig-compat",
  "cigi-source",
+ "cigi-ui",
  "hex",
  "serde_json",
  "sha2",
