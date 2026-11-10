@@ -1628,6 +1628,10 @@ related = ["E1871"]
 why = "a flag or argument is wrong"
 probe = "none"
 remedy = "`ciginstaller <command> --help` shows the flags"
+[[code.cause]]
+why = "an install answer is not one of its question's choices, names a question that does not exist, disagrees with a flag, or the answers file cannot be read"
+probe = "none"
+remedy = "`ciginstaller install --dry-run --json` lists the questions and their choices"
 
 [[code]]
 code = "E1871"

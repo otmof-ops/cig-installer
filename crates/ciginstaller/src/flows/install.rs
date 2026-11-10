@@ -3,7 +3,7 @@
 //! `install` (SPEC 12.1): resolve the target from one carton, fetch and admit what is missing,
 //! then one transaction: toolchains, humidor mirror, shims, PATH block, state, the index flip.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 
 use cig_compat::{
@@ -52,6 +52,118 @@ pub struct InstallArgs {
     pub reports: Option<String>,
     /// Why this install happens (`install carton`, `pin fetch`), recorded in `state.json`.
     pub reason: Option<String>,
+    /// The first-run questions this run settled (asked, handed in, or already set), recorded
+    /// with the install so they are not asked again (#22).
+    pub first_run: Option<FirstRun>,
+}
+
+/// `state.json` key: which first-run questions have been answered, and how.
+pub const FIRST_RUN_KEY: &str = "first_run";
+
+/// The questions that are asked once on a machine, in the order they are asked.
+pub const ONCE: [&str; 2] = ["preset", "reports"];
+
+/// What one run settled of the once-only questions: id to value, and id to how
+/// (`asked`, `answers` or `already-set`).
+#[derive(Debug, Clone, Default)]
+pub struct FirstRun {
+    pub answers: BTreeMap<String, String>,
+    pub how: BTreeMap<String, String>,
+}
+
+impl FirstRun {
+    pub fn is_empty(&self) -> bool {
+        self.answers.is_empty()
+    }
+}
+
+/// The recorded answers of this machine (empty when none) and whether every question has one.
+pub fn first_run_of(state: &State) -> (BTreeMap<String, String>, bool) {
+    let answers: BTreeMap<String, String> = state
+        .extra
+        .get(FIRST_RUN_KEY)
+        .and_then(|v| v.get("answers"))
+        .and_then(|v| v.as_object())
+        .map(|o| {
+            o.iter()
+                .filter_map(|(k, v)| Some((k.clone(), v.as_str()?.to_string())))
+                .collect()
+        })
+        .unwrap_or_default();
+    let done = ONCE.iter().all(|id| answers.contains_key(*id));
+    (answers, done)
+}
+
+/// Has a first-run record been started on this machine?
+pub fn first_run_started(state: &State) -> bool {
+    state.extra.contains_key(FIRST_RUN_KEY)
+}
+
+/// The `first_run` object `status --json` and the install's data carry.
+pub fn first_run_view(state: &State) -> serde_json::Value {
+    let (answers, done) = first_run_of(state);
+    let pending: Vec<&str> = ONCE
+        .iter()
+        .copied()
+        .filter(|id| !answers.contains_key(*id))
+        .collect();
+    json!({ "done": done, "pending": pending, "answers": answers })
+}
+
+/// Fold this run's settled questions into the machine's record (inside the caller's transaction).
+fn record_first_run(state: &mut State, fr: &FirstRun) {
+    if fr.is_empty() {
+        return;
+    }
+    let (mut answers, _) = first_run_of(state);
+    let mut how: BTreeMap<String, String> = state
+        .extra
+        .get(FIRST_RUN_KEY)
+        .and_then(|v| v.get("how"))
+        .and_then(|v| v.as_object())
+        .map(|o| {
+            o.iter()
+                .filter_map(|(k, v)| Some((k.clone(), v.as_str()?.to_string())))
+                .collect()
+        })
+        .unwrap_or_default();
+    for (k, v) in &fr.answers {
+        answers.insert(k.clone(), v.clone());
+    }
+    for (k, v) in &fr.how {
+        how.insert(k.clone(), v.clone());
+    }
+    let done = ONCE.iter().all(|id| answers.contains_key(*id));
+    state.extra.insert(
+        FIRST_RUN_KEY.to_string(),
+        json!({ "answers": answers, "how": how, "done": done, "at": now_rfc3339() }),
+    );
+}
+
+/// The answers of an install on a machine that already has everything: no download, so only the
+/// settings and the record are written, in a transaction of their own.
+fn record_answers(cx: &mut Cx, a: &InstallArgs) -> Result<(), InstallerError> {
+    if a.dry_run || (a.preset.is_none() && a.reports.is_none() && a.first_run.is_none()) {
+        return Ok(());
+    }
+    cx.cfg.reread(&cx.home).map_err(ie)?;
+    let mut state = State::load(&cx.home).map_err(ie)?;
+    if let Some(fr) = &a.first_run {
+        record_first_run(&mut state, fr);
+    }
+    let mut txn = cx.begin("first-run answers")?;
+    let mut write = || -> Result<(), InstallerError> {
+        for (key, value) in [("preset", &a.preset), ("reports", &a.reports)] {
+            if let Some(v) = value {
+                cx.cfg.set_in(&mut txn, key, v).map_err(ie)?;
+            }
+        }
+        state.save_in(&mut txn).map_err(ie)
+    };
+    let r = write();
+    settle(txn, r)?;
+    cx.state = state;
+    Ok(())
 }
 
 impl InstallArgs {
@@ -66,6 +178,7 @@ impl InstallArgs {
             preset: None,
             reports: None,
             reason: None,
+            first_run: None,
         }
     }
 }
@@ -494,8 +607,13 @@ pub fn run_locked(cx: &mut Cx, a: &InstallArgs) -> Result<Report, InstallerError
                     .any(|s| &s.tool == t && s.version == vs)
         });
     if todo.is_empty() && recorded && reachable && cx.state.machine_carton.is_some() {
-        return Ok(Report::done(format!("{what_text} is already installed"))
-            .data(json!({ "carton": cv.to_string(), "installed": [], "changed": false })));
+        record_answers(cx, a)?;
+        return Ok(
+            Report::done(format!("{what_text} is already installed")).data(json!({
+                "carton": cv.to_string(), "installed": [], "changed": false,
+                "first_run": first_run_view(&cx.state),
+            })),
+        );
     }
     if a.dry_run {
         let mut r = Report::done(format!("dry run: would install {what_text}"));
@@ -706,6 +824,7 @@ pub fn run_locked(cx: &mut Cx, a: &InstallArgs) -> Result<Report, InstallerError
         "changed": true,
         "source": cx.source.name(),
         "preset": a.preset,
+        "first_run": first_run_view(&cx.state),
         "terms": terms_note.as_ref().map(|n| n.data.clone()),
         "txn": txn_id,
         "tools": want.iter().map(|(t, v)| json!({
@@ -859,6 +978,9 @@ fn apply(cx: &mut Cx, txn: &mut Txn, p: &Plan<'_>) -> Result<Applied, InstallerE
 
     // 3. the new state
     let mut state = cx.state.clone();
+    if let Some(fr) = &p.args.first_run {
+        record_first_run(&mut state, fr);
+    }
     let cvs = cv.to_string();
     let all_products: BTreeSet<&String> = p
         .carton

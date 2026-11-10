@@ -164,7 +164,7 @@ Variants: `dark` (truecolor, `COLORFGBG=15;0`), `light` (truecolor, `COLORFGBG=0
 
 | screen | golden | what it shows |
 |---|---|---|
-| `ciginstaller install` | `install`, `install-questions` | the three questions (carton or stick, the security preset, crash reports), then the running step and the final `✓` with the one next step |
+| `ciginstaller install` | `install`, `install-questions` | the three questions (carton or stick, the security preset, crash reports), then the running step and the final `✓` with the one next step; `install --dry-run --json` lists the same questions as data for a welcome screen, and the terminal asks from the same table |
 | `ciginstaller` (status) | `status` | the carton, the channel and trust, what is waiting, the next step, in at most 8 lines |
 | `ciginstaller update` | `update`, `table`, `table-wide`, `prompt`, `progress`, `trial-differences` | the check, the table of changes, the trial with differences, the switch, the result, one notice |
 | `ciginstaller which --why` | `which`, `which-why` | the resolver's table, then the answer |

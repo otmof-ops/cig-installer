@@ -310,6 +310,14 @@ pub struct InstallCmd {
     /// applies it once cig-orchestrator#66 lands.
     #[arg(long, global = true, value_name = "PRESET")]
     pub preset: Option<String>,
+    /// The crash-report answer: always, never or ask. Recorded as the `reports` setting.
+    #[arg(long, global = true, value_name = "WHEN")]
+    pub reports: Option<String>,
+    /// Every first-run answer in one JSON file, `{"preset": "strict", "reports": "never"}`, so a
+    /// welcome screen can ask them itself and run the install with no terminal. `install
+    /// --dry-run --json` lists the questions and their choices.
+    #[arg(long, global = true, value_name = "FILE.json")]
+    pub answers: Option<PathBuf>,
 }
 
 #[derive(Subcommand)]

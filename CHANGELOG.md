@@ -172,6 +172,23 @@ Linux, with every build checked first and every change one undoable step.
   CigarScript has a release. CigarScript ships one binary, so there is no
   `cigar-lsp` shim yet.
 
+### What ciginstaller gives CIG.OS (#22, first slice)
+
+- **The questions as data:** `install --dry-run --json` lists every question
+  an install would ask (the text in the voice and in plain, the choices and
+  the setting each writes, the default), and asks, writes and fetches
+  nothing.
+- **Answers handed in:** `--answers FILE.json`, `--preset` and `--reports`,
+  so a welcome screen asks the questions itself and the install runs with no
+  terminal. An answer that is not a choice is E1870 before anything changes.
+- **Asked once:** answered questions are recorded in `state.json` and not
+  asked again; `status --json` carries `first_run`.
+- **Preseeding:** `install --yes carton <c> --from <bundle.tar>` with the
+  answers installs with no network and no question, as an image build does.
+- Waiting on their own issues: the preset's enforcement
+  (cig-orchestrator#66), the guard daemon at level 5 (cig-orchestrator#57),
+  the offsite-backup question (cig-orchestrator#65) and Secure Boot (#23).
+
 ### Licenses (#27)
 
 - **`ciginstaller licences [tool] [--text] [--json]`** lists the installer and

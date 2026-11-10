@@ -1326,6 +1326,7 @@ The command line is wrong: an unknown flag, a missing argument or a bad value.
 **Known causes**, ranked; the doctor checks them in this order:
 
 1. a flag or argument is wrong (no probe; a suggestion, not a finding). **Remedy:** `ciginstaller <command> --help` shows the flags
+2. an install answer is not one of its question's choices, names a question that does not exist, disagrees with a flag, or the answers file cannot be read (no probe; a suggestion, not a finding). **Remedy:** `ciginstaller install --dry-run --json` lists the questions and their choices
 
 Related: [`E1871`](#e1871-a-question-was-needed-and-there-is-no-tty).
 

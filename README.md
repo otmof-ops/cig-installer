@@ -194,6 +194,15 @@ mirror directory and a bundle are each one source, so they are installed
 unless `allow_single_source` is set. Bundles are unsigned until
 [#9](https://github.com/otmof-ops/cig-installer/issues/9).
 
+For an image build or a first-boot welcome screen (CIG.OS,
+[#22](https://github.com/otmof-ops/cig-installer/issues/22)),
+`ciginstaller install --dry-run --json` lists the questions an install asks,
+with their choices, and `--answers answers.json` (or `--preset` and
+`--reports`) hands the answers in, so
+`ciginstaller install --yes carton <c> --from bundle.tar --answers answers.json`
+installs with no network and no question. Once answered, the questions are
+not asked again.
+
 ### The bootstrap script
 
 For a machine with nothing on it, each ciginstaller release will carry
