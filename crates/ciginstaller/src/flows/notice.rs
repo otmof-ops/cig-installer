@@ -1,5 +1,5 @@
 // SPDX-FileCopyrightText: 2026 Jay Taylor (https://github.com/otmof-ops/cig-installer)
-// SPDX-License-Identifier: Apache-2.0
+// SPDX-License-Identifier: FSL-1.1-ALv2
 //! `auto_update = notify` (SPEC 12.2): after an interactive command, at most one line a day says
 //! a newer carton is out. No background process: the check happens on invocation, a manifest
 //! fetch at most once a day, and `installer/notice.json` remembers the day.

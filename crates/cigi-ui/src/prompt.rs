@@ -1,5 +1,5 @@
 // SPDX-FileCopyrightText: 2026 Jay Taylor (https://github.com/otmof-ops/cig-installer)
-// SPDX-License-Identifier: Apache-2.0
+// SPDX-License-Identifier: FSL-1.1-ALv2
 
 //! Prompts (#32): the default is the safe answer (for anything irreversible, no, said in the
 //! prompt). Without a terminal nothing is asked: the safe default is taken, one line says

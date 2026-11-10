@@ -1,5 +1,5 @@
 // SPDX-FileCopyrightText: 2026 Jay Taylor (https://github.com/otmof-ops/cig-installer)
-// SPDX-License-Identifier: Apache-2.0
+// SPDX-License-Identifier: FSL-1.1-ALv2
 
 //! The error registry, read from `errors/registry.toml` (SPEC section 11.3), in the schema
 //! of cig's registry (`errors::{Range, No, Probe, Cause, Code}` in cigscript) so cig-style

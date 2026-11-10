@@ -1,5 +1,5 @@
 // SPDX-FileCopyrightText: 2026 Jay Taylor (https://github.com/otmof-ops/cig-installer)
-// SPDX-License-Identifier: Apache-2.0
+// SPDX-License-Identifier: FSL-1.1-ALv2
 
 //! `cig-compat`: pure versions, pins, the carton manifest and the marry-up
 //! checks. This is the one place that answers "which cigo is in carton X?" and

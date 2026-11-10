@@ -15,18 +15,30 @@ record is the issues, starting with the architecture
 
 ## Licensing
 
-- **Code**: [Apache-2.0](LICENSE), the same license as CigScript. In plain
-  words: use, copy, change, sell and embed it freely, including in closed
-  products; keep the copyright notice and the [NOTICE](NOTICE) file with any
-  copy; you get a patent license from every contributor; and you can't use the
-  name to endorse your derivative.
+ciginstaller is **source-available, not open source.** The code is under the
+[Functional Source License, version 1.1, with an Apache-2.0 future license
+(FSL-1.1-ALv2)](LICENSE). The Open Source Initiative does not count it as an
+open source license, and this project does not call it one.
+
+- **What you may do.** Use it, including inside a company for its own work;
+  read it, study it, change it and share it; and consult with it, meaning
+  help others use it. The source is here for all of that.
+- **What you may not do.** Sell it, or offer it in a product or service that
+  competes with it.
+- **It becomes Apache-2.0.** Each version converts to
+  [Apache-2.0](LICENSES/Apache-2.0.txt) two years after it is made available,
+  and from then on that version carries Apache-2.0 terms.
+- **Earlier commits.** The first 31 commits were published under Apache-2.0
+  before this license took over. [LICENSING.md](LICENSING.md) lists which
+  versions carry which license.
 - **Documentation**: [CC BY 4.0](LICENSES/CC-BY-4.0.txt). Reuse and adapt
   with credit.
 - **The name.** ciginstaller is a trademark of Jay Taylor, as CigScript is;
   [TRADEMARKS.md](TRADEMARKS.md) says what is free to do and what to ask about
   first.
 
-[REUSE.toml](REUSE.toml) maps every path to its license. Contributions are
-accepted under the same terms, signed off under the DCO; see
+This is a summary. The [LICENSE](LICENSE) file governs, and it is the text to
+read before you rely on anything here. [REUSE.toml](REUSE.toml) maps every path
+to its license. Contributions are accepted under the contributor agreement; see
 [CONTRIBUTING.md](CONTRIBUTING.md). Security reports:
 [SECURITY.md](SECURITY.md).

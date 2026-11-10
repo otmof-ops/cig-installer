@@ -1,5 +1,5 @@
 // SPDX-FileCopyrightText: 2026 Jay Taylor (https://github.com/otmof-ops/cig-installer)
-// SPDX-License-Identifier: Apache-2.0
+// SPDX-License-Identifier: FSL-1.1-ALv2
 //! Live checks against github.com, run by hand (CI runs no network tests):
 //! `cargo test -p cigi-source --test live -- --ignored`. They prove the GitHub source reaches a
 //! real release asset through its redirect rules, and that the bytes are the release's.

@@ -1,5 +1,5 @@
 // SPDX-FileCopyrightText: 2026 Jay Taylor (https://github.com/otmof-ops/cig-installer)
-// SPDX-License-Identifier: Apache-2.0
+// SPDX-License-Identifier: FSL-1.1-ALv2
 //! `cargo xtask pins <manifest.toml>`: the compiled-in pins (SPEC 7.1, level `pinned`) from every
 //! build of a manifest the maintainer has reviewed. The file's format lives in
 //! `cigi_source::pins::render`, beside the code that reads it.

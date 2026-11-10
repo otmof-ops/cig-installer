@@ -1,5 +1,5 @@
 // SPDX-FileCopyrightText: 2026 Jay Taylor (https://github.com/otmof-ops/cig-installer)
-// SPDX-License-Identifier: Apache-2.0
+// SPDX-License-Identifier: FSL-1.1-ALv2
 //! The one HTTP client (ureq, rustls). It sends `GET` with `User-Agent: ciginstaller` and nothing
 //! else of its own: no cookies, no query string, no identifiers (#19). Redirects are followed by hand
 //! so the host rules are ours: same host always, plus a fixed allow-list for GitHub's release CDN;

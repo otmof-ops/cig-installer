@@ -1,5 +1,5 @@
 // SPDX-FileCopyrightText: 2026 Jay Taylor (https://github.com/otmof-ops/cig-installer)
-// SPDX-License-Identifier: Apache-2.0
+// SPDX-License-Identifier: FSL-1.1-ALv2
 //! The fixture release source (section 14.1): scratch homes, fake products, a mirror directory,
 //! `publish`, and the means to run the built binaries against all of it.
 

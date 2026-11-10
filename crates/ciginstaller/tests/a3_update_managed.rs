@@ -1,5 +1,5 @@
 // SPDX-FileCopyrightText: 2026 Jay Taylor (https://github.com/otmof-ops/cig-installer)
-// SPDX-License-Identifier: Apache-2.0
+// SPDX-License-Identifier: FSL-1.1-ALv2
 //! `update` run from the managed binary (`bin/ciginstaller`) with a newer installer on offer: only
 //! a real update replaces the installer; a dry run and a trial change nothing (SPEC 10, 12.2), a
 //! failed self-check is a note, and the re-exec mark counts only for the version it names.

@@ -1,5 +1,5 @@
 // SPDX-FileCopyrightText: 2026 Jay Taylor (https://github.com/otmof-ops/cig-installer)
-// SPDX-License-Identifier: Apache-2.0
+// SPDX-License-Identifier: FSL-1.1-ALv2
 //! `a3_gc` (SPEC 14.3): cartons older than `keep_days` are removed; the machine carton, the
 //! previous one and a version a run record names are kept; the store objects of removed
 //! toolchains are freed once, and only when nothing else references them.

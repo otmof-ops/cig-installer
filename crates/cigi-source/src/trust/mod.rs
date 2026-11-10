@@ -1,5 +1,5 @@
 // SPDX-FileCopyrightText: 2026 Jay Taylor (https://github.com/otmof-ops/cig-installer)
-// SPDX-License-Identifier: Apache-2.0
+// SPDX-License-Identifier: FSL-1.1-ALv2
 //! Trust (section 7). Everything that installs takes `Admitted<..>`, and only code in this
 //! directory can make one (`seal`); a repo test greps for that. `DigestTrust` is today's
 //! implementation; a `TufTrust` later implements the same `Trust` trait.

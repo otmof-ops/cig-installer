@@ -1,5 +1,5 @@
 // SPDX-FileCopyrightText: 2026 Jay Taylor (https://github.com/otmof-ops/cig-installer)
-// SPDX-License-Identifier: Apache-2.0
+// SPDX-License-Identifier: FSL-1.1-ALv2
 //! `channel`, `channel <name>`: which manifest this machine follows (SPEC 10: "switch channel;
 //! refetch manifest; no install"). The new channel's manifest is fetched and admitted before the
 //! setting changes, so a channel with no manifest, or one that fails its checks, is never set.

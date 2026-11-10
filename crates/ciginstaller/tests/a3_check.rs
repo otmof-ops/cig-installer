@@ -1,5 +1,5 @@
 // SPDX-FileCopyrightText: 2026 Jay Taylor (https://github.com/otmof-ops/cig-installer)
-// SPDX-License-Identifier: Apache-2.0
+// SPDX-License-Identifier: FSL-1.1-ALv2
 //! `a3_check_matrix` (SPEC 14.3): one test per row of #4's table, calling the engine with the
 //! row's facts, and the CLI's `check` output for three of them (plus the clean machine).
 

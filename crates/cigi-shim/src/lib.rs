@@ -1,5 +1,5 @@
 // SPDX-FileCopyrightText: 2026 Jay Taylor (https://github.com/otmof-ops/cig-installer)
-// SPDX-License-Identifier: Apache-2.0
+// SPDX-License-Identifier: FSL-1.1-ALv2
 
 //! The one reader of project pin files (SPEC sections 6.5 and 8), shared by the shim and by
 //! `ciginstaller`, so the fast path and the resolver cannot disagree about which file counts.

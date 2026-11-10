@@ -1,5 +1,5 @@
 // SPDX-FileCopyrightText: 2026 Jay Taylor (https://github.com/otmof-ops/cig-installer)
-// SPDX-License-Identifier: Apache-2.0
+// SPDX-License-Identifier: FSL-1.1-ALv2
 //! Safe extraction of a `.tar.gz` into a staging directory (E1826 on anything unsafe).
 //!
 //! Refused: absolute paths, `..`, backslashes, symbolic and hard links of any kind (stricter than

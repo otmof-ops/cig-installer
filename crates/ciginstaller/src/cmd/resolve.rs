@@ -1,5 +1,5 @@
 // SPDX-FileCopyrightText: 2026 Jay Taylor (https://github.com/otmof-ops/cig-installer)
-// SPDX-License-Identifier: Apache-2.0
+// SPDX-License-Identifier: FSL-1.1-ALv2
 //! `__resolve`: the shim's slow path (SPEC 9). Resolve, then run the tool with the carton in its
 //! environment and exit with its code. Runs the tool as a child (no `cfg(unix)` outside the
 //! platform layer, D9); the shim's fast path execs.

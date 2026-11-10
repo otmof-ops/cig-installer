@@ -2,8 +2,8 @@
 
 **ciginstaller** (the program, also written cig-installer, its repository's
 name, and `cigi`, its short command) is a trademark of Jay Taylor, as
-**CigScript** is. The code is Apache-2.0, and the Apache license says so
-itself in its section 6: it grants no trademark rights. This page says what
+**CigScript** is. The code is under FSL-1.1-ALv2, and that license says so
+itself in its Trademarks section: it grants no trademark rights. This page says what
 that means in practice, so nobody has to guess.
 
 The short version: use the names to say what your thing works with; do not use
@@ -15,8 +15,8 @@ them to say what your thing *is*.
   it**, when that is accurate.
 - Use the names in articles, talks, tutorials, comparisons, reviews and
   criticism, including unflattering ones.
-- Distribute unmodified official releases under their names, with the NOTICE
-  file intact, as Apache-2.0 requires.
+- Distribute unmodified official releases under their names, with the LICENSE
+  and NOTICE files intact, as the license requires.
 - Name a package or repository in a way that describes its relationship
   truthfully, such as `ciginstaller-ansible` or `awesome-ciginstaller`,
   provided it is clear the project is not the official one.
@@ -25,8 +25,8 @@ them to say what your thing *is*.
 
 - Naming a **fork, another installer, a product, service, company or domain**
   "ciginstaller", "cig-installer" or a confusingly similar name. Forks are
-  welcome under Apache-2.0; they need their own name once they differ from the
-  official one.
+  possible under the license's terms; they need their own name once they
+  differ from the official one.
 - Calling a build, mirror, distribution or service **official**,
   **certified**, or otherwise implying endorsement. An installer decides what
   runs on people's machines, so a name that suggests otherwise matters more

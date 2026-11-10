@@ -1,5 +1,5 @@
 // SPDX-FileCopyrightText: 2026 Jay Taylor (https://github.com/otmof-ops/cig-installer)
-// SPDX-License-Identifier: Apache-2.0
+// SPDX-License-Identifier: FSL-1.1-ALv2
 
 //! The carton manifest (section 6 of the build contract): parse, validate,
 //! render, query, diff. The only I/O-free entry point is [`Manifest::from_str`].
