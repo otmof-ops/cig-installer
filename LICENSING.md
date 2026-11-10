@@ -12,9 +12,10 @@ records the history and says where to ask for anything else.
 
 ## The Apache-2.0 period
 
-For about twelve hours on 2026-11-10 the repository was public under
-Apache-2.0, before it had a release. That grant is permanent for any copy taken
-in that period; GitHub recorded no forks, clones or views.
+From its publication on 2026-11-10 until this licensing change was merged, the
+repository was public under Apache-2.0, before it had a release. That grant is
+permanent for any copy taken in that period; as measured on 2026-11-10, GitHub
+recorded no forks, clones or views.
 
 ## Terms the license does not give
 

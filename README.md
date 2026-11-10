@@ -21,10 +21,11 @@ ciginstaller is **source-available, not open source.** The code is under the
 open source license, and this project does not call it one.
 
 - **What you may do.** Use it, including inside a company for its own work;
-  read it, study it, change it and share it; and consult with it, meaning
-  help others use it. The source is here for all of that.
-- **What you may not do.** Sell it, or offer it in a product or service that
-  competes with it.
+  read it, study it, change it and share it with the license attached; and
+  consult with it, meaning help others use it. The source is here for all of that.
+- **What you may not do.** Make it available to others in a commercial product
+  or service that substitutes for it or does the same job. Selling it, or
+  selling access to it, is the clear case.
 - **It becomes Apache-2.0.** Each version converts to
   [Apache-2.0](LICENSES/Apache-2.0.txt) two years after it is made available,
   and from then on that version carries Apache-2.0 terms.

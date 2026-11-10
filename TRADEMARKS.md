@@ -15,8 +15,8 @@ them to say what your thing *is*.
   it**, when that is accurate.
 - Use the names in articles, talks, tutorials, comparisons, reviews and
   criticism, including unflattering ones.
-- Distribute unmodified official releases under their names, with the LICENSE
-  and NOTICE files intact, as the license requires.
+- Redistribute unmodified official releases under their names, free of charge
+  and only as the license permits, with the LICENSE and NOTICE files intact.
 - Name a package or repository in a way that describes its relationship
   truthfully, such as `ciginstaller-ansible` or `awesome-ciginstaller`,
   provided it is clear the project is not the official one.

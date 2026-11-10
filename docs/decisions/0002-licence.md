@@ -40,7 +40,7 @@ which license.
 | PolyForm Noncommercial 1.0.0 | Bars every commercial use, so a company could not use the installer internally. |
 | PolyForm Small Business 1.0.0 | Bars organizations above its size limit from using it at all. |
 | FSL-1.1-MIT | Same terms with MIT as the future license; Apache-2.0 matches the rest of the family and carries an explicit patent grant. |
-| **FSL-1.1-ALv2** | Chosen. The text is fixed and unmodified, so there is no grant to write. It allows internal use, study, changes and sharing, bars selling it or offering it in a competing product or service, and converts each version to Apache-2.0 after two years. Liquibase made the same move, Apache-2.0 to FSL-1.1-ALv2, for its 5.0 line. |
+| **FSL-1.1-ALv2** | Chosen. The text is fixed and unmodified, so there is no grant to write. It allows internal use, study, changes and sharing, bars selling it or offering it in a competing product or service, and converts each version to Apache-2.0 after two years. Liquibase made the same move, Apache-2.0 to FSL-1.1-ALv2, for its 5.0 line ([its LICENSE](https://github.com/liquibase/liquibase/blob/master/LICENSE.txt)). |
 
 ## Consequences
 
@@ -48,8 +48,8 @@ which license.
   LICENSING.md say source-available, and some organizations and distributions
   will not ship or depend on it.
 - **The Apache era.** Commits `5571157` through `39a9b00` (31 commits,
-  2026-11-10, no release) were public under Apache-2.0 for about twelve hours.
-  That grant is irrevocable for any copy taken; none is recorded (zero forks,
+  2026-11-10, no release) were public under Apache-2.0 from publication until this change was merged.
+  That grant is irrevocable for any copy taken; none was recorded on 2026-11-10 (zero forks,
   clones and views). The range is marked by the annotated tag
   `apache-2.0-last` on `39a9b00` and recorded in LICENSING.md.
 - **Contributions.** A CLA lets the project relicense and convert contributions
