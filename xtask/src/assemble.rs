@@ -45,6 +45,15 @@ pub trait Releases {
     fn release(&self, repo: &str, tag: &str) -> Result<ReleaseInfo, String>;
     /// The bytes of a small asset (a sidecar), refused above `max` bytes.
     fn small_asset(&self, repo: &str, asset: &AssetInfo, max: u64) -> Result<Vec<u8>, String>;
+    /// Every published (not draft) release of `repo`, for picking the newest build.
+    fn tags(&self, repo: &str) -> Result<Vec<TagInfo>, String>;
+}
+
+/// One published release, as the build selection sees it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct TagInfo {
+    pub tag: String,
+    pub prerelease: bool,
 }
 
 /// What to assemble.
@@ -254,6 +263,147 @@ fn fetch_build(
     Ok(t)
 }
 
+/// The two candidate channels. The name is also the channel's and the carton number's label.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Kind {
+    Beta,
+    Nightly,
+}
+
+impl Kind {
+    pub fn parse(s: &str) -> Option<Kind> {
+        match s {
+            "beta" => Some(Kind::Beta),
+            "nightly" => Some(Kind::Nightly),
+            _ => None,
+        }
+    }
+
+    /// `beta` or `nightly`: the channel's name and the label in `X.Y.Z-<label>.N`.
+    pub fn label(self) -> &'static str {
+        match self {
+            Kind::Beta => "beta",
+            Kind::Nightly => "nightly",
+        }
+    }
+}
+
+/// The candidate number of `pre` under `label`: `beta.7` is 7 under `beta`.
+fn candidate_number(pre: &str, label: &str) -> Option<u64> {
+    pre.strip_prefix(label)?.strip_prefix('.')?.parse().ok()
+}
+
+/// The next carton number of a candidate channel: `base-<label>.N`, where N is one more than the
+/// highest candidate of the same `base` in the channel's own previous manifest (1 for the first).
+/// Each channel counts alone: a beta never reads a nightly's number, and yanked cartons still
+/// count, because a carton number is never reused.
+pub fn next_candidate(
+    base: &Version,
+    kind: Kind,
+    previous: Option<&Manifest>,
+) -> Result<Version, String> {
+    if base.is_prerelease() {
+        return Err(format!(
+            "the base `{base}` is the release the candidates lead up to: write it as major.minor.patch"
+        ));
+    }
+    let label = kind.label();
+    let mut last = 0u64;
+    if let Some(p) = previous {
+        if p.channel != label {
+            return Err(format!(
+                "the previous manifest is the {} channel's, not the {label} channel's",
+                p.channel
+            ));
+        }
+        for c in p.cartons.keys() {
+            if (c.major, c.minor, c.patch) != (base.major, base.minor, base.patch) {
+                continue;
+            }
+            if let Some(n) = c.pre.as_deref().and_then(|p| candidate_number(p, label)) {
+                last = last.max(n);
+            }
+        }
+    }
+    let n = last
+        .checked_add(1)
+        .ok_or_else(|| "the candidate number overflows".to_string())?;
+    Ok(Version {
+        pre: Some(format!("{label}.{n}")),
+        ..base.clone()
+    })
+}
+
+/// The version a release tag names under the tool's tag template (`v{version}`), when it names
+/// one and the tag reads back exactly as the template writes it.
+pub fn version_from_tag(template: &str, tag: &str) -> Option<Version> {
+    let (head, tail) = template.split_once("{version}")?;
+    if tail.contains("{version}") || head.contains('{') || tail.contains('{') {
+        return None;
+    }
+    let middle = tag.strip_prefix(head)?.strip_suffix(tail)?;
+    let v = Version::parse(middle).ok()?;
+    (v.to_string() == middle).then_some(v)
+}
+
+/// The newest version among `tags`, by semver precedence. A prerelease (GitHub's flag, or a
+/// prerelease number) counts only when `allow_pre`; a version `skip` names never does.
+pub fn newest_build(
+    template: &str,
+    tags: &[TagInfo],
+    allow_pre: bool,
+    skip: &dyn Fn(&Version) -> bool,
+) -> Option<Version> {
+    tags.iter()
+        .filter_map(|t| version_from_tag(template, &t.tag).map(|v| (v, t.prerelease)))
+        .filter(|(v, flagged)| allow_pre || !(*flagged || v.is_prerelease()))
+        .map(|(v, _)| v)
+        .filter(|v| !skip(v))
+        .max()
+}
+
+/// For every tool of `manifest/tools.toml` that `req.members` does not already name: its newest
+/// published build. A tool with no eligible release is left out, and the report says so. This is
+/// how a nightly carton is chosen (`allow_pre`: prereleases count); a stable carton takes none.
+pub fn latest_members(
+    req: &Request,
+    rel: &dyn Releases,
+    allow_pre: bool,
+) -> Result<(BTreeMap<String, Version>, Vec<String>), String> {
+    let now = req.now.replace_nanosecond(0).unwrap_or(req.now);
+    let generated = timestamp(now)?;
+    let expires = timestamp(now + Duration::days(MAX_EXPIRES_DAYS))?;
+    let defs = definitions(req, &generated, &expires)?;
+    let previous = match &req.previous {
+        Some(t) => Some(Manifest::from_str(t).map_err(|e| format!("the previous manifest: {e}"))?),
+        None => None,
+    };
+    let mut members = req.members.clone();
+    let mut report = Vec::new();
+    for (tool, def) in &defs.tools {
+        if members.contains_key(tool) {
+            continue;
+        }
+        let tags = rel.tags(&def.repo)?;
+        let skip = |v: &Version| {
+            previous
+                .as_ref()
+                .is_some_and(|p| p.is_product_yanked(tool, v))
+        };
+        match newest_build(&def.tag, &tags, allow_pre, &skip) {
+            Some(v) => {
+                report.push(format!("{tool} {v}: the newest build on {}", def.repo));
+                members.insert(tool.clone(), v);
+            }
+            None => report.push(format!(
+                "{tool}: no eligible release on {}, so it is not in this carton",
+                def.repo
+            )),
+        }
+    }
+    Ok((members, report))
+}
+
 /// Assemble the next manifest (module docs).
 pub fn assemble(req: &Request, rel: &dyn Releases) -> Result<Assembled, String> {
     if !(1..=MAX_EXPIRES_DAYS).contains(&req.expires_days) {
@@ -263,6 +413,12 @@ pub fn assemble(req: &Request, rel: &dyn Releases) -> Result<Assembled, String> 
     }
     if req.members.is_empty() {
         return Err("a carton holds at least one product".into());
+    }
+    if req.channel == "stable" && req.carton.is_prerelease() {
+        return Err(format!(
+            "carton {} is a candidate number, and the stable channel takes none",
+            req.carton
+        ));
     }
     let now = req.now.replace_nanosecond(0).unwrap_or(req.now);
     let generated = timestamp(now)?;

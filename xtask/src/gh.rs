@@ -6,7 +6,7 @@
 use std::collections::BTreeMap;
 use std::process::Command;
 
-use crate::assemble::{AssetInfo, ReleaseInfo, Releases};
+use crate::assemble::{AssetInfo, ReleaseInfo, Releases, TagInfo};
 
 pub struct Gh;
 
@@ -99,6 +99,34 @@ impl Releases for Gh {
             prerelease: v.get("prerelease").and_then(|p| p.as_bool()) == Some(true),
             assets,
         })
+    }
+
+    fn tags(&self, repo: &str) -> Result<Vec<TagInfo>, String> {
+        if !plain_repo(repo) {
+            return Err(format!("`{repo}` is not a plain repository"));
+        }
+        let out = gh(&[
+            "api",
+            "--paginate",
+            &format!("repos/{repo}/releases?per_page=100"),
+            "--jq",
+            ".[] | select(.draft | not) | [.tag_name, .prerelease] | @tsv",
+        ])?;
+        let text = String::from_utf8(out).map_err(|_| format!("{repo}: releases are not text"))?;
+        let mut tags = Vec::new();
+        for line in text.lines().filter(|l| !l.trim().is_empty()) {
+            let (tag, pre) = line
+                .split_once('\t')
+                .ok_or_else(|| format!("{repo}: an unreadable release line `{line}`"))?;
+            if !plain_tag(tag) {
+                continue;
+            }
+            tags.push(TagInfo {
+                tag: tag.to_string(),
+                prerelease: pre == "true",
+            });
+        }
+        Ok(tags)
     }
 
     fn small_asset(&self, repo: &str, asset: &AssetInfo, max: u64) -> Result<Vec<u8>, String> {

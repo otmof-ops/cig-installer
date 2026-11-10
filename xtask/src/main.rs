@@ -6,8 +6,8 @@ use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::process::exit;
 
-use cig_compat::Version;
-use xtask::assemble::{assemble, sidecar_line, Request};
+use cig_compat::{Manifest, Version};
+use xtask::assemble::{assemble, latest_members, next_candidate, sidecar_line, Kind, Request};
 
 const USAGE: &str = "\
 usage:
@@ -15,6 +15,10 @@ usage:
         [--installer <v>] [--tool <name>=<v>]... [--pack <name>=<tool>,<tool>]...
         [--notes <text>] [--channel stable] [--previous <manifest.toml>]
         [--expires-days 30] [--out <file>]
+        [--latest]                  (every tool not named: its newest build)
+  cargo xtask manifest assemble --candidate beta|nightly --base <X.Y.Z> [the flags above]
+        (the carton is numbered X.Y.Z-beta.N or X.Y.Z-nightly.N, N one past the previous
+        manifest's; the channel is the candidate's; a nightly implies --latest)
   cargo xtask pins <manifest.toml>
   cargo xtask errors-doc
   cargo xtask fixture-mirror <dir>
@@ -84,7 +88,8 @@ fn assemble_cmd(rest: &[&str]) {
     let mut carton = None;
     let mut members = BTreeMap::new();
     let mut packs = BTreeMap::new();
-    let (mut notes, mut channel) = (String::new(), "stable".to_string());
+    let (mut notes, mut channel) = (String::new(), None::<String>);
+    let (mut candidate, mut base, mut latest) = (None, None, false);
     let (mut previous, mut out, mut expires_days) = (None, None, 30i64);
     let mut it = rest.iter();
     while let Some(flag) = it.next() {
@@ -120,7 +125,15 @@ fn assemble_cmd(rest: &[&str]) {
                 );
             }
             "--notes" => notes = value(),
-            "--channel" => channel = value(),
+            "--channel" => channel = Some(value()),
+            "--candidate" => {
+                let v = value();
+                candidate = Some(
+                    Kind::parse(&v).unwrap_or_else(|| usage("--candidate is beta or nightly")),
+                );
+            }
+            "--base" => base = Some(version(&value(), "--base")),
+            "--latest" => latest = true,
             "--previous" => previous = Some(PathBuf::from(value())),
             "--out" => out = Some(PathBuf::from(value())),
             "--expires-days" => {
@@ -131,20 +144,51 @@ fn assemble_cmd(rest: &[&str]) {
             other => usage(&format!("unknown flag {other}")),
         }
     }
-    let carton = carton.unwrap_or_else(|| usage("--carton is required"));
+    let previous_text = previous.as_deref().map(read);
+    let channel = match (candidate, channel) {
+        (Some(k), Some(c)) if c != k.label() => usage(&format!(
+            "--channel {c} does not match --candidate {}",
+            k.label()
+        )),
+        (Some(k), _) => k.label().to_string(),
+        (None, c) => c.unwrap_or_else(|| "stable".to_string()),
+    };
+    let carton = match (candidate, base, carton) {
+        (Some(_), _, Some(_)) => usage("--candidate numbers the carton: drop --carton"),
+        (Some(k), Some(b), None) => {
+            let prev = previous_text.as_deref().map(|t| {
+                Manifest::from_str(t)
+                    .unwrap_or_else(|e| fail(&format!("the previous manifest: {e}")))
+            });
+            let n = next_candidate(&b, k, prev.as_ref()).unwrap_or_else(|e| fail(&e));
+            println!("- carton {n}: the next {} candidate of {b}", k.label());
+            n
+        }
+        (Some(_), None, None) => usage("--candidate needs --base <X.Y.Z>"),
+        (None, Some(_), _) => usage("--base goes with --candidate"),
+        (None, None, c) => c.unwrap_or_else(|| usage("--carton is required")),
+    };
     let inputs = root().join("manifest");
-    let req = Request {
+    let mut req = Request {
         channel: channel.clone(),
         carton,
         members,
         packs,
         notes,
         expires_days,
-        previous: previous.as_deref().map(read),
+        previous: previous_text,
         tools_toml: read(&inputs.join("tools.toml")),
         products_toml: read(&inputs.join("products.toml")),
         now: time::OffsetDateTime::now_utc(),
     };
+    if latest || candidate == Some(Kind::Nightly) {
+        let (members, lines) =
+            latest_members(&req, &xtask::gh::Gh, channel != "stable").unwrap_or_else(|e| fail(&e));
+        for line in lines {
+            println!("- {line}");
+        }
+        req.members = members;
+    }
     let done = assemble(&req, &xtask::gh::Gh).unwrap_or_else(|e| fail(&e));
     let out = out.unwrap_or_else(|| PathBuf::from(format!("manifest-{channel}.toml")));
     let name = out

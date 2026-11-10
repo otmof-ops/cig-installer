@@ -103,6 +103,17 @@ impl Releases for Fake {
         }
         Ok(b)
     }
+    fn tags(&self, repo: &str) -> Result<Vec<TagInfo>, String> {
+        Ok(self
+            .releases
+            .iter()
+            .filter(|((r, _), _)| r == repo)
+            .map(|((_, tag), info)| TagInfo {
+                tag: tag.clone(),
+                prerelease: info.prerelease,
+            })
+            .collect())
+    }
 }
 
 /// cig 1.20.0 (linux only), cig 1.21.0, cig 1.5.0 and cigo 1.17.0, published.
@@ -452,4 +463,240 @@ fn pins_come_from_every_build() {
     assert!(pins.contains(&format!("(\"cig-1.20.0-linux-x86_64\", \"{cig}\")")));
     assert!(pins.contains("\"cigo-1.17.0-any\""));
     assert!(pins.starts_with("// SPDX-FileCopyrightText"));
+}
+
+/// A previous manifest of `channel` holding cartons with these numbers (no builds: only the
+/// numbers matter to the numbering).
+fn manifest_with_cartons(channel: &str, cartons: &[&str]) -> Manifest {
+    let (f, _) = fake();
+    let mut r = req(cartons[0], &[("cig", "1.20.0")]);
+    r.channel = channel.into();
+    let mut text = assemble(&r, &f).unwrap().text;
+    for c in &cartons[1..] {
+        let mut r = req(c, &[("cig", "1.20.0")]);
+        r.channel = channel.into();
+        r.previous = Some(text);
+        text = assemble(&r, &f).unwrap().text;
+    }
+    Manifest::from_str(&text).unwrap()
+}
+
+#[test]
+fn a_beta_is_numbered_one_past_the_last_beta_of_the_same_base() {
+    let base = v("1.2.0");
+    assert_eq!(
+        next_candidate(&base, Kind::Beta, None).unwrap().to_string(),
+        "1.2.0-beta.1"
+    );
+    // 10 is past 9 by value, not by text; other bases, nightlies and releases do not count
+    let prev = manifest_with_cartons(
+        "beta",
+        &[
+            "1.1.0-beta.40",
+            "1.2.0-beta.1",
+            "1.2.0-beta.9",
+            "1.2.0-beta.10",
+            "1.2.0-nightly.77",
+            "1.2.0-rc.3",
+            "1.2.0",
+        ],
+    );
+    assert_eq!(
+        next_candidate(&base, Kind::Beta, Some(&prev))
+            .unwrap()
+            .to_string(),
+        "1.2.0-beta.11"
+    );
+    assert_eq!(
+        next_candidate(&v("1.3.0"), Kind::Beta, Some(&prev))
+            .unwrap()
+            .to_string(),
+        "1.3.0-beta.1"
+    );
+    assert_eq!(
+        next_candidate(&v("1.1.0"), Kind::Beta, Some(&prev))
+            .unwrap()
+            .to_string(),
+        "1.1.0-beta.41"
+    );
+}
+
+#[test]
+fn each_channel_keeps_its_own_floor() {
+    let beta = manifest_with_cartons("beta", &["1.2.0-beta.5"]);
+    let nightly = manifest_with_cartons("nightly", &["1.2.0-nightly.3", "1.2.0-beta.9"]);
+    let base = v("1.2.0");
+    assert_eq!(
+        next_candidate(&base, Kind::Nightly, Some(&nightly))
+            .unwrap()
+            .to_string(),
+        "1.2.0-nightly.4"
+    );
+    assert_eq!(
+        next_candidate(&base, Kind::Beta, Some(&beta))
+            .unwrap()
+            .to_string(),
+        "1.2.0-beta.6"
+    );
+    // a manifest of the other channel is refused, never counted
+    let e = next_candidate(&base, Kind::Beta, Some(&nightly)).unwrap_err();
+    assert!(e.contains("nightly channel's, not the beta"), "{e}");
+    let e = next_candidate(&base, Kind::Nightly, Some(&beta)).unwrap_err();
+    assert!(e.contains("beta channel's, not the nightly"), "{e}");
+    // a base is a release number
+    assert!(next_candidate(&v("1.2.0-beta.1"), Kind::Beta, None).is_err());
+}
+
+#[test]
+fn a_tag_names_a_version_only_when_it_reads_back_exactly() {
+    assert_eq!(version_from_tag("v{version}", "v1.20.0"), Some(v("1.20.0")));
+    assert_eq!(
+        version_from_tag("v{version}", "v1.22.0-beta.1"),
+        Some(v("1.22.0-beta.1"))
+    );
+    assert_eq!(version_from_tag("{version}", "1.2.3"), Some(v("1.2.3")));
+    assert_eq!(
+        version_from_tag("cig-{version}-final", "cig-1.2.3-final"),
+        Some(v("1.2.3"))
+    );
+    for (template, tag) in [
+        ("v{version}", "1.20.0"),
+        ("v{version}", "vv1.20.0"),
+        ("v{version}", "v1.20"),
+        ("v{version}", "nightly"),
+        ("v{version}", "v1.20.0+build"),
+        ("{version}", "v1.2.3"),
+        ("v{version}{x}", "v1.2.3"),
+        ("v", "v"),
+    ] {
+        assert_eq!(version_from_tag(template, tag), None, "{template} {tag}");
+    }
+}
+
+fn tag(t: &str, prerelease: bool) -> TagInfo {
+    TagInfo {
+        tag: t.into(),
+        prerelease,
+    }
+}
+
+#[test]
+fn the_newest_build_is_chosen_by_precedence_under_the_channels_policy() {
+    let tags = [
+        tag("v1.5.0", false),
+        tag("v1.20.0", false),
+        tag("v1.21.0", false),
+        tag("v1.22.0-beta.2", true),
+        tag("v1.22.0-beta.10", true),
+        tag("v1.22.0-beta.9", true),
+        tag("v2.0.0", true), // flagged on GitHub, so a prerelease whatever its number
+        tag("nightly", true),
+        tag("junk", false),
+    ];
+    let none = |_: &Version| false;
+    assert_eq!(
+        newest_build("v{version}", &tags, true, &none),
+        Some(v("2.0.0"))
+    );
+    assert_eq!(
+        newest_build("v{version}", &tags, false, &none),
+        Some(v("1.21.0"))
+    );
+    // the yanked are never chosen, and neither is anything when nothing is eligible
+    let yanked = |x: &Version| *x == v("2.0.0") || *x == v("1.22.0-beta.10");
+    assert_eq!(
+        newest_build("v{version}", &tags, true, &yanked),
+        Some(v("1.22.0-beta.9"))
+    );
+    assert_eq!(newest_build("v{version}", &tags[..0], true, &none), None);
+    assert_eq!(
+        newest_build("v{version}", &[tag("v1.0.0-rc.1", false)], false, &none),
+        None
+    );
+}
+
+/// The products file with a prerelease of cig written in.
+fn nightly_products() -> String {
+    format!("{PRODUCTS}\n[product.cig.\"1.22.0-beta.1\"]\nrequires = {{}}\n")
+}
+
+#[test]
+fn a_nightly_takes_every_tools_newest_build_and_gets_a_nightly_number() {
+    let (mut f, _) = fake();
+    f.publish("otmof-ops/cig-script", "v1.22.0-beta.1", true);
+    f.asset(
+        "otmof-ops/cig-script",
+        "v1.22.0-beta.1",
+        "cig-v1.22.0-beta.1-linux-x86_64",
+        b"cig beta",
+    );
+    let mut r = req("1.2.0", &[]);
+    r.channel = "nightly".into();
+    r.products_toml = nightly_products();
+    let (members, report) = latest_members(&r, &f, true).unwrap();
+    assert_eq!(members["cig"], v("1.22.0-beta.1"));
+    assert_eq!(members["cigo"], v("1.17.0"));
+    assert!(report.iter().any(|l| l.contains("cig 1.22.0-beta.1")));
+    // a tool the caller named is not replaced
+    r.members.insert("cig".into(), v("1.20.0"));
+    let (named, _) = latest_members(&r, &f, true).unwrap();
+    assert_eq!(named["cig"], v("1.20.0"));
+    // the stable policy takes no prerelease
+    r.members.clear();
+    let (stable, _) = latest_members(&r, &f, false).unwrap();
+    assert_eq!(stable["cig"], v("1.21.0"));
+
+    // semver ranges skip prereleases, so cigo's `cig >=1.16.1, <2` refuses a cig prerelease: a
+    // nightly of prereleases fails loudly until products.toml writes a range that names them
+    r.members = members;
+    r.carton = next_candidate(&v("1.2.0"), Kind::Nightly, None).unwrap();
+    let e = assemble(&r, &f).unwrap_err();
+    assert!(e.contains("cigo 1.17.0 needs cig"), "{e}");
+
+    // numbered, assembled, and read back by the client's parser (cig alone)
+    f.releases
+        .retain(|(repo, _), _| repo != "otmof-ops/cig-orchestrator");
+    r.members.clear();
+    let (members, _) = latest_members(&r, &f, true).unwrap();
+    r.members = members;
+    assert_eq!(r.members.len(), 1);
+    r.carton = next_candidate(&v("1.2.0"), Kind::Nightly, None).unwrap();
+    let first = assemble(&r, &f).unwrap();
+    assert_eq!(r.carton.to_string(), "1.2.0-nightly.1");
+    assert_eq!(first.manifest.channel, "nightly");
+    assert_eq!(Manifest::from_str(&first.text).unwrap(), first.manifest);
+    r.previous = Some(first.text.clone());
+    r.members.clear();
+    let prev = Manifest::from_str(&first.text).unwrap();
+    r.carton = next_candidate(&v("1.2.0"), Kind::Nightly, Some(&prev)).unwrap();
+    let (again, _) = latest_members(&r, &f, true).unwrap();
+    r.members = again;
+    let second = assemble(&r, &f).unwrap();
+    assert_eq!(r.carton.to_string(), "1.2.0-nightly.2");
+    // the channel's own sequence floor rises with every manifest
+    assert_eq!((first.manifest.sequence, second.manifest.sequence), (1, 2));
+}
+
+#[test]
+fn a_tool_with_nothing_eligible_is_left_out_and_said_so() {
+    let (mut f, _) = fake();
+    f.releases
+        .retain(|(repo, _), _| repo != "otmof-ops/cig-orchestrator");
+    let mut r = req("1.2.0", &[]);
+    r.channel = "nightly".into();
+    let (members, report) = latest_members(&r, &f, true).unwrap();
+    assert!(!members.contains_key("cigo"));
+    assert!(report
+        .iter()
+        .any(|l| l.contains("cigo: no eligible release")));
+}
+
+#[test]
+fn the_stable_channel_takes_no_candidate_number() {
+    let (f, _) = fake();
+    let e = assemble(&req("1.2.0-beta.1", &[("cig", "1.20.0")]), &f).unwrap_err();
+    assert!(e.contains("candidate number"), "{e}");
+    let mut b = req("1.2.0-beta.1", &[("cig", "1.20.0")]);
+    b.channel = "beta".into();
+    assert!(assemble(&b, &f).is_ok());
 }
