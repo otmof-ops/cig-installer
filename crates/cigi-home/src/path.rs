@@ -128,6 +128,39 @@ fn in_users_tree(profile: &Path, home: &Home) -> bool {
     profile.starts_with(home.user_home()) || profile.starts_with(documents_dir(home))
 }
 
+/// Whether PowerShell's `$HOME` is the home this install used. On Windows `$HOME` is the
+/// profile directory (`USERPROFILE`), whatever `HOME` says here, so a different home (a test's, a
+/// `HOME` that is set elsewhere) must be written out in full, as for any other non-default home.
+/// Elsewhere `$HOME` is `HOME`, the variable the home came from.
+fn powershell_home_is_this_home(home: &Home) -> bool {
+    if !cfg!(windows) {
+        return true;
+    }
+    std::env::var_os("USERPROFILE")
+        .is_some_and(|p| same_entry(&p.to_string_lossy(), &home.user_home().to_string_lossy()))
+}
+
+/// The line a PowerShell profile runs. `var_ok`: the bin is `$HOME/.cigscript/bin` and `$HOME` is
+/// the home this install used; otherwise the directory is named in full.
+fn powershell_body(windows: bool, var_ok: bool, bin: &str) -> String {
+    let quoted = format!("'{}'", bin.replace('\'', "''"));
+    if windows {
+        // a nested shell inherits the registry entry already: do not stack a second copy
+        let q = if var_ok {
+            "\"$HOME\\.cigscript\\bin\"".to_string()
+        } else {
+            quoted
+        };
+        format!(
+            "if (($env:PATH -split ';') -notcontains {q}) {{ $env:PATH = {q} + ';' + $env:PATH }}"
+        )
+    } else if var_ok {
+        "$env:PATH = \"$HOME/.cigscript/bin:$env:PATH\"".to_string()
+    } else {
+        format!("$env:PATH = '{}:' + $env:PATH", bin.replace('\'', "''"))
+    }
+}
+
 /// `(profile file, block text)` for a shell. The block ends with a newline.
 pub fn path_block(shell: Shell, home: &Home) -> (PathBuf, String) {
     let user = home.user_home();
@@ -164,21 +197,8 @@ pub fn path_block(shell: Shell, home: &Home) -> (PathBuf, String) {
             )
         }
         Shell::PowerShell | Shell::WindowsPowerShell => {
-            let body = if cfg!(windows) {
-                // a nested shell inherits the registry entry already: do not stack a second copy
-                let q = if uses_home_var {
-                    "\"$HOME\\.cigscript\\bin\"".to_string()
-                } else {
-                    format!("'{}'", bin_s.replace('\'', "''"))
-                };
-                format!(
-                    "if (($env:PATH -split ';') -notcontains {q}) {{ $env:PATH = {q} + ';' + $env:PATH }}"
-                )
-            } else if uses_home_var {
-                "$env:PATH = \"$HOME/.cigscript/bin:$env:PATH\"".to_string()
-            } else {
-                format!("$env:PATH = '{}:' + $env:PATH", bin_s.replace('\'', "''"))
-            };
+            let var_ok = uses_home_var && powershell_home_is_this_home(home);
+            let body = powershell_body(cfg!(windows), var_ok, &bin_s);
             let file = if cfg!(windows) || shell == Shell::WindowsPowerShell {
                 let dir_name = if shell == Shell::WindowsPowerShell {
                     "WindowsPowerShell"
@@ -528,6 +548,18 @@ pub fn registry_path_remove(entry: &Path) -> Result<RegistryChange, PathError> {
 #[cfg(test)]
 mod registry_value_tests {
     use super::*;
+
+    #[test]
+    fn the_windows_powershell_block_names_a_non_default_home_in_full() {
+        let bin = r"D:\cig\home\.cigscript\bin";
+        let full = powershell_body(true, false, bin);
+        assert!(full.contains(&format!("'{bin}'")), "{full}");
+        assert!(!full.contains("$HOME"), "{full}");
+        let var = powershell_body(true, true, r"C:\Users\me\.cigscript\bin");
+        assert!(var.contains(r#""$HOME\.cigscript\bin""#), "{var}");
+        // a quote in the path is doubled, not left to end the string early
+        assert!(powershell_body(true, false, r"C:\it's\bin").contains(r"'C:\it''s\bin'"));
+    }
 
     #[test]
     fn entries_compare_without_case_or_trailing_separator() {
