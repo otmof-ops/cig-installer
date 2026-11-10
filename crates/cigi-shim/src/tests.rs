@@ -115,3 +115,152 @@ fn pin_grammar_is_cig_compats_digits_and_dots() {
         assert_eq!(pick(INDEX, "cig", None, &carton(bad)), Pick::Slow, "{bad}");
     }
 }
+
+mod installer_mode {
+    use crate::installer::*;
+    use cigi_shim::{PENDING_CHECK, PREVIOUS_INSTALLER, RESTORED};
+    use std::cell::Cell;
+    use std::path::{Path, PathBuf};
+    use std::time::Duration;
+
+    fn home(tag: &str) -> PathBuf {
+        let h = std::env::temp_dir().join(format!("cigi-shim-im-{tag}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&h);
+        std::fs::create_dir_all(h.join("bin")).unwrap();
+        std::fs::create_dir_all(h.join("installer").join("previous")).unwrap();
+        h
+    }
+
+    fn put(h: &Path, parts: &[&str], text: &str) {
+        std::fs::write(parts.iter().fold(h.to_path_buf(), |p, s| p.join(s)), text).unwrap();
+    }
+
+    fn read(h: &Path, parts: &[&str]) -> Option<String> {
+        std::fs::read_to_string(parts.iter().fold(h.to_path_buf(), |p, s| p.join(s))).ok()
+    }
+
+    #[test]
+    fn name_comes_from_the_stem_and_folds_only_where_asked() {
+        assert_eq!(tool_name(Path::new("/h/bin/CIG.EXE"), true), "cig");
+        assert_eq!(
+            tool_name(Path::new("/h/bin/cigcompile.exe"), true),
+            "cigcompile"
+        );
+        assert_eq!(tool_name(Path::new("/h/bin/cigo"), true), "cigo");
+        assert_eq!(tool_name(Path::new("/h/bin/CIG"), false), "CIG");
+    }
+
+    #[test]
+    fn status_classes() {
+        assert!(never_started(Some(0xC000_0135_u32 as i32)));
+        assert!(!never_started(Some(0xC000_0005_u32 as i32)));
+        assert!(crashed(Some(0xC000_0005_u32 as i32)));
+        assert!(!crashed(Some(1)) && !crashed(Some(0)) && !crashed(None));
+    }
+
+    #[test]
+    fn a_healthy_run_passes_its_code_through_and_touches_nothing() {
+        let h = home("ok");
+        put(&h, &["installer", "pending-check"], "0.1.1\n");
+        put(&h, &["installer", "previous", "ciginstaller.exe"], "old");
+        let n = Cell::new(0);
+        let code = run_with(
+            &h,
+            &mut || {
+                n.set(n.get() + 1);
+                Ok(Some(7))
+            },
+            Duration::ZERO,
+        )
+        .unwrap();
+        assert_eq!((code, n.get()), (7, 1));
+        assert!(read(&h, &PENDING_CHECK).is_some());
+    }
+
+    #[test]
+    fn a_build_that_cannot_start_is_replaced_by_the_previous_one() {
+        let h = home("restore");
+        put(&h, &["bin", "ciginstaller.exe"], "new");
+        put(&h, &["installer", "pending-check"], "0.1.1\n");
+        put(&h, &["installer", "previous", "ciginstaller.exe"], "old");
+        let hh = h.clone();
+        let code = run_with(
+            &h,
+            &mut || match read(&hh, &["bin", "ciginstaller.exe"]).as_deref() {
+                Some("old") => Ok(Some(0)),
+                _ => Ok(Some(0xC000_0135_u32 as i32)),
+            },
+            Duration::ZERO,
+        )
+        .unwrap();
+        assert_eq!(code, 0);
+        assert_eq!(
+            read(&h, &["bin", "ciginstaller.exe"]).as_deref(),
+            Some("old")
+        );
+        assert_eq!(read(&h, &RESTORED).as_deref(), Some("0.1.1\n"));
+        assert!(read(&h, &PENDING_CHECK).is_none());
+        assert_eq!(
+            read(&h, &["installer", "previous", "ciginstaller.failed.exe"]).as_deref(),
+            Some("new")
+        );
+    }
+
+    #[test]
+    fn a_missing_build_is_restored_too() {
+        let h = home("missing");
+        put(&h, &["installer", "pending-check"], "0.1.1\n");
+        put(&h, &["installer", "previous", "ciginstaller.exe"], "old");
+        let hh = h.clone();
+        let code = run_with(
+            &h,
+            &mut || {
+                if read(&hh, &["bin", "ciginstaller.exe"]).is_some() {
+                    Ok(Some(0))
+                } else {
+                    Err(std::io::ErrorKind::NotFound.into())
+                }
+            },
+            Duration::ZERO,
+        )
+        .unwrap();
+        assert_eq!(code, 0);
+        assert!(read(&h, &PREVIOUS_INSTALLER).is_none());
+    }
+
+    #[test]
+    fn without_the_marker_nothing_is_restored() {
+        let h = home("nomarker");
+        put(&h, &["installer", "previous", "ciginstaller.exe"], "old");
+        let r = run_with(
+            &h,
+            &mut || Err(std::io::ErrorKind::PermissionDenied.into()),
+            Duration::ZERO,
+        );
+        assert!(r.is_err());
+        assert!(read(&h, &PREVIOUS_INSTALLER).is_some());
+    }
+
+    #[test]
+    fn a_crash_part_way_restores_but_does_not_run_again() {
+        let h = home("crash");
+        put(&h, &["bin", "ciginstaller.exe"], "new");
+        put(&h, &["installer", "pending-check"], "0.1.1\n");
+        put(&h, &["installer", "previous", "ciginstaller.exe"], "old");
+        let n = Cell::new(0);
+        let code = run_with(
+            &h,
+            &mut || {
+                n.set(n.get() + 1);
+                Ok(Some(0xC000_0005_u32 as i32))
+            },
+            Duration::ZERO,
+        )
+        .unwrap();
+        assert_eq!((code as u32, n.get()), (0xC000_0005, 1));
+        assert_eq!(
+            read(&h, &["bin", "ciginstaller.exe"]).as_deref(),
+            Some("old")
+        );
+    }
+}

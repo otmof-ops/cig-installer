@@ -92,9 +92,17 @@ pub fn snapshot(root: &Path) -> Vec<String> {
         ents.sort_by_key(|e| e.file_name());
         for e in ents {
             let p = e.path();
-            let rel = p.strip_prefix(base).unwrap().display().to_string();
+            let rel = p
+                .strip_prefix(base)
+                .unwrap()
+                .display()
+                .to_string()
+                .replace('\\', "/");
             // transaction directories legitimately remain after a rollback
-            if rel.starts_with("installer/txn/") || rel == "installer/lock" {
+            if rel.starts_with("installer/txn/")
+                || rel.starts_with("installer/lock")
+                || rel == "installer.lock"
+            {
                 continue;
             }
             let md = fs::symlink_metadata(&p).unwrap();

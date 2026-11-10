@@ -171,7 +171,13 @@ fn a4_repair_with_the_server_down_is_e1860_and_changes_nothing() {
         b"# changed in place\n",
     );
     // the lock file holds a pid, which changes with every command: not part of "the home"
-    let snap = |fx: &Fixture| Snapshot::take(&fx.user_home).without(&[".cigscript/installer/lock"]);
+    let snap = |fx: &Fixture| {
+        Snapshot::take(&fx.user_home).without(&[
+            ".cigscript/installer/lock",
+            ".cigscript/installer.lock",
+            ".cigscript/installer/lock.pid",
+        ])
+    };
     // the server goes away: the releases folder is gone, only the cached manifest is left
     std::fs::remove_dir_all(&fx.releases).unwrap();
     let before = snap(&fx);

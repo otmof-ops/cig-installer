@@ -156,7 +156,8 @@ impl<'a> Store<'a> {
                 dst.write_all(&buf[..r]).map_err(io(&tmp))?;
                 n += r as u64;
             }
-            if durable {
+            // Windows flushes now: a read-only object cannot be opened for a flush later
+            if durable || !platform::BATCHED_FSYNC {
                 dst.sync_all().map_err(io(&tmp))?;
             }
             drop(dst);
@@ -171,7 +172,7 @@ impl<'a> Store<'a> {
                 bytes,
             }),
             Err(e) => {
-                let _ = fs::remove_file(&tmp);
+                let _ = platform::remove_file(&tmp);
                 Err(e)
             }
         }
@@ -184,7 +185,7 @@ impl<'a> Store<'a> {
         let id = staged.id.clone();
         let dest = self.object_path(&id);
         if self.verify(&id).is_ok() {
-            let _ = fs::remove_file(&staged.tmp);
+            let _ = platform::remove_file(&staged.tmp);
             return Ok(id);
         }
         let io = |p: &Path| {
@@ -197,8 +198,8 @@ impl<'a> Store<'a> {
         if let Some(parent) = dest.parent() {
             fs::create_dir_all(parent).map_err(io(parent))?;
         }
-        if let Err(e) = fs::rename(&staged.tmp, &dest) {
-            let _ = fs::remove_file(&staged.tmp);
+        if let Err(e) = platform::rename(&staged.tmp, &dest) {
+            let _ = platform::remove_file(&staged.tmp);
             return Err(io(&dest)(e));
         }
         if let Some(parent) = dest.parent() {
@@ -229,7 +230,7 @@ impl<'a> Store<'a> {
                     object: id.file_name(),
                 })
             }
-            Ok(m) if m.file_type().is_symlink() => {
+            Ok(m) if platform::is_link_md(&m, &p) => {
                 return Err(StoreError::Mismatch {
                     object: id.file_name(),
                     actual: "a symbolic link".into(),
@@ -302,7 +303,7 @@ impl<'a> Store<'a> {
     /// Delete one object (gc). Not journaled: only unreferenced objects.
     pub fn remove(&self, id: &ObjectId) -> Result<(), StoreError> {
         let p = self.object_path(id);
-        util::remove_any(&p).map_err(|source| StoreError::Io {
+        platform::remove_any(&p).map_err(|source| StoreError::Io {
             path: p.clone(),
             source,
         })?;
@@ -317,7 +318,7 @@ impl<'a> Store<'a> {
     pub fn sweep_tmp(&self) {
         if let Ok(rd) = fs::read_dir(self.tmp()) {
             for e in rd.flatten() {
-                let _ = util::remove_any(&e.path());
+                let _ = platform::remove_any(&e.path());
             }
         }
     }
@@ -397,7 +398,7 @@ mod tests {
         assert!(matches!(s.verify(&id), Err(StoreError::Mismatch { .. })));
         s.put_file(&f, false).unwrap();
         s.verify(&id).unwrap();
-        fs::remove_file(&p).unwrap();
+        platform::remove_file(&p).unwrap();
         assert!(matches!(s.verify(&id), Err(StoreError::Missing { .. })));
     }
 

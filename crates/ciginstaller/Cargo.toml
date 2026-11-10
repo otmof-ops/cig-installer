@@ -32,3 +32,6 @@ cigi-testkit = { workspace = true }
 cigi-home = { workspace = true, features = ["fault-injection"] }
 tempfile = { workspace = true }
 serde_json = { workspace = true }
+
+[target.'cfg(windows)'.dev-dependencies]
+cigi-sys = { workspace = true }

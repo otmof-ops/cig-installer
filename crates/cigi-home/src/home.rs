@@ -106,8 +106,27 @@ impl Home {
         self.installer().join("shim-index")
     }
 
+    /// The lock file. On Unix `installer/lock`. On Windows `<home>/installer.lock`, outside
+    /// `installer/`: a directory cannot be renamed there while a file inside it is open, and
+    /// `uninstall --all` renames `installer/` aside as its commit point with the lock held.
     pub fn lock_path(&self) -> PathBuf {
-        self.installer().join("lock")
+        if cfg!(windows) {
+            self.root.join("installer.lock")
+        } else {
+            self.installer().join("lock")
+        }
+    }
+
+    /// The file the holder's pid is readable from. On Unix it is the lock file itself. On
+    /// Windows a byte range locked with `LockFileEx` cannot be read through another handle, so
+    /// the pid is kept in `installer/lock.pid`, written and closed (no open handle stays in
+    /// `installer/`).
+    pub fn lock_pid_path(&self) -> PathBuf {
+        if cfg!(windows) {
+            self.installer().join("lock.pid")
+        } else {
+            self.lock_path()
+        }
     }
 
     pub fn txn_root(&self) -> PathBuf {
@@ -123,7 +142,16 @@ impl Home {
     /// `store/` at 0700 on Unix, `bin/` and `toolchains/` at 0755. Existing
     /// directories are never re-moded.
     pub fn ensure_layout(&self) -> Result<(), HomeError> {
+        let made_root = fs::symlink_metadata(&self.root).is_err();
         self.mkdir_mode(&self.root, 0o700)?;
+        if made_root {
+            // 0700 on Windows: under the user's profile the inherited access list already keeps
+            // others out; a home elsewhere gets a list of the current user alone
+            platform::restrict_to_owner(&self.root).map_err(|source| HomeError::Io {
+                path: self.root.clone(),
+                source,
+            })?;
+        }
         // the home and installer/ are the user's alone: a looser one is tightened
         for p in [self.root.clone(), self.installer()] {
             if platform::mode_of(&p).is_some_and(|m| m & 0o077 != 0) {
@@ -149,6 +177,16 @@ impl Home {
         }
         self.write_owner_marker();
         Ok(())
+    }
+
+    /// A warning for a home path long enough to run into the Windows path limit (over about 100
+    /// characters), `None` elsewhere and for a short path. The caller says it once, up front.
+    pub fn long_path_warning(&self) -> Option<String> {
+        if cfg!(windows) {
+            platform::long_home_message(&self.root)
+        } else {
+            None
+        }
     }
 
     /// `installer/.owner`: written where the layout is made, so a later `uninstall --all` can tell
@@ -183,7 +221,7 @@ impl Home {
             source,
         };
         match fs::symlink_metadata(p) {
-            Ok(md) if md.file_type().is_symlink() && !(p == self.root && p.is_dir()) => {
+            Ok(md) if platform::is_link_md(&md, p) && !(p == self.root && p.is_dir()) => {
                 return Err(HomeError::Unsafe {
                     path: p.to_path_buf(),
                     why: "a symbolic link where the installer keeps a directory".into(),

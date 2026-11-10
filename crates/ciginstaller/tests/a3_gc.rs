@@ -122,7 +122,11 @@ fn json(o: &std::process::Output) -> serde_json::Value {
 
 fn whole_home(fx: &Fixture) -> Snapshot {
     // the lock file holds the pid of whoever took it last
-    Snapshot::take(&fx.cigscript()).without(&["installer/lock"])
+    Snapshot::take(&fx.cigscript()).without(&[
+        "installer/lock",
+        "installer.lock",
+        "installer/lock.pid",
+    ])
 }
 
 #[test]

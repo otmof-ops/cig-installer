@@ -108,10 +108,10 @@ pub(crate) fn write_atomic(path: &Path, bytes: &[u8], mode: Option<u32>) -> io::
         if let Some(m) = mode {
             platform::set_mode(&tmp, m)?;
         }
-        fs::rename(&tmp, path)
+        platform::rename(&tmp, path)
     })();
     if res.is_err() {
-        let _ = fs::remove_file(&tmp);
+        let _ = platform::remove_file(&tmp);
         return res;
     }
     if let Some(parent) = path.parent() {
@@ -125,16 +125,6 @@ pub(crate) fn read_opt(path: &Path) -> io::Result<Option<String>> {
     match fs::read_to_string(path) {
         Ok(s) => Ok(Some(s)),
         Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(None),
-        Err(e) => Err(e),
-    }
-}
-
-/// Remove a file or a directory tree; absent is fine.
-pub(crate) fn remove_any(path: &Path) -> io::Result<()> {
-    match fs::symlink_metadata(path) {
-        Ok(md) if md.is_dir() => fs::remove_dir_all(path),
-        Ok(_) => fs::remove_file(path),
-        Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(()),
         Err(e) => Err(e),
     }
 }

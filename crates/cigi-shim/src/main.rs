@@ -14,6 +14,7 @@ use std::path::{Path, PathBuf};
 use std::process::{exit, Command};
 use std::time::Instant;
 
+mod installer;
 #[cfg(test)]
 mod tests;
 
@@ -158,6 +159,8 @@ fn launch(mut cmd: Command, argv0: &str) -> std::io::Error {
     cmd.arg0(argv0).exec()
 }
 
+/// No exec on Windows: start the program, wait, and exit with its code (the child's own exit
+/// status, including an NTSTATUS crash code, is passed through unchanged).
 #[cfg(not(unix))]
 fn launch(mut cmd: Command, _argv0: &str) -> std::io::Error {
     match cmd.status() {
@@ -170,12 +173,19 @@ fn main() {
     let t0 = Instant::now();
     let mut args = std::env::args_os();
     let argv0 = args.next().unwrap_or_default();
-    let name = Path::new(&argv0)
-        .file_stem()
-        .and_then(|s| s.to_str())
-        .unwrap_or("")
-        .to_string();
-    if !TOOLS.contains(&name.as_str()) {
+    // Windows has no argv[0] to trust (`cig` is a fine way to start `cig.exe`): the name is the
+    // running file's own, compared without regard to case.
+    let own = if cfg!(windows) {
+        std::env::current_exe().unwrap_or_else(|_| PathBuf::from(&argv0))
+    } else {
+        PathBuf::from(&argv0)
+    };
+    let name = installer::tool_name(&own, cfg!(windows));
+    // Ctrl+C belongs to the program this one waits for
+    #[cfg(windows)]
+    cigi_sys::process::swallow_ctrl_c();
+    let is_installer = cfg!(windows) && name == "cigi";
+    if !is_installer && !TOOLS.contains(&name.as_str()) {
         die(
             "E1844",
             &format!("this file is named `{name}`, which is not a tool the installer shims"),
@@ -190,6 +200,21 @@ fn main() {
         );
     };
     let rest: Vec<OsString> = args.collect();
+    if is_installer {
+        match installer::run(&home, &rest) {
+            Ok(code) => exit(code),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => die(
+                "E1840",
+                "ciginstaller is missing",
+                "reinstall ciginstaller from https://github.com/otmof-ops/cig-installer",
+            ),
+            Err(e) => die(
+                "E1831",
+                &format!("cannot start ciginstaller: {e}"),
+                "ciginstaller repair",
+            ),
+        }
+    }
     let forced = std::env::var("CIGI_CARTON").ok().filter(|s| !s.is_empty());
     let index = read_index(&home.join("installer").join("shim-index")).unwrap_or_default();
     let user_home = std::env::var_os("HOME")

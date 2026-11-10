@@ -6,6 +6,19 @@
 //! `__selfcheck`, and commit. A failed self-check rolls the whole transaction back: the old
 //! binary is the one in `bin/` again, and the error is `E1853`.
 //!
+//! **Windows (#8).** A running exe can be renamed but not replaced, so the swap differs in two
+//! ways. (1) Replacing `bin\ciginstaller.exe` (and any shim a running tool holds) is attempted
+//! through the journal first, which saves the old bytes before it tries; when Windows refuses
+//! because the file is a running image, the file is renamed to `installer\previous\.aside-*`
+//! and the new one placed. Whatever moment a kill lands in, the journal's undo puts the saved
+//! old file back at `bin\ciginstaller.exe` (`Txn::move_path` is not used: its undo of a file does
+//! not rename anything back). The kill between the rename and the placement has its own fault
+//! point, `CIGI_FAULT=self-update-aside:1`. (2) `bin\cigi.exe` is the shim there, and a
+//! committed update leaves `installer\pending-check`; while it is there, a new build that cannot
+//! start is replaced by `installer\previous\ciginstaller.exe` by the shim (see
+//! `cigi-shim/src/installer.rs`), and the next command this installer runs reconciles its state
+//! ([`mark_healthy`]). The asides are swept at the start of a later update, with retries.
+//!
 //! `update` (12.2 step 1) calls [`offered`] to learn whether a newer installer exists and
 //! [`run_locked`] to apply it; the caller re-executes `bin/ciginstaller` afterwards.
 
@@ -16,6 +29,7 @@ use std::time::{Duration, Instant};
 
 use cig_compat::{Manifest, Target, Version};
 use cigi_home::state::HistoryEntry;
+use cigi_home::JournalError;
 use cigi_home::{
     materialize, now_rfc3339, prune_txns, shim_path, sync_shims, Home, Journal, ObjectId,
     Provenance, ReceiptArtifact, ReceiptSource, ReceiptTrust, StagedFile, State, Txn,
@@ -180,12 +194,6 @@ pub fn run_locked(cx: &mut Cx, a: &SelfArgs) -> Result<Report, InstallerError> {
                 ),
         );
     }
-    if cfg!(windows) {
-        return Err(InstallerError::new(
-            "E1872",
-            "self update is not built for Windows yet",
-        ));
-    }
     refuse_dev_build(&cx.home)?;
     update_to(cx, &m, &want, &carton, &have)
 }
@@ -213,6 +221,144 @@ fn pick_files(files: &[StagedFile]) -> Result<Vec<StagedFile>, InstallerError> {
         });
     }
     Ok(out)
+}
+
+/// The file name the installer has in `bin/` and in `installer/previous/`.
+fn exe_name() -> String {
+    format!("ciginstaller{}", std::env::consts::EXE_SUFFIX)
+}
+
+/// `installer/pending-check`: a committed update the new build has not yet vouched for (Windows).
+pub fn pending_check_path(home: &Home) -> PathBuf {
+    cigi_shim::PENDING_CHECK
+        .iter()
+        .fold(home.root(), |p, s| p.join(s))
+}
+
+fn restored_path(home: &Home) -> PathBuf {
+    cigi_shim::RESTORED
+        .iter()
+        .fold(home.root(), |p, s| p.join(s))
+}
+
+/// Windows said no because a process is running that file: access denied, a sharing violation
+/// or a lock violation. Never on another platform.
+fn blocked(e: &std::io::Error) -> bool {
+    cfg!(windows) && matches!(e.raw_os_error(), Some(5 | 32 | 33))
+}
+
+/// Retry `f` while the answer is [`blocked`] (a scanner or a process still exiting holds the
+/// file), backing off up to `patience`.
+fn retry_blocked<T>(
+    patience: Duration,
+    mut f: impl FnMut() -> std::io::Result<T>,
+) -> std::io::Result<T> {
+    let end = Instant::now() + patience;
+    let mut wait = Duration::from_millis(20);
+    loop {
+        match f() {
+            Err(e) if blocked(&e) && Instant::now() < end => {
+                std::thread::sleep(wait);
+                wait = (wait * 2).min(Duration::from_millis(500));
+            }
+            r => return r,
+        }
+    }
+}
+
+fn is_aside(name: &str) -> bool {
+    name.starts_with(".aside-") || name == "ciginstaller.failed.exe"
+}
+
+/// Remove what earlier updates left in `installer/previous/`: renamed-aside running images
+/// (`.aside-*`) and a build the shim restored away from. The kept previous installer itself is
+/// not touched. Returns how many could not be removed yet (a process still runs them).
+/// Never fails an update by itself.
+pub fn sweep_aside(home: &Home, patience: Duration) -> usize {
+    let Ok(rd) = std::fs::read_dir(home.installer().join("previous")) else {
+        return 0;
+    };
+    let mut left = 0;
+    for e in rd.flatten() {
+        if !is_aside(&e.file_name().to_string_lossy()) {
+            continue;
+        }
+        let p = e.path();
+        let gone = retry_blocked(patience, || {
+            // a read-only attribute makes the delete fail with access denied
+            if let Ok(md) = std::fs::metadata(&p) {
+                let mut perm = md.permissions();
+                if perm.readonly() {
+                    #[allow(clippy::permissions_set_readonly_false)]
+                    perm.set_readonly(false);
+                    let _ = std::fs::set_permissions(&p, perm);
+                }
+            }
+            std::fs::remove_file(&p)
+        });
+        if gone.is_err() {
+            left += 1;
+        }
+    }
+    left
+}
+
+/// Are the two files the same bytes? Lengths first; no inodes needed.
+fn same_bytes(a: &Path, b: &Path) -> bool {
+    let (Ok(x), Ok(y)) = (std::fs::metadata(a), std::fs::metadata(b)) else {
+        return false;
+    };
+    x.len() == y.len() && matches!((std::fs::read(a), std::fs::read(b)), (Ok(p), Ok(q)) if p == q)
+}
+
+/// Put `from` at `to`, journaled. Returns whether the aside was needed.
+///
+/// On current Windows the std rename replaces a running image directly (it uses POSIX rename
+/// semantics, so the loader's hold on the old file does not matter) and the plain journaled
+/// link is all there is: `Ok(false)`. Where that is refused (an older Windows, a file system
+/// without those semantics), the running image is renamed into `aside_dir` and `from` placed
+/// ([`aside_and_place`]): `Ok(true)`.
+///
+/// The journal saves the old `to` before it tries the replace, so the refused attempt is still
+/// on record: the undo of that record puts the old file back, whether a kill lands before the
+/// rename, between the rename and the placement (`fault_after("self-update-aside")`), or after.
+fn replace_or_aside(
+    txn: &mut Txn,
+    from: &Path,
+    to: &Path,
+    aside_dir: &Path,
+) -> Result<bool, InstallerError> {
+    match txn.link(from, to) {
+        Ok(()) => Ok(false),
+        Err(JournalError::Io { source, .. }) if blocked(&source) => {
+            aside_and_place(txn.id(), from, to, aside_dir)?;
+            Ok(true)
+        }
+        Err(e) => Err(ie(e)),
+    }
+}
+
+/// Rename `to` (a running image) to `aside_dir\.aside-<txn>-<name>`, then place `from` at `to`.
+fn aside_and_place(
+    txn_id: &str,
+    from: &Path,
+    to: &Path,
+    aside_dir: &Path,
+) -> Result<(), InstallerError> {
+    let name = to.file_name().map(|n| n.to_string_lossy().into_owned());
+    let aside = aside_dir.join(format!(
+        ".aside-{txn_id}-{}",
+        name.as_deref().unwrap_or("file")
+    ));
+    let io = |p: &Path, e: std::io::Error| {
+        InstallerError::new("E1835", format!("cannot move {}: {e}", p.display()))
+    };
+    retry_blocked(Duration::from_secs(3), || std::fs::rename(to, &aside)).map_err(|e| io(to, e))?;
+    cigi_home::journal::fault_after("self-update-aside");
+    retry_blocked(Duration::from_secs(3), || {
+        std::fs::hard_link(from, to).or_else(|_| std::fs::copy(from, to).map(|_| ()))
+    })
+    .map_err(|e| io(to, e))
 }
 
 fn update_to(
@@ -247,6 +393,18 @@ fn update_to(
     let unpacked = stage_artifact(m, &staged, &dir).map_err(ie)?;
     let files = pick_files(&unpacked)?;
 
+    // a running image an earlier update renamed aside may still be held for a moment
+    if sweep_aside(&cx.home, Duration::from_secs(3)) > 0 {
+        return Err(InstallerError::new(
+            "E1853",
+            format!(
+                "an earlier ciginstaller is still running from {}; nothing was changed",
+                cx.home.installer().join("previous").display()
+            ),
+        )
+        .with_fix("close running ciginstaller windows, then run `ciginstaller self update` again")
+        .with_exit(EXIT_FAILED));
+    }
     let mut txn = cx.begin(&format!("self update {have} to {want}"))?;
     let applied = apply(cx, &mut txn, m, want, carton, have, &staged, &files);
     let txn_id = txn.id().to_string();
@@ -270,7 +428,7 @@ fn update_to(
                 cx.home
                     .installer()
                     .join("previous")
-                    .join("ciginstaller")
+                    .join(exe_name())
                     .display()
             ))
             .next("ciginstaller --version")
@@ -336,17 +494,34 @@ fn apply(
     // the running binary is kept (journaled: a rollback removes the link again)
     let current = shim_path(&home, "ciginstaller");
     let previous_dir = home.installer().join("previous");
-    if std::fs::metadata(&current).is_ok() {
+    if cfg!(windows) || std::fs::metadata(&current).is_ok() {
         txn.mkdir_all(&previous_dir).map_err(ie)?;
-        txn.link(&current, &previous_dir.join("ciginstaller"))
+    }
+    if std::fs::metadata(&current).is_ok() {
+        txn.link(&current, &previous_dir.join(exe_name()))
             .map_err(ie)?;
+    }
+    if cfg!(windows) {
+        // the shim reads this after the commit: until the new build has run once, a build that
+        // cannot start is replaced by the kept one (journaled, so a rollback removes it)
+        txn.write(
+            &pending_check_path(&home),
+            format!("{want}\n").as_bytes(),
+            None,
+        )
+        .map_err(ie)?;
     }
 
     // the swap: each link is made beside the target and renamed over it, so `bin/ciginstaller`
-    // is the old file or the new one and never anything between
-    for n in ["ciginstaller", "cigi"] {
-        txn.link(&store.object_path(&exe_obj), &shim_path(&home, n))
-            .map_err(ie)?;
+    // is the old file or the new one and never anything between. On Windows a running image
+    // cannot be renamed over: it is renamed aside first (see `replace_or_aside`).
+    let new_exe = store.object_path(&exe_obj);
+    if cfg!(windows) {
+        replace_or_aside(txn, &new_exe, &current, &previous_dir)?;
+    } else {
+        for n in super::switch::installer_names() {
+            txn.link(&new_exe, &shim_path(&home, n)).map_err(ie)?;
+        }
     }
 
     // state, then the shims follow the new `cigi-shim` object
@@ -365,9 +540,25 @@ fn apply(
         txn: txn.id().to_string(),
         ok: true,
     });
+    // on Windows `shim_names` includes `cigi`: the shim is what restores a build that cannot start
     let names = shim_names(&home, &state);
-    let refs: Vec<&str> = names.iter().map(String::as_str).collect();
-    sync_shims(txn, &home, &refs, &shim_obj).map_err(ie)?;
+    if cfg!(windows) {
+        let obj = store.object_path(&shim_obj);
+        store.verify(&shim_obj).map_err(ie)?;
+        for n in &names {
+            if !cigi_home::shims::shim_name_ok(n) {
+                return Err(bug(format!("`{n}` is not a shim name")));
+            }
+            let to = shim_path(&home, n);
+            // an unchanged shim stays: a tool running through it keeps it open
+            if !same_bytes(&obj, &to) {
+                replace_or_aside(txn, &obj, &to, &previous_dir)?;
+            }
+        }
+    } else {
+        let refs: Vec<&str> = names.iter().map(String::as_str).collect();
+        sync_shims(txn, &home, &refs, &shim_obj).map_err(ie)?;
+    }
 
     // The new binary must start before anything is committed. State is already written, so what
     // it checks is the home it would run in.
@@ -376,6 +567,16 @@ fn apply(
     selfcheck(&home, &current, want, have)?;
 
     save_and_flip(txn, &home, &state, yanked_in(m))
+}
+
+/// The file was written a moment ago and something still holds it: ETXTBSY on Unix; on Windows
+/// a sharing violation or access denied while a scanner looks at the new file.
+fn spawn_busy(e: &std::io::Error) -> bool {
+    if cfg!(windows) {
+        blocked(e)
+    } else {
+        e.raw_os_error() == Some(26)
+    }
 }
 
 /// Start `exe __selfcheck`: it must exit 0 within the budget and name the version it was meant
@@ -405,9 +606,9 @@ fn selfcheck(
         match cmd.spawn() {
             Ok(c) => break c,
             // a file written a moment ago can still be open in a child another thread forked
-            Err(e) if e.raw_os_error() == Some(26) && tries < 100 => {
+            Err(e) if spawn_busy(&e) && tries < 100 => {
                 tries += 1;
-                std::thread::sleep(Duration::from_millis(5));
+                std::thread::sleep(Duration::from_millis(if cfg!(windows) { 30 } else { 5 }));
             }
             Err(e) => return Err(failed(format!("it did not start: {e}"))),
         }
@@ -467,6 +668,8 @@ pub fn mark_healthy(cx: &Cx) {
     if !is_managed(&cx.home) {
         return;
     }
+    // the update that ran this build may still be exiting: one try, no waiting
+    sweep_aside(&cx.home, Duration::ZERO);
     let taken;
     let lock = match cx.lock_ref() {
         Ok(l) => l,
@@ -489,7 +692,13 @@ pub fn mark_healthy(cx: &Cx) {
     let Ok(mut state) = State::load(&cx.home) else {
         return;
     };
-    if state.installer.healthy || state.installer.version != running.to_string() {
+    let restored = std::fs::read_to_string(restored_path(&cx.home))
+        .ok()
+        .map(|t| t.trim().to_string());
+    let reconciled = restored
+        .as_deref()
+        .is_some_and(|failed| reconcile_restored(&mut state, &running, failed));
+    if !reconciled && (state.installer.healthy || state.installer.version != running.to_string()) {
         return;
     }
     state.installer.healthy = true;
@@ -497,9 +706,39 @@ pub fn mark_healthy(cx: &Cx) {
     let Ok(mut txn) = Txn::begin(&cx.home, "installer healthy", lock) else {
         return;
     };
+    for marker in [pending_check_path(&cx.home), restored_path(&cx.home)] {
+        if marker.exists() {
+            let _ = txn.delete(&marker);
+        }
+    }
     if state.save_in(&mut txn).is_ok() {
         let _ = txn.commit();
     } else {
         let _ = txn.rollback();
     }
 }
+
+/// The shim put the previous installer back after `failed` could not start (Windows): bring
+/// `state` in line with the build that is running. True when it did.
+fn reconcile_restored(state: &mut State, running: &Version, failed: &str) -> bool {
+    let run = running.to_string();
+    if state.installer.version == run || state.installer.previous.as_deref() != Some(run.as_str()) {
+        return false;
+    }
+    state.installer.version = run.clone();
+    state.installer.previous = None;
+    state.push_history(HistoryEntry {
+        id: format!("restored-{failed}"),
+        at: now_rfc3339(),
+        what: "self update restored".into(),
+        from: Some(failed.to_string()),
+        to: Some(run),
+        txn: String::new(),
+        ok: false,
+    });
+    true
+}
+
+#[cfg(test)]
+#[path = "self_update_tests.rs"]
+mod tests;

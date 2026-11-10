@@ -157,7 +157,13 @@ fn a3_update_dry_run_and_up_to_date_change_nothing() {
     let mut fx = fixture();
     two(&mut fx, "plan: 1 op");
     ok(&cigi(&fx, &["install", "carton", "--carton", "0.1.0"]));
-    let quiet = ["installer/cache", "installer/txn", "installer/lock"];
+    let quiet = [
+        "installer/cache",
+        "installer/txn",
+        "installer/lock",
+        "installer.lock",
+        "installer/lock.pid",
+    ];
     let before = Snapshot::take(&fx.cigscript()).without(&quiet);
     let o = cigi(&fx, &["update", "--dry-run"]);
     ok(&o);

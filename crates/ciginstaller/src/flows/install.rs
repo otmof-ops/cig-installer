@@ -11,9 +11,11 @@ use cig_compat::{
 };
 use cigi_home::state::{CartonRecord, HistoryEntry, ManifestInfo, Stick};
 use cigi_home::{
-    add_path_block, materialize, mirror_humidor, now_rfc3339, path_block, platform, prune_txns,
-    read_receipt, shim_path, sync_shims, ObjectId, PathChange, Provenance, ReceiptArtifact,
-    ReceiptSource, ReceiptTrust, Shell, ShimRef, StagedFile, State, Txn,
+    add_path_block, blocks_record, materialize, mirror_humidor, now_rfc3339, path_block, platform,
+    prune_txns, read_receipt, recorded_registry, registry_line, registry_path_add,
+    registry_path_has, registry_record, registry_supported, shim_path, sync_shims, ObjectId,
+    PathChange, Provenance, ReceiptArtifact, ReceiptSource, ReceiptTrust, RegistryChange, Shell,
+    ShimRef, StagedFile, State, Txn,
 };
 use cigi_source::fetch::downloads_dir;
 use cigi_source::{
@@ -225,10 +227,37 @@ fn shell_of(arg: &Option<String>) -> Result<Shell, InstallerError> {
     }
 }
 
+/// The shells whose profile gets a PATH block. On Windows that is both PowerShells (`pwsh` 7 and
+/// Windows PowerShell 5.1, each with its own profile) whatever `--shell` names among them, plus
+/// any other shell `--shell` asks for (Git Bash, say); `$SHELL` is not consulted there, because
+/// Git Bash sets it for every program it starts. Elsewhere it is the one shell `shell_of` finds.
+fn shells_of(arg: &Option<String>) -> Result<Vec<Shell>, InstallerError> {
+    if !cfg!(windows) {
+        return Ok(vec![shell_of(arg)?]);
+    }
+    let mut out = Shell::windows_defaults().to_vec();
+    if arg.is_some() {
+        let s = shell_of(arg)?;
+        if !out.contains(&s) {
+            out.push(s);
+        }
+    }
+    Ok(out)
+}
+
 fn bin_on_path(home: &cigi_home::Home) -> bool {
     let bin = home.bin();
     std::env::var_os("PATH")
-        .map(|p| std::env::split_paths(&p).any(|d| d == bin))
+        .map(|p| {
+            std::env::split_paths(&p).any(|d| {
+                d == bin
+                    || (cfg!(windows)
+                        && cigi_home::path::same_entry(
+                            &d.to_string_lossy(),
+                            &bin.to_string_lossy(),
+                        ))
+            })
+        })
         .unwrap_or(false)
 }
 
@@ -492,17 +521,34 @@ pub fn run_locked(cx: &mut Cx, a: &InstallArgs) -> Result<Report, InstallerError
     let fetched = fetch_builds(cx, &m, &todo)?;
 
     // the PATH question comes before the transaction
-    let shell = shell_of(&a.shell)?;
+    let shells = shells_of(&a.shell)?;
     let mut add_path = false;
     if !a.no_path {
-        let (profile, block) = path_block(shell, &cx.home);
+        let bin = cx.home.bin();
+        let mut files: Vec<String> = Vec::new();
+        let mut shown: Vec<String> = Vec::new();
+        if registry_supported() {
+            // the user's PATH in the registry is the route every program started after a sign-in
+            // or a new terminal sees; the profile blocks cover PowerShell sessions beyond it
+            files.push(cigi_home::path::REGISTRY_PATH.to_string());
+            shown.push(registry_line(&bin));
+        }
+        for sh in &shells {
+            let (profile, block) = path_block(*sh, &cx.home);
+            files.push(profile.display().to_string());
+            if shells.len() > 1 || registry_supported() {
+                shown.push(format!("{}:\n{}", profile.display(), block.trim_end()));
+            } else {
+                shown.push(block.trim_end().to_string());
+            }
+        }
         let q = Question::yes_no("Add it?", true)
             .summary(&format!(
                 "put {} first on PATH in {}",
-                cx.home.bin().display(),
-                profile.display()
+                bin.display(),
+                files.join(" and ")
             ))
-            .detail(block.trim_end());
+            .detail(&shown.join("\n\n"));
         add_path = cx.ui.ask(&q).is_yes(&q);
     }
 
@@ -518,13 +564,20 @@ pub fn run_locked(cx: &mut Cx, a: &InstallArgs) -> Result<Report, InstallerError
             carton: &carton,
             want: &want,
             fetched: &fetched,
-            shell,
+            shells: &shells,
             add_path,
             args: a,
         },
     );
     let txn_id = txn.id().to_string();
     let applied = settle(txn, applied)?;
+
+    // the registry PATH comes after the commit: `state.json` already says what this install put
+    // there, so a failure here is a finding for `doctor` and `repair`, never a torn transaction
+    let registry_result = applied
+        .registry_entry
+        .as_ref()
+        .map(|e| registry_path_add(e));
 
     let _ = prune_txns(
         &cx.home,
@@ -592,28 +645,61 @@ pub fn run_locked(cx: &mut Cx, a: &InstallArgs) -> Result<Report, InstallerError
             }
         }
     }
-    let path_note = match applied.path {
-        Some(PathChange::Added) => {
-            Some(format!("PATH block added to {}", applied.profile.display()))
+    let mut registry_word = None;
+    match &registry_result {
+        Some(Ok(RegistryChange::Added)) => {
+            registry_word = Some("added");
+            rep = rep.detail(format!(
+                "{} now has {}",
+                cigi_home::path::REGISTRY_PATH,
+                cx.home.bin().display()
+            ));
         }
-        Some(PathChange::AlreadyPresent) => Some(format!(
-            "PATH block already in {}",
-            applied.profile.display()
-        )),
-        Some(PathChange::Edited) => Some(format!(
-            "{} has a hand-edited cigscript block; left alone",
-            applied.profile.display()
-        )),
-        _ => None,
-    };
-    if let Some(n) = &path_note {
-        rep = rep.detail(n.clone());
+        Some(Ok(_)) => {
+            registry_word = Some("already-present");
+            rep = rep.detail(format!(
+                "{} already has {}",
+                cigi_home::path::REGISTRY_PATH,
+                cx.home.bin().display()
+            ));
+        }
+        Some(Err(e)) => {
+            registry_word = Some("failed");
+            rep = rep
+                .detail(format!(
+                    "warning E1845 could not add {} to {}: {e}; the install itself is complete",
+                    cx.home.bin().display(),
+                    cigi_home::path::REGISTRY_PATH
+                ))
+                .next("ciginstaller repair");
+        }
+        None => {}
+    }
+    for (_, profile, change) in &applied.blocks {
+        let note = match change {
+            PathChange::Added => Some(format!("PATH block added to {}", profile.display())),
+            PathChange::AlreadyPresent => {
+                Some(format!("PATH block already in {}", profile.display()))
+            }
+            PathChange::Edited => Some(format!(
+                "{} has a hand-edited cigscript block; left alone",
+                profile.display()
+            )),
+            _ => None,
+        };
+        if let Some(n) = note {
+            rep = rep.detail(n);
+        }
     }
     if !bin_on_path(&cx.home) {
-        rep = rep.next(format!(
-            "open a new shell, or run: export PATH=\"{}:$PATH\"",
-            cx.home.bin().display()
-        ));
+        if cfg!(windows) {
+            rep = rep.next("open a new terminal (cmd.exe, PowerShell or Windows Terminal) so it sees the new PATH");
+        } else {
+            rep = rep.next(format!(
+                "open a new shell, or run: export PATH=\"{}:$PATH\"",
+                cx.home.bin().display()
+            ));
+        }
     }
     Ok(rep.data(json!({
         "carton": cv.to_string(),
@@ -626,12 +712,13 @@ pub fn run_locked(cx: &mut Cx, a: &InstallArgs) -> Result<Report, InstallerError
             "tool": t, "version": v.to_string(),
             "trust": fetched.iter().find(|f| &f.tool == t).map(|f| f.staged.verified.level.as_str()),
         })).collect::<Vec<_>>(),
-        "path_block": match applied.path {
+        "path_block": match applied.path() {
             Some(PathChange::Added) => "added",
             Some(PathChange::AlreadyPresent) => "already-present",
             Some(PathChange::Edited) => "edited",
             _ => "skipped",
         },
+        "path_registry": registry_word,
     })))
 }
 
@@ -640,14 +727,32 @@ struct Plan<'a> {
     carton: &'a Carton,
     want: &'a [(String, Version)],
     fetched: &'a [Fetched],
-    shell: Shell,
+    shells: &'a [Shell],
     add_path: bool,
     args: &'a InstallArgs,
 }
 
 struct Applied {
-    path: Option<PathChange>,
-    profile: PathBuf,
+    /// Each profile a block was asked of, and what happened to it.
+    blocks: Vec<(Shell, PathBuf, PathChange)>,
+    /// The directory to put on the user's registry PATH once the transaction commits.
+    registry_entry: Option<PathBuf>,
+}
+
+impl Applied {
+    /// One word for the blocks: the first that is not simply there, else `AlreadyPresent`.
+    fn path(&self) -> Option<PathChange> {
+        let mut out = None;
+        for (_, _, c) in &self.blocks {
+            match (c, out) {
+                (PathChange::Edited, _) => return Some(PathChange::Edited),
+                (PathChange::Added, _) => out = Some(PathChange::Added),
+                (PathChange::AlreadyPresent, None) => out = Some(PathChange::AlreadyPresent),
+                _ => {}
+            }
+        }
+        out
+    }
 }
 
 /// The ciginstaller toolchain: the running binary and the shim beside it, put in the store so
@@ -834,60 +939,62 @@ fn apply(cx: &mut Cx, txn: &mut Txn, p: &Plan<'_>) -> Result<Applied, InstallerE
         ok: true,
     });
 
-    // 4. shims: every tool the state now lists, plus the installer's own two names
-    let mut names: BTreeSet<String> = BTreeSet::new();
-    let mut builds: Vec<(String, String)> = Vec::new();
-    for r in state.cartons.values() {
-        builds.extend(r.tools.iter().map(|(t, v)| (t.clone(), v.clone())));
-    }
-    builds.extend(
-        state
-            .sticks
-            .iter()
-            .map(|s| (s.tool.clone(), s.version.clone())),
-    );
-    for (t, v) in &builds {
-        if let Ok(v) = Version::parse(v) {
-            if let Ok(r) = read_receipt(&home, t, &v) {
-                // only the names the shim binary serves get a file in bin/: any other would be
-                // a dead command first on PATH (the shim refuses it with E1844)
-                names.extend(
-                    r.shims
-                        .iter()
-                        .map(|s| s.name.clone())
-                        .filter(|n| cigi_shim::TOOLS.contains(&n.as_str())),
-                );
-            }
-        }
-    }
+    // 4. shims: every tool the state now lists (and on Windows `cigi`, which is a shim there),
+    //    then the installer's own names
+    let names = super::switch::shim_names(&home, &state);
     let refs: Vec<&str> = names.iter().map(String::as_str).collect();
     sync_shims(txn, &home, &refs, &shim_obj).map_err(ie)?;
     let store = home.object_store();
-    for n in ["ciginstaller", "cigi"] {
+    for n in super::switch::installer_names() {
         txn.link(&store.object_path(&exe_obj), &shim_path(&home, n))
             .map_err(ie)?;
     }
 
-    // 5. PATH block
-    let (profile, _) = path_block(p.shell, &home);
-    let path = if p.add_path {
-        Some(add_path_block(txn, p.shell, &home).map_err(ie)?)
-    } else {
-        None
-    };
+    // 5. PATH block, in every profile asked of; and, on Windows, the user PATH in the registry,
+    //    which is written after the commit and only recorded here
+    let mut blocks: Vec<(Shell, PathBuf, PathChange)> = Vec::new();
+    if p.add_path {
+        for sh in p.shells {
+            let (profile, _) = path_block(*sh, &home);
+            let change = add_path_block(txn, *sh, &home).map_err(ie)?;
+            blocks.push((*sh, profile, change));
+        }
+    }
 
     // what the user chose about PATH, so `doctor` and `repair` can tell a block that went missing
     // from one that was never asked for (`--no-path`)
-    if matches!(path, Some(PathChange::Added | PathChange::AlreadyPresent)) {
+    let done: Vec<Shell> = blocks
+        .iter()
+        .filter(|(_, _, c)| matches!(c, PathChange::Added | PathChange::AlreadyPresent))
+        .map(|(s, _, _)| *s)
+        .collect();
+    if !done.is_empty() {
+        state
+            .extra
+            .insert("path_block".to_string(), blocks_record(&done));
+    }
+    let mut registry_entry = None;
+    if p.add_path && registry_supported() {
+        let entry = home.bin();
+        // "preexisting" = on the user's PATH before this install, so not the installer's to
+        // remove; a rerun keeps what the first install recorded
+        let preexisting = match recorded_registry(&state).filter(|r| r.entry == entry) {
+            Some(r) => r.preexisting,
+            None => registry_path_has(&entry).unwrap_or(false),
+        };
         state.extra.insert(
-            "path_block".to_string(),
-            json!({ "shell": format!("{:?}", p.shell).to_lowercase() }),
+            cigi_home::path::PATH_REGISTRY_KEY.to_string(),
+            registry_record(&entry, preexisting),
         );
+        registry_entry = Some(entry);
     }
 
     // 6. state, flip
     save_and_flip(txn, &home, &state, super::yanked_in(p.m))?;
-    Ok(Applied { path, profile })
+    Ok(Applied {
+        blocks,
+        registry_entry,
+    })
 }
 
 #[allow(dead_code)]

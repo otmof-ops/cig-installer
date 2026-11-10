@@ -22,6 +22,15 @@ use pins::{cig_from_json, header_pin, pin_from_carton_file, pin_from_json, pin_f
 
 /// The tools the shim serves.
 pub const TOOLS: [&str; 4] = ["cig", "cigo", "cigcompile", "cigar"];
+/// The files the Windows self-update and the shim agree on, relative to `CIGSCRIPT_HOME`.
+/// `bin\cigi.exe` is the shim there, not a second copy of the installer; when
+/// `bin\ciginstaller.exe` cannot start while [`PENDING_CHECK`] is still there, the shim puts
+/// [`PREVIOUS_INSTALLER`] back (it is the one thing the shim writes) and leaves [`RESTORED`].
+pub const PENDING_CHECK: [&str; 2] = ["installer", "pending-check"];
+pub const RESTORED: [&str; 2] = ["installer", "restored"];
+pub const PREVIOUS_INSTALLER: [&str; 3] = ["installer", "previous", "ciginstaller.exe"];
+/// Where the build that failed to start is kept after a restore, for the report.
+pub const FAILED_INSTALLER: [&str; 3] = ["installer", "previous", "ciginstaller.failed.exe"];
 /// The most levels one walk climbs.
 pub const MAX_DEPTH: usize = 40;
 /// The shim's cap on a pin file. A larger one goes to the installer, which takes `MAX_FILE_INSTALLER`.

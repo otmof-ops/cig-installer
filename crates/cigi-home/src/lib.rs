@@ -50,7 +50,11 @@ pub use journal::{
     Recovered, RollbackFailure, RollbackReport, Txn, TxnInfo, TxnStatus,
 };
 pub use lock::InstallerLock;
-pub use path::{add_path_block, path_block, remove_path_block, PathChange, Shell};
+pub use path::{
+    add_path_block, blocks_record, documents_dir, path_block, recorded_registry, recorded_shells,
+    registry_line, registry_path_add, registry_path_has, registry_path_remove, registry_record,
+    registry_supported, remove_path_block, PathChange, RegistryChange, RegistryRecord, Shell,
+};
 pub use shims::{remove_shims, shim_path, sync_shims};
 pub use state::State;
 pub use store::{ObjectId, StagedObject, Store, StoreUsage};
