@@ -302,11 +302,15 @@ impl Fixture {
         }
         // product requirements
         for (p, _) in builds {
-            if let Some(r) = &p.requires {
-                o.push_str(&format!(
-                    "[product.{}.\"{}\"]\nrequires = {{ {r} }}\n\n",
-                    p.tool, p.version
-                ));
+            if p.requires.is_some() || p.license.is_some() {
+                o.push_str(&format!("[product.{}.\"{}\"]\n", p.tool, p.version));
+                if let Some(r) = &p.requires {
+                    o.push_str(&format!("requires = {{ {r} }}\n"));
+                }
+                if let Some(l) = &p.license {
+                    o.push_str(&format!("license = \"{l}\"\n"));
+                }
+                o.push('\n');
             }
         }
         // yanks

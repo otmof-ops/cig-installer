@@ -87,6 +87,7 @@ fn dispatch(cli: Cli, ui: Ui) -> i32 {
         Some(Command::Use { .. }) => ("use", None),
         Some(Command::Pin { .. }) => ("pin", None),
         Some(Command::List) => ("list", None),
+        Some(Command::Licences { .. }) => ("licences", None),
         Some(Command::Which { cwd, .. }) => ("which", cwd.clone()),
         Some(Command::Resolve { cwd, .. }) => ("resolve", Some(cwd.clone())),
         Some(Command::Bundle { .. }) => ("bundle", None),
@@ -137,6 +138,9 @@ fn dispatch(cli: Cli, ui: Ui) -> i32 {
                 cmd::pin::run(&mut cx, tool, pin, file.as_deref())
             }
             Some(Command::List) => cmd::list::run(&mut cx),
+            Some(Command::Licences { tool, text }) => {
+                cmd::licences::run(&mut cx, tool.as_deref(), *text)
+            }
             Some(Command::Which {
                 tool,
                 why,
@@ -252,6 +256,7 @@ fn dispatch(cli: Cli, ui: Ui) -> i32 {
                 | "status"
                 | "uninstall"
                 | "doctor"
+                | "licences"
                 | "bench"
         )
     {
@@ -306,6 +311,7 @@ fn read_only(cmd: &Option<Command>) -> bool {
         // they write a cache and the directory or file they were given, never the machine's state
         Some(Command::Bundle { .. } | Command::Mirror { .. }) => true,
         Some(Command::Bench(_)) => true,
+        Some(Command::Licences { .. }) => true,
         Some(Command::Repair { dry_run, .. })
         | Some(Command::Remove { dry_run, .. })
         | Some(Command::Use { dry_run, .. })

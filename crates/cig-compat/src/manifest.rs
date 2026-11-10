@@ -253,7 +253,21 @@ pub struct ProductReq {
     pub embeds: BTreeMap<String, Embed>,
     /// Free text per OS; evaluated only where it reads `kernel X.Y`.
     pub os_min: BTreeMap<String, String>,
+    /// The build's license as an SPDX expression (`Apache-2.0`, `FSL-1.1-ALv2`). Optional: a
+    /// manifest without it still works, and the installer says "not stated".
+    pub license: Option<String>,
     pub extra: Table,
+}
+
+/// Whether `text` has the shape of an SPDX license expression: ids, `AND`, `OR`, `WITH`,
+/// parentheses, `+`. It checks the shape only; it does not look ids up in the SPDX list.
+pub fn is_spdx_expression(text: &str) -> bool {
+    let t = text.trim();
+    !t.is_empty()
+        && t.len() <= 200
+        && t.chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '-' | '+' | '(' | ')' | ' '))
+        && t.chars().any(|c| c.is_ascii_alphanumeric())
 }
 
 impl ProductReq {
@@ -909,7 +923,15 @@ impl Manifest {
                             };
                         }
                     }
-                    let known = ["requires", "recommends", "embeds", "os_min"];
+                    let license = opt_str(t, "license", &path)?;
+                    if let Some(l) = &license {
+                        if !is_spdx_expression(l) {
+                            return err(format!(
+                                "{path}.license `{l}` is not an SPDX license expression (such as `Apache-2.0` or `FSL-1.1-ALv2`)"
+                            ));
+                        }
+                    }
+                    let known = ["requires", "recommends", "embeds", "os_min", "license"];
                     products.insert(
                         (tool.clone(), version),
                         ProductReq {
@@ -917,6 +939,7 @@ impl Manifest {
                             recommends: parse_requirements(t, "recommends", &path, &tools)?,
                             embeds,
                             os_min,
+                            license,
                             extra: t
                                 .iter()
                                 .filter(|(k, _)| !known.contains(&k.as_str()))
@@ -1223,6 +1246,9 @@ impl Manifest {
                     ot.insert(k.clone(), Value::String(s.clone()));
                 }
                 t.insert("os_min".into(), Value::Table(ot));
+            }
+            if let Some(l) = &p.license {
+                t.insert("license".into(), Value::String(l.clone()));
             }
             nested(&mut products, tool, &v.to_string(), t);
         }

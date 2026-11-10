@@ -702,7 +702,7 @@ fn results_go_to_stdout_and_chatter_to_stderr() {
 
 // ---- the registry -----------------------------------------------------------------------
 
-const SPEC_CODES: [(u32, &str); 73] = [
+const SPEC_CODES: [(u32, &str); 76] = [
     (1800, "combination refused"),
     (1801, "a product needs another"),
     (1802, "a stick does not fit its carton"),
@@ -780,6 +780,9 @@ const SPEC_CODES: [(u32, &str); 73] = [
     (1873, "offline was requested and the step needs the network"),
     (1874, "there is nothing to build the shims from"),
     (1875, "the setting is not in the file"),
+    (1876, "the license notice was not confirmed"),
+    (1877, "no build of that tool to list a license for"),
+    (1878, "no license file for that build"),
     (1890, "a bug in the installer"),
     (1891, "a journal could not be recovered"),
 ];

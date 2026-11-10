@@ -315,6 +315,9 @@ fn apply(
             manifest_sequence: m.sequence,
         },
         shims: Vec::new(),
+        license: m
+            .product("ciginstaller", want)
+            .and_then(|p| p.license.clone()),
     };
     txn.mkdir_all(&home.toolchains()).map_err(ie)?;
     let receipt = materialize(txn, &home, "ciginstaller", want, files, prov).map_err(ie)?;

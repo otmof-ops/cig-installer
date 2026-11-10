@@ -72,6 +72,7 @@ pub fn prov() -> Provenance {
             attested_by: None,
             manifest_sequence: 7,
         },
+        license: None,
         shims: vec![ShimRef {
             name: "cigo".into(),
             path: "bin/cigo".into(),

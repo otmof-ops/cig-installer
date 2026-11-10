@@ -73,8 +73,9 @@ fn json_of(o: &Output) -> serde_json::Value {
 #[test]
 fn a4_menu_on_a_terminal_asks_what_you_are_after_then_the_settings() {
     let fx = simple();
-    // one keypress each: 3 = a carton, s = strict, n = never send crash reports
-    let (code, t) = on_tty(&fx, "install --no-path", &["3", "s", "n"]);
+    // one keypress each: 3 = a carton, s = strict, n = never send crash reports, y = confirm the
+    // licenses (shown once at the first install, #27)
+    let (code, t) = on_tty(&fx, "install --no-path", &["3", "s", "n", "y"]);
     assert_eq!(code, 0, "{t}");
     for want in [
         "what are you after?",
@@ -98,8 +99,8 @@ fn a4_menu_on_a_terminal_asks_what_you_are_after_then_the_settings() {
 fn a4_menu_a_stick_asks_which_product_and_installs_only_it() {
     let fx = simple();
     // one keypress each: 1 = a stick, 1 = the first product (cig), then enter takes the
-    // preset's and the reports question's defaults
-    let (code, t) = on_tty(&fx, "install --no-path", &["1", "1", "\n", "\n"]);
+    // preset's and the reports question's defaults, and y confirms the licenses (#27)
+    let (code, t) = on_tty(&fx, "install --no-path", &["1", "1", "\n", "\n", "y"]);
     assert_eq!(code, 0, "{t}");
     assert!(t.contains("which product?"), "{t}");
     let s = state(&fx);
@@ -479,7 +480,7 @@ fn a4_pin_help_lists_every_tool_with_a_pin_file() {
 #[test]
 fn a4_the_preset_question_and_config_say_it_is_not_enforced() {
     let fx = simple();
-    let (code, t) = on_tty(&fx, "install --no-path", &["3", "s", "n"]);
+    let (code, t) = on_tty(&fx, "install --no-path", &["3", "s", "n", "y"]);
     assert_eq!(code, 0, "{t}");
     assert!(t.contains("cig-orchestrator#66"), "in the question: {t}");
     assert!(t.contains("nothing enforces the preset"), "{t}");
