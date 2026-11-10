@@ -190,10 +190,48 @@ releases: `cargo xtask manifest assemble`, described in
 [manifest/README.md](manifest/README.md). `install --from <dir>` installs from a
 mirror directory.
 
-When the first carton is out, the platform packages and a bootstrap script
-that checks itself before it runs are the planned ways in
-([#5](https://github.com/otmof-ops/cig-installer/issues/5),
-[#15](https://github.com/otmof-ops/cig-installer/issues/15)).
+### The bootstrap script
+
+For a machine with nothing on it, each ciginstaller release will carry
+`install.sh` (Linux) and `install.ps1` (Windows). **There is no installer
+release yet, so there is no script to download today**; what is in this
+repository are the templates (`packaging/bootstrap/`), and the release
+workflow fills them in with that release's tarball digests, then attaches the
+result, with a `.sha256` and a build attestation for each, to the draft
+release. Windows has no build yet, so `install.ps1` stops and says so.
+
+Download it, read it, then run it. Do not pipe it into a shell.
+
+```sh
+gh release download vX.Y.Z -R otmof-ops/cig-installer -p install.sh -p install.sh.sha256
+sha256sum -c install.sh.sha256
+gh attestation verify install.sh -R otmof-ops/cig-installer
+less install.sh
+sh install.sh --yes carton --preset strict    # arguments go to `ciginstaller install`
+```
+
+The script works out the platform, downloads that platform's tarball from
+that exact release over HTTPS into a scratch directory, and checks its SHA-256
+against the digest written into the script. If `gh` is on `PATH` it also runs
+`gh attestation verify` on the tarball. Any mismatch stops it before anything
+is unpacked, and nothing is left behind. Only then does it unpack under
+`CIGSCRIPT_HOME` (default `~/.cigscript`) and run `ciginstaller install`,
+passing along every argument you gave it. With none, `ciginstaller` asks its
+install questions itself. It sends nothing about your machine, only plain
+`GET`s of the release's tarball.
+
+**This is integrity, not authorship.** The digests show that the bytes you got
+are the bytes the release build made. The script and the tarballs are not
+signed, so nothing shows who made them, and the script does not check a
+signature. Signed metadata
+([#9](https://github.com/otmof-ops/cig-installer/issues/9)) is not built. The
+attestation, where `gh` can check it, ties the tarball to this repository's
+release workflow and is the only provenance check there is: it runs when `gh` is
+installed and signed in, must pass when it runs, and the script says when it could
+not run it.
+
+The platform packages are still planned
+([#15](https://github.com/otmof-ops/cig-installer/issues/15)).
 
 ## Commands
 
@@ -233,8 +271,10 @@ start its tool. A shim otherwise passes the tool's own exit code through.
 - **Nothing installs from the network yet.** No installer release and no
   carton manifest are published. Build from source, and expect `install` to
   stop at `E1820` until the first carton is out.
-- **Linux first.** It is built and tested there. The bootstrap script, macOS
-  and Windows machines, and platform packages are not built
+- **Linux first.** It is built and tested there. The bootstrap script exists
+  as a template and has no release to ship with yet; `install.ps1` stops until
+  a Windows build exists. macOS and Windows machines and platform packages are
+  not built
   ([#5](https://github.com/otmof-ops/cig-installer/issues/5),
   [#15](https://github.com/otmof-ops/cig-installer/issues/15)).
 - **Verified is integrity, not authorship.** There are no signing keys yet, so

@@ -11,6 +11,19 @@ below is under Unreleased, and the first version will take it as its section.
 Installing, pinning, switching, updating and rolling back the family, on
 Linux, with every build checked first and every change one undoable step.
 
+### Bootstrap script
+
+- **`install.sh` and `install.ps1` templates** (`packaging/bootstrap/`) and
+  `ci/fill-bootstrap.sh`, which writes a release's tarball digests into them.
+  The script downloads its platform's tarball from that release over HTTPS,
+  checks the SHA-256 (and `gh attestation verify` where `gh` exists), refuses
+  on any mismatch with nothing left behind, unpacks under `CIGSCRIPT_HOME` and
+  runs `ciginstaller install` with the arguments it was given. Integrity, not
+  authorship: nothing is signed until #9. The release workflow attaches the
+  filled scripts, with checksums and attestations, to the draft release. There
+  is no installer release yet. `install.ps1` stops until a Windows build exists.
+- `ci/test-bootstrap.sh` runs the filled script against a local fixture in CI.
+
 ### License
 
 - **The code is under the Functional Source License, version 1.1, with an

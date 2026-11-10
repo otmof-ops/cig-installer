@@ -4,6 +4,9 @@ name: release
 # DRAFT release: one tarball per machine holding ciginstaller, cigi-shim, LICENSE, NOTICE and
 # THIRD-PARTY-NOTICES at the top level (manifest/tools.toml: strip = 0), a `.sha256` sidecar in
 # sha256sum format and a build attestation for each, and the three licence files beside them.
+# The bootstrap scripts install.sh and install.ps1 are filled in from their templates with this
+# release's tarball digests, get a `.sha256` and an attestation too, and ride in the same draft.
+# They prove integrity, not authorship: nothing is signed until signed metadata (#9) exists.
 # Publishing the draft is the operator's act, after the licence gate. Nothing here publishes.
 # The tag is made by the operator first; `gh release create --verify-tag` refuses a missing one.
 on:
@@ -75,11 +78,39 @@ jobs:
           path: out/*
           if-no-files-found: error
 
+  # The bootstrap scripts: the templates in packaging/bootstrap with this release's digests written
+  # in. It reads the tarballs' .sha256 sidecars as data (each is checked to be exactly a sha256sum
+  # line) and runs only the repository's own fill and test scripts, never anything it downloaded.
+  bootstrap:
+    name: fill the bootstrap scripts
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          path: assets
+          merge-multiple: true
+      - name: fill install.sh and install.ps1
+        run: ci/fill-bootstrap.sh "$GITHUB_REF_NAME" "$GITHUB_REPOSITORY" assets bootstrap-out
+      - name: shellcheck and the bootstrap tests
+        run: |
+          shellcheck -s sh packaging/bootstrap/install.sh.in bootstrap-out/install.sh
+          shellcheck ci/fill-bootstrap.sh ci/test-bootstrap.sh
+          ci/test-bootstrap.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: bootstrap
+          path: bootstrap-out/*
+          if-no-files-found: error
+
   # The attestation, apart from the build: this job holds the signing token and runs nothing it
   # downloaded, only the attestation action over the tarballs' bytes.
   attest:
     name: attest the builds
-    needs: build
+    needs: [build, bootstrap]
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -93,12 +124,15 @@ jobs:
       - name: attest the build (the installer's self update checks this with gh attestation verify)
         uses: actions/attest-build-provenance@v2
         with:
-          subject-path: assets/ciginstaller-v*-linux-*.tar.gz
+          subject-path: |
+            assets/ciginstaller-v*-linux-*.tar.gz
+            assets/install.sh
+            assets/install.ps1
 
   # One job writes every asset, so no two jobs ever write one release at once.
   draft:
     name: draft release
-    needs: [build, attest]
+    needs: [build, bootstrap, attest]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -116,8 +150,14 @@ jobs:
         run: |
           ls -l assets
           [[ "$(ls assets/*.tar.gz | wc -l)" == 2 ]] || { echo "::error::expected two tarballs"; exit 1; }
+          for f in install.sh install.sh.sha256 install.ps1 install.ps1.sha256; do
+            [[ -s "assets/$f" ]] || { echo "::error::assets/$f is missing"; exit 1; }
+          done
+          (cd assets && sha256sum -c install.sh.sha256 install.ps1.sha256)
           gh release create "$GITHUB_REF_NAME" --draft --verify-tag \
             --title "ciginstaller $GITHUB_REF_NAME" \
-            --notes "ciginstaller $GITHUB_REF_NAME for Linux x86_64 and aarch64 (static). Each tarball has a .sha256 sidecar and a build attestation: gh attestation verify <tarball> -R $GITHUB_REPOSITORY" \
-            assets/*.tar.gz assets/*.tar.gz.sha256 LICENSE NOTICE THIRD-PARTY-NOTICES.md
+            --notes "ciginstaller $GITHUB_REF_NAME for Linux x86_64 and aarch64 (static). Each tarball has a .sha256 sidecar and a build attestation: gh attestation verify <tarball> -R $GITHUB_REPOSITORY. install.sh and install.ps1 carry this release's digests; download one, read it, then run it. They prove integrity, not authorship: nothing is signed yet." \
+            assets/*.tar.gz assets/*.tar.gz.sha256 \
+            assets/install.sh assets/install.sh.sha256 assets/install.ps1 assets/install.ps1.sha256 \
+            LICENSE NOTICE THIRD-PARTY-NOTICES.md
           echo "draft created; publishing it is the operator's act" >> "$GITHUB_STEP_SUMMARY"

@@ -79,7 +79,21 @@ Around those levels:
 - **No signature on the installer or its bootstrap script.** The installer's
   own tarballs are built by a workflow that publishes a checksum and a build
   attestation for each, and a draft release is the only thing it creates.
-  Publishing one is a human act. `self update` admits the new build at the
+  Publishing one is a human act. The same workflow fills `install.sh` and
+  `install.ps1` from their templates with that release's tarball digests and
+  attaches them, with a checksum and an attestation each. There is no
+  installer release yet, so no such script has been published.
+  The script checks the downloaded tarball's SHA-256 against the digest it
+  carries and runs `gh attestation verify` when `gh` is present; it refuses on
+  any mismatch and leaves nothing behind. That is integrity, not authorship: a
+  script that was swapped before you downloaded it carries the digests of
+  whatever its maker chose, which is why you read it first and check it
+  against the `.sha256` and the attestation on the release page. It checks no
+  signature, because there are none until #9 is built. It never pipes anything
+  into a shell and sends nothing about the machine, only plain `GET`s of the
+  release's tarball. `CIGI_BOOTSTRAP_BASE_URL` exists for mirrors and tests and
+  says so when used; the embedded digest still has to match. The attestation is
+  checked whenever `gh` is installed and signed in, and nothing turns it off. `self update` admits the new build at the
   same levels as any other.
 - **No pinned digests yet.** The `pinned` level exists and is tested, and the
   list it reads is empty until a manifest is reviewed and its digests are
