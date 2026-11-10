@@ -131,6 +131,9 @@ impl Tty {
 
     /// Play the terminal: answer the background query with `rgb` after `delay`.
     fn answer_background(&mut self, rgb: &str, delay: Duration) {
+        if cfg!(target_os = "macos") {
+            return; // no query is sent there (detect::query_background), so nothing to answer
+        }
         if self.wait_for("\x1b]11;?") {
             std::thread::sleep(delay);
             self.send(&format!("\x1b]11;rgb:{rgb}\x07"));
@@ -234,6 +237,8 @@ fn an_enter_after_the_key_does_not_answer_the_next_question() {
     assert!(t.wait_for("answer 2: 'n' by Typed"), "{}", t.text());
 }
 
+// Linux only: the macOS probe is off (detect::query_background), so there is no reply to read.
+#[cfg(target_os = "linux")]
 #[test]
 fn a_late_background_reply_never_answers_a_question() {
     if !have_script() {
@@ -253,6 +258,8 @@ fn a_late_background_reply_never_answers_a_question() {
     assert!(t.wait_for("answer 1: 'y' by Typed"), "{}", t.text());
 }
 
+// Linux only: the macOS probe is off (detect::query_background), so there is no reply to read.
+#[cfg(target_os = "linux")]
 #[test]
 fn an_in_time_background_reply_picks_the_theme() {
     if !have_script() {

@@ -280,6 +280,13 @@ mod unix {
     /// does not answer in time, or anything goes wrong. Pending input is drained before the
     /// terminal is restored, so a late reply is not typed into the next prompt.
     pub fn query_background(timeout: Duration) -> Option<Rgb> {
+        // macOS: not asked. Under BSD `script(1)` the probe never read a reply that was sent in
+        // time (the cause could not be told apart without a Mac: `stty min 0 time 1`, `dd` on the
+        // tty, or how `script` forwards input), so it would cost its spawns for an answer it cannot
+        // be trusted to read. The theme then comes from `COLORFGBG` or `theme =`, else Neutral.
+        if cfg!(target_os = "macos") {
+            return None;
+        }
         // `timeout` (#32: 50 ms) bounds the wait for the terminal's reply, which starts when the
         // probe has written the query. Getting there spawns a handful of helper programs, which
         // is startup, not waiting: it has its own, looser cap (`SETUP`), so a slow process spawn
@@ -545,10 +552,26 @@ mod tests {
         let t = std::time::Instant::now();
         unix::collect(&rx, &mut got, t + Duration::from_millis(50), answered_da1);
         let took = t.elapsed();
+        // The wait is a timed condvar wait. How late the OS wakes it is the scheduler's (192 ms on a
+        // loaded macOS runner, with other tests' threads running), not this code's, so the upper
+        // bound only catches a wait that ignores its deadline. What the code decides is exact below.
         assert!(took >= Duration::from_millis(50), "{took:?}");
-        assert!(took < Duration::from_millis(80), "{took:?}");
+        assert!(took < Duration::from_secs(2), "{took:?}");
         assert!(got.is_empty());
         drop(tx);
+    }
+
+    // The deadline logic without a clock to oversleep: past deadline, nothing is read.
+    #[cfg(unix)]
+    #[test]
+    fn a_deadline_already_past_reads_nothing() {
+        let (tx, rx) = std::sync::mpsc::channel::<Vec<u8>>();
+        tx.send(b"late".to_vec()).unwrap();
+        let mut got = Vec::new();
+        let past = std::time::Instant::now();
+        unix::collect(&rx, &mut got, past, answered_da1);
+        assert!(got.is_empty());
+        assert_eq!(rx.try_recv().unwrap(), b"late");
     }
 
     #[cfg(unix)]

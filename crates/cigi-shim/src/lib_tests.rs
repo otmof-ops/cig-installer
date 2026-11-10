@@ -115,8 +115,11 @@ fn the_cig_key_is_the_top_level_one() {
 #[cfg(unix)]
 #[test]
 fn a_home_named_through_a_link_bounds_the_walk_of_its_real_path() {
-    let base = std::env::temp_dir().join(format!("cigi-bound-{}", std::process::id()));
-    let _ = std::fs::remove_dir_all(&base);
+    let tmp = std::env::temp_dir().join(format!("cigi-bound-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&tmp);
+    std::fs::create_dir_all(&tmp).unwrap();
+    // the temp directory is itself behind a link on macOS: every expected path starts canonical
+    let base = std::fs::canonicalize(&tmp).unwrap();
     let real = base.join("private/home");
     std::fs::create_dir_all(real.join("a/b")).unwrap();
     std::os::unix::fs::symlink(base.join("private"), base.join("link")).unwrap();
