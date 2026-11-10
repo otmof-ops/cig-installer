@@ -401,6 +401,7 @@ the installer: fetching and trusting artifacts, the store, toolchains and transa
 | [`E1826`](#e1826-unsafe-archive) | unsafe archive | these are MY ciggies | `ciginstaller install carton`, and report it if it happens again |
 | [`E1827`](#e1827-sidecar-missing-or-disagrees) | sidecar missing or disagrees | never heard of you | `ciginstaller install carton`, to fetch both again |
 | [`E1828`](#e1828-attestation-failed) | attestation failed | never heard of you | `ciginstaller config get trust` |
+| [`E1829`](#e1829-cigos-guard-could-not-be-taken-down-so-cigo-was-not-removed) | cigo's guard could not be taken down, so cigo was not removed | not one of the four | `cigo guard uninstall --yes`, then the same `ciginstaller uninstall` again |
 | [`E1830`](#e1830-an-owned-file-is-unreadable-or-too-new) | an owned file is unreadable or too new | not one of the four | `ciginstaller self update`, then `ciginstaller doctor` |
 | [`E1831`](#e1831-installed-file-differs-from-its-receipt) | installed file differs from its receipt | not one of the four | `ciginstaller repair` |
 | [`E1832`](#e1832-an-interrupted-change-was-recovered) | an interrupted change was recovered | not one of the four | `ciginstaller doctor` |
@@ -565,6 +566,23 @@ trust is set to attested and the build's provenance attestation is missing or do
 2. the attestation does not match the file (probe `trust-level`). **Remedy:** do not install; report it at https://github.com/otmof-ops/cig-installer/issues
 
 Related: [`E1822`](#e1822-trust-floor-not-met).
+
+### E1829 cigo's guard could not be taken down, so cigo was not removed
+
+*runtime · since 0.1.0 · arises in any*
+
+**Kind of no:** not one of the four (a mistake in the text, in the arithmetic, or in CigScript; syntax, type or logic error; an internal error).
+
+Removing cigo first runs `cigo guard uninstall --yes`, which removes the guard's shims and its PATH blocks. It could not be run, or it failed, so nothing was removed: without it the shims would call a cigo that is no longer there.
+
+**What to type next:** `cigo guard uninstall --yes`, then the same `ciginstaller uninstall` again
+
+**Known causes**, ranked; the doctor checks them in this order:
+
+1. cigo's files differ from their receipt, so the installer will not run it (probe `receipt-verify`). **Remedy:** `ciginstaller repair` restores them, then try the uninstall again
+2. `cigo guard uninstall --yes` ran and reported a problem (no probe; a suggestion, not a finding). **Remedy:** run `cigo guard uninstall --yes` yourself, read what it says, and try the uninstall again
+
+Related: [`E1863`](#e1863-nothing-installed-by-that-name-to-repair-uninstall-or-remove), [`E1831`](#e1831-installed-file-differs-from-its-receipt).
 
 ### E1830 an owned file is unreadable or too new
 
@@ -779,6 +797,7 @@ the installer: shims, pins, updates, rollbacks, repair, uninstall, and the comma
 | [`E1876`](#e1876-the-license-notice-was-not-confirmed) | the license notice was not confirmed | these are MY ciggies | `ciginstaller licences` |
 | [`E1877`](#e1877-no-build-of-that-tool-to-list-a-license-for) | no build of that tool to list a license for | can't see any ciggies bro | `ciginstaller licences` |
 | [`E1878`](#e1878-no-license-file-for-that-build) | no license file for that build | don't have any over here | `ciginstaller licences` |
+| [`E1879`](#e1879-a-tools-self-check-answered-in-a-shape-the-installer-cannot-read) | a tool's self-check answered in a shape the installer cannot read | not one of the four | `ciginstaller update` |
 
 ### E1840 nothing installed for this tool
 
@@ -1361,6 +1380,22 @@ Related: [`E1814`](#e1814-no-such-tool), [`E1878`](#e1878-no-license-file-for-th
 2. the file was deleted from the install (no probe; a suggestion, not a finding). **Remedy:** `ciginstaller repair` checks every installed file against its receipt and restores what is missing
 
 Related: [`E1877`](#e1877-no-build-of-that-tool-to-list-a-license-for).
+
+### E1879 a tool's self-check answered in a shape the installer cannot read
+
+*usage · since 0.1.0 · arises in doctor*
+
+**Kind of no:** not one of the four (a mistake in the text, in the arithmetic, or in CigScript; syntax, type or logic error; an internal error).
+
+doctor --tools ran `<tool> __doctor --json` and got JSON that is not the findings list of the family contract, so none of its findings are in the report.
+
+**What to type next:** `ciginstaller update`
+
+**Known causes**, ranked; the doctor checks them in this order:
+
+1. the tool's build and the installer disagree about the self-check shape (no probe; a suggestion, not a finding). **Remedy:** `ciginstaller update` brings a build that matches; `<tool> --version` still works meanwhile
+
+Related: [`E1864`](#e1864-a-tools-own-doctor-could-not-be-run).
 
 
 ## installer (`E1880`–`E1889`)

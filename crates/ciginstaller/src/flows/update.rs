@@ -328,8 +328,22 @@ pub fn run(cx: &mut Cx, a: &UpdateArgs) -> Result<Updated, InstallerError> {
     }
     cx.state = State::load(&cx.home).map_err(ie)?;
 
+    // a cig that changed says which of this machine's reported bugs the new release fixed; the
+    // update is done, so nothing here can fail it
+    let announced = match changes
+        .iter()
+        .find(|c| c.tool == "cig" && c.to.is_some() && c.from != c.to)
+        .and_then(|c| c.to.clone())
+    {
+        Some(new_cig) => super::family::announce_fixed(&cx.home, &new_cig),
+        None => Vec::new(),
+    };
+
     // report, with the rollback hint
     let mut r = Report::done(format!("updated carton {cur} to {tv}")).detail(fresh.clone());
+    for l in &announced {
+        r = r.detail(l.clone());
+    }
     for l in &links {
         r = r.detail(l.clone());
     }
@@ -369,6 +383,7 @@ pub fn run(cx: &mut Cx, a: &UpdateArgs) -> Result<Updated, InstallerError> {
     done(r.data(json!({
         "from": cur.to_string(), "to": tv.to_string(), "txn": txn_id,
         "changes": plan_lines, "whats_new": fresh, "links": links,
+        "announced": announced,
         "fetched": fetched.iter().map(|f| json!({"tool": f.tool, "version": f.version.to_string()})).collect::<Vec<_>>(),
         "trial": trial_json(&staged.trial),
     })))

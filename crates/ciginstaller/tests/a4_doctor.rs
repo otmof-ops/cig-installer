@@ -376,24 +376,24 @@ fn a4_doctor_extra_file_in_a_toolchain() {
         .exists());
 }
 
-/// The tools' own doctors run only when asked, and print as they answered. The tools here are
-/// the fixture's fakes, which echo their arguments.
+/// The tools' own checks run only when asked, and each is `<tool> __doctor --json`. The fakes
+/// here echo their arguments, which is not JSON: they have no self-check (a6_family has the rest).
 #[test]
 fn a4_doctor_tools_only_when_asked() {
     let fx = setup();
     let (_, plain) = doctor(&fx);
     assert!(plain["tools"].as_array().unwrap().is_empty());
-    assert!(!plain.to_string().contains("args=doctor"));
     let (code, d) = doctor_args(&fx, None, &["--tools"]);
     assert_eq!(code, 0, "{d:#}");
     let tools = d["tools"].as_array().unwrap();
     assert_eq!(tools.len(), 2, "{d:#}");
     let cig = tools.iter().find(|t| t["tool"] == "cig 1.20.0").unwrap();
-    assert!(cig["output"]
-        .as_str()
-        .unwrap()
-        .contains("cig 1.20.0 args=doctor"));
-    assert_eq!(cig["ok"], true);
+    assert_eq!(cig["self_check"], false);
+    assert_eq!(
+        cig["note"],
+        "this cig build has no self-check; it needs a newer build"
+    );
+    assert!(!d.to_string().contains("args=doctor"));
 }
 
 #[test]

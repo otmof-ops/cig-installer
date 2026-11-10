@@ -779,6 +779,25 @@ probe = "trust-level"
 remedy = "do not install; report it at https://github.com/otmof-ops/cig-installer/issues"
 
 [[code]]
+code = "E1829"
+title = "cigo's guard could not be taken down, so cigo was not removed"
+meaning = "Removing cigo first runs `cigo guard uninstall --yes`, which removes the guard's shims and its PATH blocks. It could not be run, or it failed, so nothing was removed: without it the shims would call a cigo that is no longer there."
+fix = "`cigo guard uninstall --yes`, then the same `ciginstaller uninstall` again"
+no = "none"
+arises = ["any"]
+tags = ["installer"]
+since = "0.1.0"
+related = ["E1863", "E1831"]
+[[code.cause]]
+why = "cigo's files differ from their receipt, so the installer will not run it"
+probe = "receipt-verify"
+remedy = "`ciginstaller repair` restores them, then try the uninstall again"
+[[code.cause]]
+why = "`cigo guard uninstall --yes` ran and reported a problem"
+probe = "none"
+remedy = "run `cigo guard uninstall --yes` yourself, read what it says, and try the uninstall again"
+
+[[code]]
 code = "E1830"
 title = "an owned file is unreadable or too new"
 meaning = "A file the installer keeps (state, config, index, receipt) cannot be read, or was written by a newer ciginstaller."
@@ -1631,6 +1650,21 @@ remedy = "`ciginstaller licences` names the repository and tag the build came fr
 why = "the file was deleted from the install"
 probe = "none"
 remedy = "`ciginstaller repair` checks every installed file against its receipt and restores what is missing"
+
+[[code]]
+code = "E1879"
+title = "a tool's self-check answered in a shape the installer cannot read"
+meaning = "doctor --tools ran `<tool> __doctor --json` and got JSON that is not the findings list of the family contract, so none of its findings are in the report."
+fix = "`ciginstaller update`"
+no = "none"
+arises = ["doctor"]
+tags = ["installer"]
+since = "0.1.0"
+related = ["E1864"]
+[[code.cause]]
+why = "the tool's build and the installer disagree about the self-check shape"
+probe = "none"
+remedy = "`ciginstaller update` brings a build that matches; `<tool> --version` still works meanwhile"
 
 [[code]]
 code = "E1890"
