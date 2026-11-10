@@ -702,7 +702,7 @@ fn results_go_to_stdout_and_chatter_to_stderr() {
 
 // ---- the registry -----------------------------------------------------------------------
 
-const SPEC_CODES: [(u32, &str); 80] = [
+const SPEC_CODES: [(u32, &str); 81] = [
     (1800, "combination refused"),
     (1801, "a product needs another"),
     (1802, "a stick does not fit its carton"),
@@ -758,6 +758,10 @@ const SPEC_CODES: [(u32, &str); 80] = [
         "another pin file in this directory would outrank the one being written",
     ),
     (1848, "the edited pin file would not read back"),
+    (
+        1849,
+        "a promise of the last update or rollback did not hold",
+    ),
     (1850, "downgrade refused"),
     (1851, "trial found differences and was declined"),
     (1852, "nothing to roll back to"),

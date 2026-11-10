@@ -50,6 +50,17 @@ Linux, with every build checked first and every change one undoable step.
   - It works when `state.json` is the broken thing: the block says so.
   - E1858 when the bundle cannot be built or written.
 
+### Tripwires (#28, the installer's row)
+
+- **After an update or a rollback the installer reads its work back from
+  disk**: the shim-index against `state.json`, every shim against the carton's
+  build, and after a rollback every toolchain against its receipt. A mismatch
+  keeps the work (nothing is undone and the exit stays 0), prints
+  `warning E1849` with the next step (`ciginstaller repair`, then
+  `ciginstaller crash show <report>`), and saves a report of kind `tripwire`
+  in the ashtray: high severity after a rollback, medium after an update.
+  Nothing is sent.
+
 ### Licenses (#27)
 
 - **`ciginstaller licences [tool] [--text] [--json]`** lists the installer and

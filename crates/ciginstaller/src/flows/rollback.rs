@@ -17,7 +17,7 @@ use serde_json::json;
 
 use super::install::finding_error;
 use super::switch::{resync_shims, verify_or_repair, UpdateUndo, UNDO_KEY};
-use super::{cached_yanked, save_and_flip, settle};
+use super::{cached_yanked, save_and_flip, settle, tripwire};
 use crate::cx::Cx;
 use crate::errors::ie;
 
@@ -84,7 +84,13 @@ pub fn run(cx: &mut Cx, a: &RollbackArgs) -> Result<Report, InstallerError> {
             "carton {cur} stays installed; `ciginstaller use {cur}` goes forward again"
         ));
     }
-    Ok(rep.data(json!({ "from": cur, "to": prev, "txn": id, "undone_update": undo.is_some() })))
+    let rep =
+        rep.data(json!({ "from": cur, "to": prev, "txn": id, "undone_update": undo.is_some() }));
+    Ok(tripwire::finish(
+        &cx.home,
+        tripwire::Wire::AfterRollback,
+        rep,
+    ))
 }
 
 fn apply_carton(
@@ -263,9 +269,14 @@ fn tool_back(
     for w in warnings {
         rep = rep.detail(format!("warning {w}"));
     }
-    Ok(rep
+    let rep = rep
         .next("ciginstaller which --why")
-        .data(json!({ "tool": tool, "version": pv, "from_carton": prev, "txn": id })))
+        .data(json!({ "tool": tool, "version": pv, "from_carton": prev, "txn": id }));
+    Ok(tripwire::finish(
+        &cx.home,
+        tripwire::Wire::AfterRollback,
+        rep,
+    ))
 }
 
 fn ie_msg(m: String) -> InstallerError {

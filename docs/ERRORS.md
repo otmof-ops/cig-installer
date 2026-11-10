@@ -771,6 +771,7 @@ the installer: shims, pins, updates, rollbacks, repair, uninstall, and the comma
 | [`E1846`](#e1846-pin-target-is-a-link-or-not-a-regular-file) | pin target is a link or not a regular file | these are MY ciggies | `ls -l` the file, remove or move it yourself, then run `ciginstaller pin carton <pin>` again |
 | [`E1847`](#e1847-another-pin-file-in-this-directory-would-outrank-the-one-being-written) | another pin file in this directory would outrank the one being written | these are MY ciggies | `ciginstaller pin carton <pin>` writes .cig-carton, which outranks the others |
 | [`E1848`](#e1848-the-edited-pin-file-would-not-read-back) | the edited pin file would not read back | these are MY ciggies | `ciginstaller pin carton <pin>` writes a fresh .cig-carton instead |
+| [`E1849`](#e1849-a-promise-of-the-last-update-or-rollback-did-not-hold) | a promise of the last update or rollback did not hold | not one of the four | `ciginstaller repair`, then `ciginstaller crash show <report>` |
 | [`E1850`](#e1850-downgrade-refused) | downgrade refused | these are MY ciggies | `ciginstaller update --to <carton> --allow-downgrade` |
 | [`E1851`](#e1851-trial-found-differences-and-was-declined) | trial found differences and was declined | these are MY ciggies | `ciginstaller update --trial-only` |
 | [`E1852`](#e1852-nothing-to-roll-back-to) | nothing to roll back to | don't have any over here | `ciginstaller list` |
@@ -952,6 +953,23 @@ The installer edits a pin file in place and checks the result the way the shim r
 1. the file uses a form the installer cannot edit safely, such as a quoted or escaped carton key (probe `pin-file`). **Remedy:** edit the carton line by hand, or pin without --file
 
 Related: [`E1841`](#e1841-pin-file-unreadable), [`E1846`](#e1846-pin-target-is-a-link-or-not-a-regular-file).
+
+### E1849 a promise of the last update or rollback did not hold
+
+*usage · since 0.1.0 · arises in update*
+
+**Kind of no:** not one of the four (a mistake in the text, in the arithmetic, or in CigScript; syntax, type or logic error; an internal error).
+
+After an update or a rollback the installer read its work back from disk and found a mismatch: a shim that does not resolve to the carton's build, a shim-index that differs from state.json, or (after a rollback) a toolchain that differs from its receipt. The work is done and nothing was undone. A report of kind tripwire is saved in the ashtray; nothing was sent.
+
+**What to type next:** `ciginstaller repair`, then `ciginstaller crash show <report>`
+
+**Known causes**, ranked; the doctor checks them in this order:
+
+1. the shim-index or a shim was changed after the switch, by hand or by another program (probe `receipt-verify`). **Remedy:** `ciginstaller repair` rewrites the index and the shims from state.json
+2. a toolchain file differs from its receipt after a rollback (probe `receipt-verify`). **Remedy:** `ciginstaller repair` restores it from the store; a rollback that trips is high severity, so keep the report
+
+Related: [`E1831`](#e1831-installed-file-differs-from-its-receipt), [`E1857`](#e1857-a-crash-report-did-not-leave-this-machine).
 
 ### E1850 downgrade refused
 

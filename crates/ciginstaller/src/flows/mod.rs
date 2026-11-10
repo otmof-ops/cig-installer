@@ -12,6 +12,7 @@ pub mod notice;
 pub mod rollback;
 pub mod switch;
 pub mod trial;
+pub mod tripwire;
 pub mod update;
 // ---- end of the update lifecycle block ----
 pub mod self_update;

@@ -232,6 +232,18 @@ pub fn fault_after(point: &str) {
     }
 }
 
+/// Is the named fault planted (`CIGI_FAULT=<point>:1`)? For a check that a test build tampers with
+/// on purpose, where `fault_after` would stop the process instead. Always false without fault
+/// injection.
+#[allow(unused_variables)]
+pub fn fault_planted(point: &str) -> bool {
+    #[cfg(feature = "fault-injection")]
+    if let Some(f) = Fault::from_env() {
+        return f.phase == point && f.n <= 1;
+    }
+    false
+}
+
 // ------------------------------------------------------------------- Txn
 
 /// An open transaction. See the module docs.
