@@ -190,6 +190,19 @@ pub fn run(cx: &mut Cx, a: &UpdateArgs) -> Result<Updated, InstallerError> {
     if let Some(n) = &pin_note {
         warnings.push(n.clone());
     }
+    // `rollout = N%`: an explicit update is the person's own word and goes ahead; outside the
+    // share it says so (the id and the bucket are never shown)
+    let standing = cigi_home::rollout::standing(&cx.cfg.get("rollout"));
+    let rollout = json!({
+        "percent": standing.percent, "in_share": standing.in_share,
+        "explicit_override": tv > cur && !standing.in_share,
+    });
+    if tv > cur && !standing.in_share {
+        warnings.push(format!(
+            "rollout {}: this machine is outside the share, so it would not take carton {tv} on its own; update takes it because you asked",
+            standing.share_text()
+        ));
+    }
     let plan_lines: Vec<String> = changes.iter().map(change_line).collect();
     let newer = tv > cur;
     let fresh = whats_new(&target, &changes);
@@ -225,6 +238,7 @@ pub fn run(cx: &mut Cx, a: &UpdateArgs) -> Result<Updated, InstallerError> {
         let r = r.data(json!({
             "current": cur.to_string(), "target": tv.to_string(), "newer": newer,
             "changes": plan_lines, "check": true, "whats_new": fresh, "links": links,
+            "rollout": rollout,
         }));
         return Ok(Updated {
             report: r,
@@ -255,7 +269,7 @@ pub fn run(cx: &mut Cx, a: &UpdateArgs) -> Result<Updated, InstallerError> {
         }
         return done(r.data(json!({
             "current": cur.to_string(), "target": tv.to_string(), "dry_run": true,
-            "changes": plan_lines,
+            "changes": plan_lines, "rollout": rollout,
         })));
     }
 
@@ -388,6 +402,7 @@ pub fn run(cx: &mut Cx, a: &UpdateArgs) -> Result<Updated, InstallerError> {
         "announced": announced,
         "fetched": fetched.iter().map(|f| json!({"tool": f.tool, "version": f.version.to_string()})).collect::<Vec<_>>(),
         "trial": trial_json(&staged.trial),
+        "rollout": rollout,
     }));
     // the promises of an update, read back from disk
     done(super::tripwire::finish(

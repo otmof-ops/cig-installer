@@ -735,7 +735,9 @@ fn submit_names_its_origin_and_repo() {
         &[],
         &["--json", "crash", "show", d["id"].as_str().unwrap()],
     ));
-    assert_eq!(l["data"]["target"], "otmof-ops/cigar-script");
+    // the top frame is `cig::run`: the fault is cig's, so it is filed there (#28 section 3: blame,
+    // not only origin); the report still says where it was seen
+    assert_eq!(l["data"]["target"], "otmof-ops/cig-script");
     assert_eq!(l["data"]["report"]["origin"], "cigar-script");
     // the command line is the words the installer knows; the person's script is a shape
     let cmd = l["data"]["report"]["command"].to_string();

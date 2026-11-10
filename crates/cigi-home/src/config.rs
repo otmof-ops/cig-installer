@@ -75,6 +75,11 @@ pub const KEYS: &[KeySpec] = &[
         default: "off",
     },
     KeySpec {
+        key: "rollout",
+        values: None,
+        default: "100",
+    },
+    KeySpec {
         key: "theme",
         values: Some(&["auto", "dark", "light"]),
         default: "auto",
@@ -217,6 +222,8 @@ impl Config {
         match key {
             // 0 would make every carton "unused" and `gc` remove them all; ten years is the ceiling
             "keep_days" => Some((1, 3650)),
+            // a share of machines, in percent; `10` and `10%` both read as ten
+            "rollout" => Some((1, 100)),
             _ => None,
         }
     }
@@ -239,6 +246,15 @@ impl Config {
                     .collect::<Vec<_>>()
                     .join(", ")
             ))),
+            None if key == "rollout" => {
+                if crate::rollout::parse_percent(value).is_some() {
+                    Ok(())
+                } else {
+                    Err(StateError::Usage(format!(
+                        "`rollout` is a share of machines from 1 to 100 percent, like 10%; got `{value}`"
+                    )))
+                }
+            }
             None => match Config::numeric_range(key) {
                 Some((lo, hi)) if !value.parse::<u32>().is_ok_and(|n| (lo..=hi).contains(&n)) => {
                     Err(StateError::Usage(format!(
@@ -393,6 +409,15 @@ mod tests {
         }
         assert!(Config::validate("keep_days", "1").is_ok());
         assert!(Config::validate("keep_days", "3650").is_ok());
+        for good in ["1", "10", "10%", "100%", " 50 % "] {
+            assert!(Config::validate("rollout", good).is_ok(), "{good}");
+        }
+        for bad in ["0", "101", "ten", "", "10.5", "-1"] {
+            let e = Config::validate("rollout", bad).unwrap_err();
+            assert_eq!(e.code(), "E1870");
+            assert!(e.to_string().contains("from 1 to 100"), "{e}");
+        }
+        assert_eq!(Config::from_text("", &no_env).get("rollout"), "100");
         assert!(Config::validate("bogus", "1").is_err());
         assert!(Config::validate("mirror", "https://x").is_ok());
     }

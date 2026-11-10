@@ -3,6 +3,7 @@
 //! The flows (SPEC 2.6 and 12). Each is `fn run(cx, args) -> Result<Report, InstallerError>`.
 
 pub mod bench;
+pub mod bug;
 pub mod bundle;
 pub mod gc;
 pub mod install;

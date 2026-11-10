@@ -1332,7 +1332,7 @@ remedy = "change the pins with `ciginstaller pin carton <pin>`, or install a car
 [[code]]
 code = "E1857"
 title = "a crash report did not leave this machine"
-meaning = "`ciginstaller crash send` (or `crash submit --now`) did not send a report: the `reports` setting is `never`, the issues route is not usable, or the route did not take it. Nothing was lost: the report stays in the ashtray with the reason, and `ciginstaller crash show` still prints exactly what would be sent."
+meaning = "`ciginstaller crash send` (or `crash submit --now`) did not send a report: the `reports` setting is `never`, no route can file it, or the route did not take it. `crash test-route` answers with this code when no route can file a report. Nothing was lost: the report stays in the ashtray with the reason, and `ciginstaller crash show` still prints exactly what would be sent."
 fix = "`ciginstaller crash show <report>`, then `ciginstaller crash send <report>` once the cause is gone"
 no = "depends"
 arises = ["crash"]
@@ -1354,11 +1354,21 @@ why = "the route could not be reached, or answered with an error or a redirect (
 no = "depends"
 probe = "none"
 remedy = "check the connection and send again; the report waits in the ashtray and its last error is in `ciginstaller crash list`"
+[[code.cause]]
+why = "no route could file it: `gh` is missing or not logged in, `CIG_GITHUB_TOKEN` is unset or refused, the token lacks the issues scope, GitHub answered 422 to the search, or a rate limit is in force (the next try is recorded)"
+no = "depends"
+probe = "none"
+remedy = "`ciginstaller crash test-route` names each route's reason with GitHub's own error text; fix the route you use (`gh auth login`, or a token with the issues scope), or file it by hand with `ciginstaller crash send <report> --via link`"
+[[code.cause]]
+why = "the network is down, DNS is failing, or GitHub redirected to another host (the token is never sent to another host)"
+no = "cant-see-any"
+probe = "none"
+remedy = "check the connection and send again; the report waits in the ashtray, and `ciginstaller crash send <report> --via file --out <file>` writes it out to file from another machine"
 
 [[code]]
 code = "E1858"
 title = "a report could not be put together"
-meaning = "`ciginstaller report` could not build or write the bundle: cig, which alone can read its own run records, did not give a bundle for the run (it could not be run, or it failed), or the file asked for with `--out` could not be written. Nothing was sent and nothing on the machine changed; `ciginstaller report --block` still prints the version block."
+meaning = "`ciginstaller report` or `ciginstaller bug` could not build or write the report: cig, which alone can read its own run records, did not give a bundle for the run (it could not be run, or it failed), the file asked for with `--out` could not be written, or the bug report could not be saved in the ashtray. Nothing was sent and nothing on the machine changed; `ciginstaller report --block` still prints the version block."
 fix = "`ciginstaller report --block`, then `ciginstaller report <run> --out <file>` once the cause is gone"
 no = "depends"
 arises = ["crash"]
@@ -1380,6 +1390,11 @@ why = "the file given to `--out` is in a folder that cannot be written"
 no = "these-are-mine"
 probe = "none"
 remedy = "give `--out` a path you can write"
+[[code.cause]]
+why = "`ciginstaller bug` could not put the report together: cig did not give the bundle of the run it was asked about (the cause above), or the report could not be saved because the ashtray's folder cannot be written"
+no = "depends"
+probe = "none"
+remedy = "`ciginstaller bug --run <id>` again once cig answers (`ciginstaller repair` if its files differ from the receipt), or `ciginstaller bug --product <part>` for a report that is not about a run; make `ashtray/` in the home writable"
 
 [[code]]
 code = "E1860"

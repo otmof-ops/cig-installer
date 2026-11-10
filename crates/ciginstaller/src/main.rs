@@ -127,6 +127,7 @@ fn dispatch(cli: Cli, ui: Ui) -> i32 {
         Some(Command::Crash(_)) => ("crash", None),
         Some(Command::Report(_)) => ("report", None),
         // ---- end of the crash block ----
+        Some(Command::Bug(_)) => ("bug", None),
     };
     // the exit code a successful command ends with when it is not 0 (`update --check --exit-code`)
     let mut exit_override: Option<i32> = None;
@@ -145,6 +146,11 @@ fn dispatch(cli: Cli, ui: Ui) -> i32 {
     if let Some(Command::Report(r)) = &cli.command {
         let result = cmd::report::run(&ui, globals, cwd, r);
         return ui.finish("report", &result);
+    }
+    // the bug report works when the installer's own state is what is broken, as report does
+    if let Some(Command::Bug(b)) = &cli.command {
+        let result = cmd::bug::run(&ui, globals, cwd, b);
+        return ui.finish("bug", &result);
     }
     let result = (|| -> Result<Outcome, InstallerError> {
         let mut cx = Cx::new(ui.duplicate(), globals, cwd)?;
@@ -338,7 +344,7 @@ fn read_only(cmd: &Option<Command>) -> bool {
         // they write a cache and the directory or file they were given, never the machine's state
         Some(Command::Bundle { .. } | Command::Mirror { .. }) => true,
         Some(Command::Bench(_)) => true,
-        Some(Command::Crash(_) | Command::Report(_)) => true,
+        Some(Command::Crash(_) | Command::Report(_) | Command::Bug(_)) => true,
         Some(Command::Licences { .. }) => true,
         Some(Command::Repair { dry_run, .. })
         | Some(Command::Remove { dry_run, .. })
@@ -360,6 +366,7 @@ fn command_name(cmd: &Option<Command>) -> &'static str {
         Some(Command::Update(_)) => "update",
         Some(Command::Crash(_)) => "crash",
         Some(Command::Report(_)) => "report",
+        Some(Command::Bug(_)) => "bug",
         Some(Command::Doctor { .. }) => "doctor",
         Some(Command::Repair { .. }) => "repair",
         Some(Command::Uninstall { .. }) => "uninstall",

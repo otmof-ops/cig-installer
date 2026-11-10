@@ -3,6 +3,7 @@
 //! One module per command group. Each returns an `Outcome` for `main` to print.
 
 pub mod bench;
+pub mod bug;
 pub mod bundle;
 pub mod carton;
 pub mod channel;

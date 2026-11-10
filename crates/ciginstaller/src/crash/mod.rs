@@ -9,8 +9,12 @@
 //! report cig wrote survives an installer that touched it.
 
 pub mod anon;
+pub mod blame;
+pub mod block;
+pub mod health;
 pub mod hook;
 pub mod route;
+pub mod routes;
 
 use std::fs;
 use std::io::{self, IsTerminal};
@@ -31,6 +35,8 @@ pub enum Kind {
     Crash,
     Internal,
     Tripwire,
+    Differential,
+    Update,
     Report,
 }
 
@@ -40,6 +46,8 @@ impl Kind {
             Kind::Crash => "crash",
             Kind::Internal => "internal",
             Kind::Tripwire => "tripwire",
+            Kind::Differential => "differential",
+            Kind::Update => "update",
             Kind::Report => "report",
         }
     }
@@ -47,6 +55,8 @@ impl Kind {
         match s {
             "internal" => Kind::Internal,
             "tripwire" => Kind::Tripwire,
+            "differential" => Kind::Differential,
+            "update" => Kind::Update,
             "report" => Kind::Report,
             _ => Kind::Crash,
         }
@@ -136,14 +146,6 @@ impl Report {
     /// The one line that says what happened.
     pub fn headline(&self) -> &str {
         self.title.as_deref().unwrap_or(&self.panic_message)
-    }
-
-    /// Where it goes: its own repository when it names one, else its origin's.
-    pub fn target(&self) -> String {
-        self.repo
-            .clone()
-            .filter(|r| !r.is_empty())
-            .unwrap_or_else(|| repo_of_origin(&self.origin).to_string())
     }
 
     /// `filed`, `failed: <why>`, `pending` (asked for, waiting) or `local`.

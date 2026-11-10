@@ -86,6 +86,24 @@ One line per step; the running step's bar is in `ember`; done steps collapse to 
 - No prompt without a terminal: the safe default is taken, one line says so, and the exit code is 3 when that default was a refusal.
 - Passwords and OS authentication never go through the UI's prompt; they go to the OS.
 
+### The bug conversation (#29)
+
+`ciginstaller bug` is the one place that asks for free text. Each question is a catalogue-style pair, the voice with plain beside it, numbered as #29 shows them:
+
+```text
+· something went wrong. let's write it up properly. every question can be skipped.
+? 1. which part?  [c]ig  [o] cigo  [m] CigCompile  [p] a compiled program  [a] CigarScript  [i] the installer  [n] not sure  [S]kip
+2. what were you doing? > rolled back a run that had two hops editing the same config file
+3. what did you expect? > the file back as it was
+4. what happened instead? > the file was left at the first hop's version
+? 5. which run?  [r] 20261106T184724-466e37 (2026-11-06T18:47:24Z, unburn_failed)  [a]nother  [N]one
+```
+
+- A text answer is one typed line, never a keypress; an empty line skips it, and nothing but a person at a terminal is ever asked (`--json`, CI and a pipe take the flags instead and anything missing stays empty).
+- The person's words stay theirs. A span shaped like a path, an address, a token, an e-mail address or their own name is marked and asked about on its own line, `keep it as you typed it, or swap in <shape>?`, and the default is to swap. A token-shaped span is not offered: it goes, with a line saying so. Without a terminal marked spans are swapped and listed, unless `--keep-marked`.
+- `--yes` answers none of these questions.
+- The preview is boxed section by section (the report's own fields, the answers, the version matrix, the environment, the doctor's findings, the run, the repro), each as it will travel, the version matrix labelled "always sent" and the others "can be removed". The next question is `send it`, `keep it here` (the default), `take a section out` or `cancel`; with `reports = never` there is no `send it`. What the preview shows is the object `crash show` prints and `crash send` sends: it is composed once.
+
 ## Tables
 
 ```text
@@ -120,6 +138,12 @@ At most one line at the end of any command, and never the same one twice in a da
 · carton 0.1.2 is out: ciginstaller update
 ```
 
+Outside a `rollout = N%` share (#17) the same notice says the carton is rolling out, and how to take it now:
+
+```text
+· carton 0.1.2 is rolling out, 10% of machines so far (this machine is on 0.1.1); to take it now: ciginstaller update
+```
+
 ## Budgets
 
 | measure | target | proved by |
@@ -146,8 +170,9 @@ Variants: `dark` (truecolor, `COLORFGBG=15;0`), `light` (truecolor, `COLORFGBG=0
 | `ciginstaller which --why` | `which`, `which-why` | the resolver's table, then the answer |
 | `ciginstaller doctor` | `doctor`, `finding` | findings grouped by product, each "I think this, because I checked that", ending with its fix command |
 | `ciginstaller crash list` and `show` | `crash-list`, `crash-show` | the queue as a table; `show` prints exactly what travels, in boxes |
+| `ciginstaller crash test-route` and `status` | none yet | one line per route (the route, its state, why), then the queue with each report's target and last error, ending with the next step |
 | `ciginstaller report` | none yet | the version block as lines (the installer and carton, one line per tool with its build, the project's pins, the guarantee), then one `flagged:` line per mismatch; the headline is the action glyph when anything is flagged and the done glyph when not |
-| `ciginstaller bug` | `bug` | one question per screen, the boxed preview, the send question, the result with the issue link |
+| `ciginstaller bug` | none yet (a terminal test) | the numbered questions in the voice with plain beside them, the marked-span questions, the sectioned preview, then the send question; the result is the saved id (or the issue link once the route files one) |
 | `ciginstaller carton list` | `carton-list` | cartons as a table with what changed |
 | `ciginstaller programs` | `programs` | compiled programs on the machine, their cig, any advisory |
 | errors | `error-no-such-carton`, `error-bug` | a refusal painted by its kind; a bug in `danger` |

@@ -504,6 +504,121 @@ pub fn anonymise_value(v: &mut Value, cig_home: Option<&Path>) {
     }
 }
 
+// ----- a person's own words: marked, never rewritten silently -------------------------------
+
+/// A span of a person's own text that the anonymiser would change: what it is, as typed, and
+/// what it would become. Asking the person is the caller's job; nothing here rewrites on its own.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Mark {
+    /// `path`, `address` (an IP or a URL), `token`, `email` or `name` (this user's or host's).
+    pub kind: &'static str,
+    pub text: String,
+    pub replace: String,
+}
+
+impl Mark {
+    /// A secret-shaped span is never kept: sending it would hand a credential over.
+    pub fn keepable(&self) -> bool {
+        self.kind != "token"
+    }
+}
+
+/// Every span of `text` shaped like a path, an address, a token or an e-mail address, and this
+/// user's and host's names, each once, in the order they first appear.
+pub fn marks(text: &str, cig_home: Option<&Path>) -> Vec<Mark> {
+    let env = Env::read(cig_home);
+    let mut out: Vec<Mark> = Vec::new();
+    for w in text.split_whitespace() {
+        let (_, core, _) = split_word(w);
+        if core.is_empty() || out.iter().any(|m| m.text == core) {
+            continue;
+        }
+        let shown = word(core, &env, false);
+        if shown == core {
+            continue;
+        }
+        let kind = if core.contains("://") || shown.contains("<url>") || shown.contains("<ip>") {
+            "address"
+        } else if shown.contains("<redacted>") {
+            "token"
+        } else if shown.contains("<email>") {
+            "email"
+        } else {
+            "path"
+        };
+        out.push(Mark {
+            kind,
+            text: core.to_string(),
+            replace: shown,
+        });
+    }
+    let mut rest = text.to_string();
+    for m in &out {
+        rest = rest.replace(&m.text, " ");
+    }
+    for (n, what) in &env.names {
+        if rest.contains(n.as_str()) && !out.iter().any(|m| m.text == *n) {
+            out.push(Mark {
+                kind: "name",
+                text: n.clone(),
+                replace: (*what).to_string(),
+            });
+        }
+    }
+    out
+}
+
+/// `text` with every mark `keep` says no to replaced as the anonymiser would; the others stay
+/// exactly as typed.
+pub fn apply_marks(text: &str, marks: &[Mark], keep: &dyn Fn(&Mark) -> bool) -> String {
+    let mut order: Vec<&Mark> = marks.iter().filter(|m| !keep(m)).collect();
+    order.sort_by_key(|m| std::cmp::Reverse(m.text.len()));
+    let mut out = text.to_string();
+    for m in order {
+        out = out.replace(&m.text, &m.replace);
+    }
+    out
+}
+
+fn keeping(s: &str, home: Option<&Path>, kept: &[String]) -> String {
+    let mut order: Vec<&String> = kept.iter().filter(|k| !k.is_empty()).collect();
+    order.sort_by_key(|k| std::cmp::Reverse(k.len()));
+    let mut t = s.to_string();
+    for (i, k) in order.iter().enumerate() {
+        t = t.replace(k.as_str(), &format!("\u{1}{i}\u{1}"));
+    }
+    let mut out = anonymise_text_in(&t, home);
+    for (i, k) in order.iter().enumerate() {
+        out = out.replace(&format!("\u{1}{i}\u{1}"), k);
+    }
+    out
+}
+
+/// A report's `details`, anonymised: every string, as always. The one exception is a bug report
+/// (`details.kind` is `ciginstaller-bug`): the spans the person was shown and chose to keep
+/// (`kept`, which stays on this machine) pass through `details.answers` as typed, and nowhere else.
+pub fn anonymise_details(d: &mut Value, cig_home: Option<&Path>, kept: &[String]) {
+    let is_bug = d["kind"] == "ciginstaller-bug";
+    if kept.is_empty() || !is_bug {
+        return anonymise_value(d, cig_home);
+    }
+    let answers = d.get_mut("answers").map(Value::take);
+    anonymise_value(d, cig_home);
+    if let (Some(mut a), Some(o)) = (answers, d.as_object_mut()) {
+        keep_in(&mut a, cig_home, kept);
+        o.insert("answers".into(), a);
+    }
+}
+
+fn keep_in(v: &mut Value, home: Option<&Path>, kept: &[String]) {
+    match v {
+        Value::String(s) => *s = keeping(s, home, kept),
+        Value::Array(a) => a.iter_mut().for_each(|x| keep_in(x, home, kept)),
+        Value::Object(o) => o.values_mut().for_each(|x| keep_in(x, home, kept)),
+        _ => {}
+    }
+}
+
 /// The shape of a directory, as a report's `cwd`.
 pub fn shape(p: &Path, cig_home: Option<&Path>) -> String {
     let env = Env::read(cig_home);

@@ -1,8 +1,9 @@
 // SPDX-FileCopyrightText: 2026 Jay Taylor (https://github.com/otmof-ops/cig-installer)
 // SPDX-License-Identifier: FSL-1.1-ALv2
 //! `auto_update = notify` (SPEC 12.2): after an interactive command, at most one line a day says
-//! a newer carton is out. No background process: the check happens on invocation, a manifest
-//! fetch at most once a day, and `installer/notice.json` remembers the day.
+//! a newer carton is out (or, outside a `rollout = N%` share, that it is rolling out). No
+//! background process: the check happens on invocation, a manifest fetch at most once a day, and
+//! `installer/notice.json` remembers the day.
 
 use std::path::PathBuf;
 
@@ -119,9 +120,18 @@ pub fn maybe_notify(cx: &Cx) {
     if newest <= machine {
         return;
     }
-    cx.ui.notice(&format!(
-        "carton {newest} is out (this machine is on {machine}); run: ciginstaller update"
-    ));
+    // `rollout = N%`: a machine outside the share is told one line, and the carton waits for it
+    let standing = cigi_home::rollout::standing(&cx.cfg.get("rollout"));
+    if standing.in_share {
+        cx.ui.notice(&format!(
+            "carton {newest} is out (this machine is on {machine}); run: ciginstaller update"
+        ));
+    } else {
+        cx.ui.notice(&format!(
+            "carton {newest} is rolling out, {} of machines so far (this machine is on {machine}); to take it now: ciginstaller update",
+            standing.share_text()
+        ));
+    }
     n.noticed = Some(day);
     n.carton = Some(newest.to_string());
     write(cx, &n);

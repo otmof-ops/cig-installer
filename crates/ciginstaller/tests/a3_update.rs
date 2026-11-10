@@ -335,7 +335,15 @@ fn a3_yank_and_downgrade() {
     fx.carton("0.2.0", &[("cig", "1.21.0")]);
     fx.carton("0.3.0", &[("cig", "1.22.0")]);
     fx.yank_carton("0.3.0", "broken in the fixture");
-    fx.publish("stable");
+    // sequence 2, so the manifest published at 1 below really goes backwards: one at the same
+    // sequence is refused only when its bytes differ, and two publishes in the same second match
+    fx.publish_with(
+        "stable",
+        &PublishOpts {
+            sequence: Some(2),
+            ..PublishOpts::default()
+        },
+    );
     ok(&cigi(&fx, &["install", "carton", "--carton", "0.2.0"]));
     let files0 = installed_files(&fx);
 

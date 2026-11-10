@@ -26,6 +26,29 @@ Linux, with every build checked first and every change one undoable step.
   includes a path, user name or host. The family's own paths stay readable in
   titles and bodies.
 
+### Issue routes, blame and the machine block (#28 steps 2 and 4)
+
+- **Routes that prove themselves.** `crash send` files a report through `gh`
+  (your login) or the API with `CIG_GITHUB_TOKEN`, searching the blamed
+  repository first so a known fault joins its issue and a lost response never
+  files it twice. With neither, `--via link` gives a prefilled issue and
+  `--via file --out FILE` writes it out. GitHub's own error text is shown,
+  never hidden. The relay and a scoped token wait for the courier (#24).
+- **`crash test-route`** makes one dry search per route. **`crash status`**
+  shows the queue, the `reports` setting and each route's last success and
+  failure, and `doctor` shows the same.
+- **Blame routing**: a report is filed in the repository of the product at
+  fault (the top frame that names one, then the error code's range, then the
+  origin), with a line in the origin's issue; a moved issue is followed.
+- **The `cig-report v1` block** ends every issue body: fingerprint, kind,
+  blame, version matrix, repro and its verification, and the first bad carton
+  when known; labels name the kind, area, regression and severity.
+- **A fake tracker** in `cigi-testkit` speaks GitHub's issue and search API,
+  with 422s, 403s, rate limits and redirects, and every route is tested
+  against it.
+- The report schema accepts the kinds `differential` and `update`, and
+  `crash show` and `crash list` name the blamed repository as the target.
+
 ### Reports (#11, #3)
 
 - **`ciginstaller report [<run>]`** puts together what a bug report needs, and
@@ -49,6 +72,37 @@ Linux, with every build checked first and every change one undoable step.
     (`never` refuses), as a report of kind `report`, with no identifier.
   - It works when `state.json` is the broken thing: the block says so.
   - E1858 when the bundle cannot be built or written.
+
+### Bug reports (#29, step 1)
+
+- **`ciginstaller bug`** writes up what went wrong, in the person's words, with
+  the evidence for it, and shows exactly what would travel before anything is
+  saved. `bug --run <id>`, `bug <product>` (or `--product`), `bug --last`, and
+  `bug list` / `bug show <n>` for the reports saved here (the receipt).
+  - **The conversation**: which part, what you were doing, what you expected,
+    what happened, which run; in the voice with plain beside it, every
+    question skippable. "Not sure" takes the part from the run or its error
+    code (E1000-E1099 CigCompile and programs, E870-E899 cigo's guard,
+    E1800-E1899 the installer, any other cig). Without a terminal nothing is
+    asked: `--part`, `--did`, `--expected`, `--happened`, `--every-time`.
+  - **The words stay yours.** A span shaped like a path, an address, a token,
+    an e-mail address or your own name is marked and asked about, and is never
+    rewritten without being listed. A token-shaped span is always replaced.
+  - **The evidence**: the run's bundle through `report`'s cig call, the version
+    matrix, the carton and channel, the OS and `doctor`'s findings for that
+    product. A verified repro in the run's bundle goes in as `verified on this
+    machine`; without one the report says so and asks whether it happens every
+    time. A report is never held back for want of a repro.
+  - **The preview is the saved object**: `route::travel` of the one report that
+    is saved, section by section. Every section can be taken out
+    (`--without`) except the version matrix.
+  - **Nothing without a yes**: the last question, or `--save` (kept here) or
+    `--send` (through `crash send`'s route and consent; `reports = never`
+    refuses). `--yes` answers none of it, and no request is made before a yes.
+  - E1858 when the report cannot be put together.
+- Not yet: the similarity search and "add mine", `bug status` and
+  `bug withdraw`, the evidence for cigo, the guard, CigCompile and updates, and
+  each product's own short way in.
 
 ### Tripwires (#28, the installer's row)
 
@@ -76,6 +130,19 @@ Linux, with every build checked first and every change one undoable step.
   and downloads the archived copy, still at the digest the manifest pins. An
   index that lists other bytes for a build is refused (E1825), and the index
   is only read when the release is gone.
+
+### Staged rollouts (#17)
+
+- **`rollout = N%`** (1 to 100, default 100): a share of machines takes a new
+  carton on its own first, so a bad carton is caught on a few machines. The
+  share is decided on the machine, by a hash of the machine id with a fixed
+  prefix reduced to 0-99, and neither the id nor the hash is ever printed,
+  stored or sent. Outside the share the update notice says the carton is
+  rolling out; `ciginstaller update` still takes it, because you asked, and
+  says so. A machine with no id, or a `rollout` value that is not a percent,
+  waits below 100.
+- **`status --json`** gains `cartons` and `rollout` (`percent`, `in_share`,
+  `reason`) for an organization's own inventory tools. It makes no request.
 
 ### Licenses (#27)
 

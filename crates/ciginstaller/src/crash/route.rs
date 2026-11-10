@@ -101,7 +101,12 @@ pub fn travel(r: &Report, root: &Path) -> Value {
     }
     if let Some(d) = &r.details {
         let mut d = d.clone();
-        anon::anonymise_value(&mut d, home);
+        let kept: Vec<String> = r
+            .extra
+            .get("kept_spans")
+            .and_then(|k| serde_json::from_value(k.clone()).ok())
+            .unwrap_or_default();
+        anon::anonymise_details(&mut d, home, &kept);
         m.insert("details".into(), d);
     }
     if let Some(x) = r.repro.as_ref().filter(|x| x.is_object()) {

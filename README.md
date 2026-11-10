@@ -262,10 +262,12 @@ lists them all.
 | `uninstall <tool>`, `uninstall --all`, `remove <carton>` | remove a tool, everything the installer added, or one carton; your data stays |
 | `gc` | remove cartons unused for `keep_days` and the store objects nothing uses |
 | `shims sync`, `shims list` | rewrite the shims from the installer's state, and list them |
-| `config list\|get\|set\|unset` | the installer's settings and where each value comes from, such as `channel`, `trust`, `update_check`, `keep_days`, `bench_after_update`, `theme` and `voice` |
+| `config list\|get\|set\|unset` | the installer's settings and where each value comes from, such as `channel`, `trust`, `update_check`, `keep_days`, `bench_after_update`, `rollout`, `theme` and `voice` |
 | `licences [tool] [--text]` | the license of the installer and of each build here (an SPDX id, or "not stated"), where its text is, and what was acknowledged at the first install; `--text` prints one license file; the field is the code license (docs are CC-BY-4.0); read-only, nothing is sent anywhere |
 | `history` | the last installs, updates and rollbacks |
 | `crash list\|show\|send\|delete` | every tool's crash reports, in one queue: `show` prints exactly what `send` sends, nothing leaves without `send`, and `reports = never` refuses |
+| `crash status`, `crash test-route` | the queue, the `reports` setting and each route's last success and failure; one dry search per route, to see which can file a report |
+| `bug [<product>]` | writes up what went wrong, asked in the voice with plain beside it (or from flags without a terminal), with the run's bundle, the version matrix, the carton, the OS and the doctor's findings, and shows exactly what would travel first; `--save` keeps it here, `--send` sends it through the crash route, `bug list` and `bug show <n>` are the reports saved here |
 | `report [<run>]` | the version block and the bundle a bug report needs: `--out FILE` writes it, `--send` files it through the crash route, and `--block --json` is the block a product puts in its own report; otherwise nothing is written or sent |
 | `bench` | measure this machine against the performance budgets (shim dispatch, check, switch, sizes, first lines), locally and read-only, with the median and p95 of each; nothing is sent anywhere |
 | `self update` | update ciginstaller itself |
@@ -302,21 +304,36 @@ start its tool. A shim otherwise passes the tool's own exit code through.
   undo.
 - **The first carton holds `cig`, `cigo` and `cigcompile`.** CigarScript joins
   it when it has a release.
-- **Crash reports are half built.** `ciginstaller crash list|show|send|delete|submit`
-  work over cig's ashtray, and a crash in the installer lands there. There is
-  no issues route to send to yet: the relay and token
-  ([#28](https://github.com/otmof-ops/cig-installer/issues/28)) and the courier
+- **Crash reports file through `gh` or your token, not yet the courier.**
+  `ciginstaller crash list|show|send|delete|submit` work over cig's ashtray,
+  and a crash in the installer lands there. `crash send` files a report in the
+  repository of the product at fault, through `gh` with your login or the API
+  with `CIG_GITHUB_TOKEN`, searching first so a known fault joins its issue.
+  Without either it hands you a prefilled issue link or writes the report to
+  a file (`--via link`, `--via file --out FILE`). `CIGI_ROUTES` can turn
+  routes off. The relay that needs no login, a scoped token and the courier
   ([#24](https://github.com/otmof-ops/cig-installer/issues/24)) are still to
-  come, so `crash send` keeps the report queued and says so.
+  come.
 - **`ciginstaller report` is built; the products' stubs are not.** The version
   block (the installer, the carton, each tool's build, what the project pins,
   mismatches flagged) and the bundle behind a bug report work today, for an
   operation of the installer and, through cig, for a cig run. `cig report` and
   the other products' reports hand over to it when the family wiring lands.
-- **Not built:** bug filing
-  ([#29](https://github.com/otmof-ops/cig-installer/issues/29)), organization
-  policy ([#17](https://github.com/otmof-ops/cig-installer/issues/17)), and
-  the window ([#18](https://github.com/otmof-ops/cig-installer/issues/18)).
+- **`ciginstaller bug` is built as far as step 1 of
+  [#29](https://github.com/otmof-ops/cig-installer/issues/29)**: the questions,
+  the evidence for a run and the preview. The similarity search, "add mine",
+  `bug status` and `bug withdraw`, the evidence for cigo, the guard, CigCompile
+  and updates, and the products' own short ways in are not built.
+- **Organization policy is half built
+  ([#17](https://github.com/otmof-ops/cig-installer/issues/17)).**
+  `rollout = N%` stages a new carton to a share of machines, chosen by a hash
+  of the machine id that never leaves the machine, and `status --json` is the
+  inventory an organization's own tools collect. With no automatic install yet,
+  the stage gates the update notice; your own `ciginstaller update` always
+  takes the carton. System-wide locked settings wait for
+  [cig-orchestrator#66](https://github.com/otmof-ops/cig-orchestrator/issues/66).
+- **Not built:** the window
+  ([#18](https://github.com/otmof-ops/cig-installer/issues/18)).
 
 The plan of record is the issues, starting with the architecture
 ([#1](https://github.com/otmof-ops/cig-installer/issues/1)) and its decision,
@@ -328,7 +345,9 @@ This is a promise, and it is tested:
 
 - ciginstaller sends nothing about you or your machine to anyone. No ids, no
   usage statistics, no install counts beyond what a download server's own logs
-  show.
+  show. A staged rollout (`rollout = N%`) is decided on your machine from a
+  hash of its machine id with a fixed prefix; neither is ever printed, stored
+  or sent.
 - An update check is a plain `GET` of public metadata. It carries no
   identifier and no version in a query string (the comparison happens on your
   machine), only standard HTTP headers and `User-Agent: ciginstaller`.
@@ -338,14 +357,24 @@ This is a promise, and it is tested:
   and never when `reports` is `never` (`CIG_REPORTS=never` counts too).
   `crash show` prints exactly what would be sent: the fields of
   [schemas/report.schema.json](schemas/report.schema.json), with your paths as
-  shapes and your user and host names removed. It is one plain `POST` with no
-  query string, cookie, login or identifier.
+  shapes and your user and host names removed. Through `gh` or
+  `CIG_GITHUB_TOKEN` the issue is filed under your own GitHub login, after a
+  search that carries only the report's fingerprint and the repository;
+  through `CIGI_REPORT_ROUTE` it is one plain `POST` with no query string,
+  cookie, login or identifier.
 - A report (`ciginstaller report <run> --send`) is the same: it goes only
   when you type `--send`, through the same route and the same `reports`
   setting, and it carries the version block, the operation's journal and the
   trial's differences with your paths as shapes and your names removed.
   `ciginstaller report <run>` alone writes and sends nothing; `--out FILE`
   writes it for you to read first.
+- A bug report (`ciginstaller bug`) is yours the same way. It is previewed
+  whole, section by section, before it is saved; `--save` and the last
+  question only keep it here, and it is sent only by `--send` or "send it",
+  through the same route and the same `reports` setting (`never` refuses).
+  Your answers stay your words: a path, an address, a token, an e-mail address
+  or your name in them is marked and asked about, a token is always replaced,
+  and nothing is rewritten without being listed. `--yes` answers none of it.
 - A test records every request an install makes against a local server and
   fails if any carries an identifier, a cookie or a query string. It covers
   `install` and the commands that read; it is being extended to `update`

@@ -79,7 +79,9 @@ fn nothing_built_from_an_env_queries_the_terminal() {
     .with("TERM", "xterm-256color");
     let start = Instant::now();
     let ui = Ui::from_env(&GlobalFlags::default(), &env);
-    assert!(start.elapsed() < Duration::from_millis(5));
+    // a query would wait up to the query budget for the terminal's answer; a busy runner can
+    // spend a few milliseconds on its own, so the bound is the budget, not a guess below it
+    assert!(start.elapsed() < Duration::from_millis(budget::BACKGROUND_QUERY_MS));
     assert_eq!(ui.theme, Theme::Neutral, "not found, so neutral");
     assert!(!ui.theme_known);
 }

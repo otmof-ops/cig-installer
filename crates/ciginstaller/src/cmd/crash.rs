@@ -20,7 +20,9 @@ use serde_json::{json, Value};
 
 use super::tabular::details;
 use crate::cli::{CrashCmd, CrashSub};
-use crate::crash::{self, anon, route, Consent, Found, Kind, Report as Saved, Source};
+use crate::crash::{
+    self, anon, blame, health, route, routes, Consent, Found, Kind, Report as Saved, Source,
+};
 use crate::errors::ie;
 
 pub struct Env<'a> {
@@ -51,7 +53,12 @@ pub fn run(ui: &Ui, home_flag: Option<&PathBuf>, cmd: &CrashCmd) -> Result<Repor
     match cmd.sub.as_ref().unwrap_or(&CrashSub::List) {
         CrashSub::List => list(&env),
         CrashSub::Show { id } => show(&env, id),
-        CrashSub::Send { id, all } => send(&env, id.as_deref(), *all),
+        CrashSub::Send { id, all, via, out } => {
+            let via = Via::parse(via.as_deref(), out.as_deref())?;
+            send_via(&env, id.as_deref(), *all, &via)
+        }
+        CrashSub::TestRoute { repo } => test_route(&env, repo.as_deref()),
+        CrashSub::Status => status(&env),
         CrashSub::Delete { id, all } => delete(&env, id.as_deref(), *all),
         CrashSub::Submit {
             origin,
@@ -115,7 +122,7 @@ fn list(env: &Env) -> Result<Report, InstallerError> {
         "reports": l.reports.iter().map(|r| json!({
             "id": r.id, "origin": r.origin, "kind": r.kind.word(), "version": r.version,
             "state": r.state(), "title": r.headline(), "fingerprint": r.fingerprint,
-            "target": r.target(), "issue": r.issue.as_ref().map(|i| i.url.clone()),
+            "target": target_of(&env.root, r), "issue": r.issue.as_ref().map(|i| i.url.clone()),
             "attempts": r.queue.attempts, "last_error": r.queue.last_error,
         })).collect::<Vec<_>>(),
         "waiting": waiting,
@@ -192,7 +199,7 @@ fn show(env: &Env, id: &str) -> Result<Report, InstallerError> {
         rep = rep.detail(format!(
             "this is exactly what `ciginstaller crash send {}` sends, to the issues route for {}:",
             r.id,
-            r.target()
+            target_of(&env.root, &r)
         ));
         for l in serde_json::to_string_pretty(&view)
             .unwrap_or_default()
@@ -209,7 +216,7 @@ fn show(env: &Env, id: &str) -> Result<Report, InstallerError> {
     }
     Ok(rep
         .next(format!("ciginstaller crash send {}", r.id))
-        .data(json!({ "id": r.id, "state": r.state(), "target": r.target(), "report": view })))
+        .data(json!({ "id": r.id, "state": r.state(), "target": target_of(&env.root, &r), "report": view })))
 }
 
 // ----- send -------------------------------------------------------------------------------
@@ -234,50 +241,223 @@ pub fn never_error(env: &Env, r: Option<&Saved>) -> InstallerError {
     .with_exit(cigi_ui::EXIT_REFUSED)
 }
 
-enum Sent {
-    Filed(Option<String>),
-    /// Nothing to send to yet; the report is kept.
-    NoRoute,
-    AlreadyFiled(Option<String>),
+/// What `send` was asked to do about the route: all of them in order, or one.
+pub struct Via {
+    only: Option<routes::Route>,
+    out: Option<PathBuf>,
 }
 
-fn issue_of(url: &str) -> Option<crash::Issue> {
-    let u = url::Url::parse(url).ok()?;
-    let parts: Vec<&str> = u.path_segments()?.collect();
-    let i = parts.iter().position(|p| *p == "issues")?;
-    let number = parts.get(i + 1)?.parse().ok()?;
-    (i >= 2).then(|| crash::Issue {
-        repo: format!("{}/{}", parts[i - 2], parts[i - 1]),
+impl Via {
+    pub fn auto() -> Via {
+        Via {
+            only: None,
+            out: None,
+        }
+    }
+    fn parse(via: Option<&str>, out: Option<&Path>) -> Result<Via, InstallerError> {
+        let only = match via {
+            None => None,
+            Some(w) => Some(routes::Route::parse(w).ok_or_else(|| {
+                usage(format!(
+                    "--via names a route: gh, api, link or file, not `{w}`"
+                ))
+            })?),
+        };
+        if only == Some(routes::Route::File) && out.is_none() {
+            return Err(usage("--via file needs --out FILE"));
+        }
+        if only != Some(routes::Route::File) && out.is_some() {
+            return Err(usage("--out goes with --via file"));
+        }
+        Ok(Via {
+            only,
+            out: out.map(Path::to_path_buf),
+        })
+    }
+}
+
+/// How a filing went, beyond the address.
+#[derive(Default)]
+struct Extra {
+    how: Option<&'static str>,
+    pointer: Option<String>,
+}
+
+/// Routes that could not be used, and the link to open by hand.
+#[derive(Default)]
+struct Left {
+    unavailable: Vec<(String, String)>,
+    link: Option<String>,
+}
+
+enum Sent {
+    Filed(Option<String>, Extra),
+    /// No route that files was usable; the report is kept.
+    NoRoute(Left),
+    AlreadyFiled(Option<String>),
+    /// `--via link`: the link; the report stays queued.
+    Link(String),
+    /// `--via file`: written here; the report stays queued.
+    Exported(PathBuf),
+}
+
+/// The repository a report is filed in: the one it was filed in, else the blamed product's.
+pub fn target_of(root: &Path, r: &Saved) -> String {
+    r.repo
+        .clone()
+        .filter(|x| !x.is_empty())
+        .unwrap_or_else(|| blame::of(&route::travel(r, root)).repo)
+}
+
+fn mark_filed(env: &Env, r: &mut Saved, url: &str, repo: &str, number: u64) {
+    r.sent = Some(cigi_home::now_rfc3339());
+    r.issue = Some(crash::Issue {
+        repo: repo.to_string(),
         number,
         url: url.to_string(),
-    })
+    });
+    r.queue.last_error = None;
+    r.queue.next_try = None;
+    r.queue.attempts += 1;
+    let _ = crash::write(&env.root, r);
 }
 
-fn send_one(env: &Env, r: &mut Saved) -> Result<Sent, InstallerError> {
+fn send_one(env: &Env, r: &mut Saved, via: &Via) -> Result<Sent, InstallerError> {
     if r.filed() {
         return Ok(Sent::AlreadyFiled(r.issue.as_ref().map(|i| i.url.clone())));
     }
     if crash::explicit_never(&env.cfg) {
         return Err(never_error(env, Some(r)));
     }
-    let route = route::route_from_env().map_err(|e| {
+    let body = route::travel(r, &env.root);
+    match via.only {
+        Some(routes::Route::Link) => {
+            let repo = target_of(&env.root, r);
+            return routes::prefilled_link(&repo, &body)
+                .map(|u| Sent::Link(u.to_string()))
+                .ok_or_else(|| usage("the report is too long for a link; use `--via file`"));
+        }
+        Some(routes::Route::File) => {
+            let path = via.out.clone().unwrap_or_default();
+            routes::export(&path, &body).map_err(|e| {
+                InstallerError::new("E1857", format!("could not export {}: {e}", r.id))
+            })?;
+            health::record(&env.root, "file", Ok(()));
+            return Ok(Sent::Exported(path));
+        }
+        _ => {}
+    }
+    // a route the person runs themselves (round 1) is used alone when named and no route was asked
+    let own = route::route_from_env().map_err(|e| {
         InstallerError::new("E1857", format!("the issues route cannot be used: {e}"))
             .with_fix("ciginstaller crash show")
     })?;
     r.queue.requested = true;
-    let Some(route) = route else {
+    if let (Some(route), None) = (own, via.only) {
+        return send_own(env, r, &route, &body);
+    }
+    let mut left = Left::default();
+    let mut failed: Vec<(&'static str, routes::Fail)> = Vec::new();
+    for rt in [routes::Route::Gh, routes::Route::Api] {
+        if via.only.is_some_and(|o| o != rt) {
+            continue;
+        }
+        let client = match routes::client_for(rt) {
+            Ok(c) => c,
+            Err(why) => {
+                left.unavailable.push((rt.word().to_string(), why));
+                continue;
+            }
+        };
+        match routes::file(&client, &body, r.repo.as_deref()) {
+            Ok(f) => {
+                health::record(&env.root, rt.word(), Ok(()));
+                mark_filed(env, r, &f.url, &f.repo, f.number);
+                let how = match f.how {
+                    routes::How::Created => "created",
+                    routes::How::Joined => "joined an issue that was already there",
+                    routes::How::AlreadyThere => "already filed by this report",
+                };
+                return Ok(Sent::Filed(
+                    Some(f.url),
+                    Extra {
+                        how: Some(how),
+                        pointer: f.pointer,
+                    },
+                ));
+            }
+            Err(f) => {
+                health::record(&env.root, rt.word(), Err(&f.why));
+                failed.push((rt.word(), f));
+            }
+        }
+    }
+    if failed.is_empty() {
+        let repo = target_of(&env.root, r);
+        left.link = routes::prefilled_link(&repo, &body).map(|u| u.to_string());
         let _ = crash::write(&env.root, r);
-        return Ok(Sent::NoRoute);
-    };
-    let body = route::travel(r, &env.root);
-    match route::post(&route, &body) {
+        return Ok(Sent::NoRoute(left));
+    }
+    let why = failed
+        .iter()
+        .map(|(w, f)| format!("{w}: {}", f.why))
+        .chain(
+            left.unavailable
+                .iter()
+                .map(|(w, why)| format!("{w}: {why}")),
+        )
+        .collect::<Vec<_>>()
+        .join("; ");
+    r.queue.attempts += 1;
+    r.queue.last_error = Some(why.clone());
+    r.queue.next_try = failed
+        .iter()
+        .filter_map(|(_, f)| f.retry_at)
+        .min()
+        .map(health::rfc3339_of);
+    let _ = crash::write(&env.root, r);
+    Err(InstallerError::new(
+        "E1857",
+        format!(
+            "could not send {}: {why}; it stays queued at {}",
+            r.id,
+            crash::path_of(&env.root, r).display()
+        ),
+    )
+    .with_fix(format!(
+        "ciginstaller crash test-route, then ciginstaller crash send {}",
+        r.id
+    ))
+    .with_hint(format!(
+        "or open the prefilled issue yourself: ciginstaller crash send {} --via link",
+        r.id
+    ))
+    .with_subject(r.id.clone()))
+}
+
+/// `CIGI_REPORT_ROUTE`: one POST of what `show` prints, to the route the person runs.
+fn send_own(
+    env: &Env,
+    r: &mut Saved,
+    route: &url::Url,
+    body: &Value,
+) -> Result<Sent, InstallerError> {
+    match route::post(route, body) {
         Ok(url) => {
+            let issue = url.as_deref().and_then(routes::issue_of);
             r.sent = Some(cigi_home::now_rfc3339());
-            r.issue = url.as_deref().and_then(issue_of);
+            r.issue = url
+                .as_deref()
+                .zip(issue)
+                .map(|(u, (repo, number))| crash::Issue {
+                    repo,
+                    number,
+                    url: u.to_string(),
+                });
             r.queue.last_error = None;
             r.queue.attempts += 1;
             let _ = crash::write(&env.root, r);
-            Ok(Sent::Filed(url))
+            Ok(Sent::Filed(url, Extra::default()))
         }
         Err(f) => {
             r.queue.attempts += 1;
@@ -288,7 +468,7 @@ fn send_one(env: &Env, r: &mut Saved) -> Result<Sent, InstallerError> {
                 format!(
                     "could not send {} to {}: {}; it stays queued at {}",
                     r.id,
-                    host_of(&route),
+                    host_of(route),
                     f.why,
                     crash::path_of(&env.root, r).display()
                 ),
@@ -299,23 +479,48 @@ fn send_one(env: &Env, r: &mut Saved) -> Result<Sent, InstallerError> {
     }
 }
 
-fn no_route_report(env: &Env, ids: &[String]) -> Report {
+fn no_route_report(env: &Env, ids: &[String], left: &Left) -> Report {
     let kept = ids.len();
-    Report::new(
+    let mut rep = Report::new(
         Icon::Note,
         if kept == 1 {
-            format!("nothing was sent: there is no issues route yet; {} stays queued here", ids[0])
+            format!(
+                "nothing was sent: there is no issues route yet; {} stays queued here",
+                ids[0]
+            )
         } else {
-            format!("nothing was sent: there is no issues route yet; {kept} reports stay queued here")
+            format!(
+                "nothing was sent: there is no issues route yet; {kept} reports stay queued here"
+            )
         },
-    )
+    );
+    for (w, why) in &left.unavailable {
+        rep = rep.detail(format!("route {w}: {why}"));
+    }
+    rep = rep
     .detail("the relay and the scoped token that file a report without a person's own login are still to come (#28), and the courier that sends a queued report even after a crash is #24")
     .detail(format!("the report(s) wait in {}; `ciginstaller crash show <report>` shows what would be sent", crash::ashtray_dir(&env.root).display()))
-    .detail(format!("a route you run yourself: set {} to its https:// address", route::ROUTE_ENV))
-    .data(json!({ "sent": [], "queued": ids, "route": { "configured": false } }))
+    .detail(format!("a route you run yourself: set {} to its https:// address; or log in with `gh auth login`, or set {} for the API", route::ROUTE_ENV, routes::TOKEN_ENV));
+    if let (1, Some(l)) = (kept, &left.link) {
+        rep = rep.detail(format!(
+            "or open this prefilled issue yourself (nothing is requested by opening it here): {l}"
+        ));
+    }
+    rep.data(json!({
+        "sent": [], "queued": ids, "route": { "configured": false },
+        "tried": left.unavailable.iter().map(|(w, why)| json!({ "route": w, "why": why })).collect::<Vec<_>>(),
+        "link": if kept == 1 { json!(left.link) } else { Value::Null },
+    }))
 }
 
 pub fn send(env: &Env, id: Option<&str>, all: bool) -> Result<Report, InstallerError> {
+    send_via(env, id, all, &Via::auto())
+}
+
+fn send_via(env: &Env, id: Option<&str>, all: bool, via: &Via) -> Result<Report, InstallerError> {
+    if all && via.only == Some(routes::Route::File) {
+        return Err(usage("--via file exports one report: give its id"));
+    }
     let mut targets: Vec<Saved> = match (id, all) {
         (Some(id), _) => vec![find(env, id)?],
         (None, true) => {
@@ -339,11 +544,20 @@ pub fn send(env: &Env, id: Option<&str>, all: bool) -> Result<Report, InstallerE
     let mut queued = Vec::new();
     let mut failed: Vec<(String, String)> = Vec::new();
     let mut known = Vec::new();
+    let mut handed: Vec<(String, String)> = Vec::new();
+    let mut left = Left::default();
     for r in &mut targets {
-        match send_one(env, r) {
-            Ok(Sent::Filed(url)) => sent.push(json!({ "id": r.id, "url": url })),
+        match send_one(env, r, via) {
+            Ok(Sent::Filed(url, x)) => {
+                sent.push(json!({ "id": r.id, "url": url, "how": x.how, "pointer": x.pointer }))
+            }
             Ok(Sent::AlreadyFiled(url)) => known.push(json!({ "id": r.id, "url": url })),
-            Ok(Sent::NoRoute) => queued.push(r.id.clone()),
+            Ok(Sent::NoRoute(l)) => {
+                queued.push(r.id.clone());
+                left = l;
+            }
+            Ok(Sent::Link(u)) => handed.push((r.id.clone(), u)),
+            Ok(Sent::Exported(p)) => handed.push((r.id.clone(), p.display().to_string())),
             Err(e) if id.is_some() => return Err(e),
             Err(e) if e.code == "E1857" && e.message.starts_with("reports is") => return Err(e),
             Err(e) => failed.push((r.id.clone(), e.message)),
@@ -357,8 +571,27 @@ pub fn send(env: &Env, id: Option<&str>, all: bool) -> Result<Report, InstallerE
         )
         .with_fix("ciginstaller crash send --all"));
     }
+    if !handed.is_empty() {
+        let file = via.only == Some(routes::Route::File);
+        let mut rep = Report::done(if file {
+            format!(
+                "exported {}: it is not filed until it is imported or filed (#24 imports)",
+                handed[0].0
+            )
+        } else {
+            format!("{} prefilled link(s); nothing was requested and nothing is filed until you open one", handed.len())
+        });
+        for (i, w) in &handed {
+            rep = rep.detail(format!("{i}: {w}"));
+        }
+        return Ok(rep.data(json!({
+            "sent": [], "queued": handed.iter().map(|(i, _)| i).collect::<Vec<_>>(),
+            "via": if file { "file" } else { "link" },
+            "handed": handed.iter().map(|(i, w)| json!({ "id": i, "where": w })).collect::<Vec<_>>(),
+        })));
+    }
     if !queued.is_empty() && sent.is_empty() {
-        return Ok(no_route_report(env, &queued));
+        return Ok(no_route_report(env, &queued, &left));
     }
     let mut rep = Report::done(match (sent.len(), known.len()) {
         (1, 0) => format!("sent {}", sent[0]["id"].as_str().unwrap_or("")),
@@ -367,10 +600,170 @@ pub fn send(env: &Env, id: Option<&str>, all: bool) -> Result<Report, InstallerE
     });
     for s in sent.iter().chain(known.iter()) {
         if let Some(u) = s["url"].as_str() {
-            rep = rep.detail(format!("{} is at {u}", s["id"].as_str().unwrap_or("")));
+            let how = s["how"]
+                .as_str()
+                .map(|h| format!(" ({h})"))
+                .unwrap_or_default();
+            rep = rep.detail(format!("{} is at {u}{how}", s["id"].as_str().unwrap_or("")));
+        }
+        if let Some(p) = s["pointer"].as_str() {
+            rep = rep.detail(format!("a line was left in the issue it was seen in: {p}"));
         }
     }
     Ok(rep.data(json!({ "sent": sent, "already_filed": known, "queued": queued })))
+}
+
+// ----- test-route -------------------------------------------------------------------------
+
+fn test_route(env: &Env, repo: Option<&str>) -> Result<Report, InstallerError> {
+    let repo = repo.unwrap_or("otmof-ops/cig-installer");
+    if repo.split('/').count() != 2
+        || repo.split('/').any(str::is_empty)
+        || repo.contains(char::is_whitespace)
+    {
+        return Err(usage(format!(
+            "--repo must look like owner/name, not `{repo}`"
+        )));
+    }
+    let skip = crash::explicit_never(&env.cfg);
+    let mut probes = routes::blocked_probes();
+    match route::route_from_env() {
+        Ok(Some(u)) => probes.push(routes::Probe {
+            route: "own-route",
+            state: "note",
+            detail: format!(
+                "{} is set ({}): a POST route has no dry request, so it is not probed",
+                route::ROUTE_ENV,
+                host_of(&u)
+            ),
+            retry_at: None,
+        }),
+        Ok(None) => {}
+        Err(e) => probes.push(routes::Probe {
+            route: "own-route",
+            state: "failed",
+            detail: e,
+            retry_at: None,
+        }),
+    }
+    for rt in routes::ORDER {
+        let p = routes::probe(rt, repo, skip);
+        match p.state {
+            "ok" if rt.files() => health::record(&env.root, p.route, Ok(())),
+            "failed" => health::record(&env.root, p.route, Err(&p.detail)),
+            _ => {}
+        }
+        probes.push(p);
+    }
+    let filing: Vec<&str> = probes
+        .iter()
+        .filter(|p| p.state == "ok" && matches!(p.route, "gh" | "api"))
+        .map(|p| p.route)
+        .collect();
+    let own = probes
+        .iter()
+        .any(|p| p.route == "own-route" && p.state == "note");
+    let data = json!({
+        "repo": repo,
+        "routes": probes.iter().map(|p| json!({
+            "route": p.route, "state": p.state, "detail": p.detail,
+            "retry_at": p.retry_at.map(health::rfc3339_of),
+        })).collect::<Vec<_>>(),
+        "can_file": filing,
+        "reports_setting": consent_word(crash::consent(&env.cfg).0),
+    });
+    let line = |p: &routes::Probe| format!("{:<13}{:<12}{}", p.route, p.state, p.detail);
+    if filing.is_empty() && !own && !skip {
+        let table = probes.iter().map(line).collect::<Vec<_>>().join("\n");
+        return Err(InstallerError::new(
+            "E1857",
+            format!(
+                "no route can file a report right now: {}",
+                probes
+                    .iter()
+                    .filter(|p| matches!(p.route, "gh" | "api"))
+                    .map(|p| format!("{}: {}", p.route, p.detail))
+                    .collect::<Vec<_>>()
+                    .join("; ")
+            ),
+        )
+        .with_hint(table)
+        .with_fix("gh auth login, or set CIG_GITHUB_TOKEN; `ciginstaller crash send <id> --via link` always works"));
+    }
+    let mut rep = Report::done(if skip {
+        "reports is \"never\": no route was probed".to_string()
+    } else if filing.is_empty() {
+        "your own route is set; no other route can file".to_string()
+    } else {
+        format!("a report can leave by: {}", filing.join(", "))
+    });
+    for p in &probes {
+        rep = rep.detail(line(p));
+    }
+    Ok(rep.data(data))
+}
+
+// ----- status -----------------------------------------------------------------------------
+
+fn status(env: &Env) -> Result<Report, InstallerError> {
+    let l =
+        crash::list(&env.root).map_err(|e| usage(format!("the ashtray cannot be read: {e}")))?;
+    let (consent, _) = crash::consent(&env.cfg);
+    let queue: Vec<&Saved> = l.reports.iter().filter(|r| !r.filed()).collect();
+    let log = health::load(&env.root);
+    let data = json!({
+        "queue": queue.iter().map(|r| json!({
+            "id": r.id, "origin": r.origin, "kind": r.kind.word(),
+            "target": target_of(&env.root, r), "state": r.state(), "requested": r.queue.requested,
+            "attempts": r.queue.attempts, "last_error": r.queue.last_error, "next_try": r.queue.next_try,
+        })).collect::<Vec<_>>(),
+        "queued": queue.len(),
+        "filed": l.reports.len() - queue.len(),
+        "reports_setting": consent_word(consent),
+        "routes": log.iter().map(|(k, v)| json!({
+            "route": k, "last_success": v.last_success, "last_failure": v.last_failure, "last_error": v.last_error,
+        })).collect::<Vec<_>>(),
+        "blocked": ["relay", "scoped-token", "courier flush after a crash (#24)"],
+    });
+    let mut rep = Report::done(format!(
+        "{} report(s) queued, {} filed; reports = {}",
+        queue.len(),
+        l.reports.len() - queue.len(),
+        consent_word(consent)
+    ));
+    for r in &queue {
+        rep = rep.detail(format!(
+            "{}  {}  {}  to {}  attempts {}{}{}",
+            r.id,
+            r.origin,
+            r.kind.word(),
+            target_of(&env.root, r),
+            r.queue.attempts,
+            r.queue
+                .last_error
+                .as_ref()
+                .map(|e| format!("  last error: {}", crash::truncate(e, 120)))
+                .unwrap_or_default(),
+            r.queue
+                .next_try
+                .as_ref()
+                .map(|t| format!("  next try after {t}"))
+                .unwrap_or_default(),
+        ));
+    }
+    for (k, v) in &log {
+        rep = rep.detail(format!(
+            "route {k}: last success {}, last failure {}{}",
+            v.last_success.as_deref().unwrap_or("never"),
+            v.last_failure.as_deref().unwrap_or("never"),
+            v.last_error
+                .as_ref()
+                .map(|e| format!(" ({})", crash::truncate(e, 100)))
+                .unwrap_or_default()
+        ));
+    }
+    rep = rep.detail("the relay, the scoped token and the courier that sends a queued report after a crash are #24, blocked on otmof-ops/CigScript#105");
+    Ok(rep.next("ciginstaller crash test-route").data(data))
 }
 
 // ----- delete -----------------------------------------------------------------------------
@@ -591,13 +984,16 @@ fn submit(
     };
     rep = rep.next(format!("ciginstaller crash show {id}"));
     if now {
-        return match send_one(env, &mut r) {
-            Ok(Sent::Filed(url)) => Ok(Report::done(format!(
+        return match send_one(env, &mut r, &Via::auto()) {
+            Ok(Sent::Filed(url, _)) => Ok(Report::done(format!(
                 "saved as {id} and sent{}",
                 url.map(|u| format!(": {u}")).unwrap_or_default()
             ))
             .data(json!({ "id": id, "sent": true }))),
-            Ok(Sent::NoRoute) => Ok(no_route_report(env, std::slice::from_ref(&id))),
+            Ok(Sent::NoRoute(l)) => Ok(no_route_report(env, std::slice::from_ref(&id), &l)),
+            Ok(Sent::Link(_) | Sent::Exported(_)) => {
+                Ok(rep.data(json!({ "id": id, "sent": false })))
+            }
             Ok(Sent::AlreadyFiled(_)) => Ok(rep.data(json!({ "id": id, "sent": true }))),
             Err(e) => Err(e),
         };
