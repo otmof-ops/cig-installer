@@ -124,18 +124,24 @@ fn tokens_rs_matches_tokens_json() {
     let roles = &root["terminal"]["role"];
     for role in ROLES.iter().copied().filter(|r| *r != Role::Bold) {
         let def = &roles[role.name()];
-        for (theme, key) in [(Theme::Dark, "dark"), (Theme::Light, "light")] {
+        for (theme, key) in [
+            (Theme::Dark, "dark"),
+            (Theme::Light, "light"),
+            (Theme::Neutral, "neutral"),
+        ] {
             assert_eq!(
                 hex(token(role, theme).rgb),
                 resolve(&root, &def[key]),
                 "{} {key}",
                 role.name()
             );
+            assert_eq!(
+                token(role, theme).ansi16,
+                def["ansi16"][key].as_str().unwrap(),
+                "{} ansi16 {key}",
+                role.name()
+            );
         }
-        assert_eq!(
-            token(role, Theme::Dark).ansi16,
-            def["ansi16"].as_str().unwrap()
-        );
     }
     let names: Vec<&str> = roles
         .as_object()
@@ -182,4 +188,99 @@ fn the_palette_is_issue_31s() {
         "93",
         "bright yellow (#32)"
     );
+}
+
+// ---- 16 colors, the neutral theme, 256 colors -------------------------------------------
+
+/// The standard xterm palette, colors 0 to 15.
+const XTERM: [(u8, u8, u8); 16] = [
+    (0, 0, 0),
+    (205, 0, 0),
+    (0, 205, 0),
+    (205, 205, 0),
+    (0, 0, 238),
+    (205, 0, 205),
+    (0, 205, 205),
+    (229, 229, 229),
+    (127, 127, 127),
+    (255, 0, 0),
+    (0, 255, 0),
+    (255, 255, 0),
+    (92, 92, 255),
+    (255, 0, 255),
+    (0, 255, 255),
+    (255, 255, 255),
+];
+
+/// The color of an SGR foreground code (30-37, 90-97) in the xterm palette.
+fn sgr_color(code: &str) -> (u8, u8, u8) {
+    let n: usize = code.parse().expect("a plain SGR color code");
+    match n {
+        30..=37 => XTERM[n - 30],
+        90..=97 => XTERM[n - 90 + 8],
+        _ => panic!("`{code}` is not a foreground color"),
+    }
+}
+
+const BLACK: (u8, u8, u8) = (0, 0, 0);
+const WHITE: (u8, u8, u8) = (255, 255, 255);
+
+#[test]
+fn every_ansi16_role_reads_on_the_standard_xterm_palette_in_both_themes() {
+    for role in ROLES.iter().copied().filter(|r| *r != Role::Bold) {
+        for (theme, bg) in [(Theme::Dark, BLACK), (Theme::Light, WHITE)] {
+            let code = token(role, theme).ansi16;
+            let ratio = contrast(sgr_color(code), bg);
+            assert!(
+                ratio >= 4.5,
+                "{} on {theme:?} in 16 colors is SGR {code}: {ratio:.2}:1, text needs 4.5",
+                role.name()
+            );
+        }
+    }
+}
+
+#[test]
+fn neutral_colors_read_on_both_black_and_white() {
+    for role in ROLES.iter().copied().filter(|r| *r != Role::Bold) {
+        let t = token(role, Theme::Neutral);
+        for (what, color) in [("truecolor", t.rgb), ("16 colors", sgr_color(t.ansi16))] {
+            for (bg_name, bg) in [("black", BLACK), ("white", WHITE)] {
+                let ratio = contrast(color, bg);
+                assert!(
+                    ratio >= 3.0,
+                    "neutral {} in {what} on {bg_name}: {ratio:.2}:1, a glyph needs 3",
+                    role.name()
+                );
+            }
+        }
+    }
+}
+
+/// The xterm 256-color cube and grays, entries 16 to 255.
+fn xterm256(n: u8) -> (u8, u8, u8) {
+    const LEVELS: [u8; 6] = [0, 95, 135, 175, 215, 255];
+    if n < 232 {
+        let i = usize::from(n - 16);
+        (LEVELS[i / 36], LEVELS[i / 6 % 6], LEVELS[i % 6])
+    } else {
+        let g = 8 + 10 * (n - 232);
+        (g, g, g)
+    }
+}
+
+#[test]
+fn every_256_color_role_is_close_enough_to_read() {
+    // the nearest entry may sit a little off the token, so the floor here is 3:1 for the
+    // glyph and 4:1 for text roles; the truecolor values carry the 4.5 proof above
+    for role in ROLES.iter().copied().filter(|r| *r != Role::Bold) {
+        for (theme, bg) in [(Theme::Dark, BLACK), (Theme::Light, WHITE)] {
+            let ratio = contrast(xterm256(token(role, theme).ansi256), bg);
+            assert!(
+                ratio >= 4.0,
+                "{} on {theme:?} in 256: {ratio:.2}",
+                role.name()
+            );
+        }
+    }
 }

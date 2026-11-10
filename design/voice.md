@@ -6,7 +6,7 @@
 Standard version 1.0.0. Every user-facing message has two forms, written together in the product's catalogue (`crates/cigi-ui/src/catalogue.rs` for the installer): neither is derived from the other.
 
 - **The voice** is warm, Australian and a bit cheeky, never cruel.
-- **Plain** says the same facts in neutral words. It is automatic under `CI`, a screen reader (`CIG_SCREEN_READER`), `--plain` and `--json` (structured), and permanent with `voice = plain` in config. See [accessibility.md](accessibility.md) for why a screen reader is not guessed.
+- **Plain** says the same facts in neutral words. It is automatic under `CI`, a screen reader (`CIG_SCREEN_READER`), a non-English locale (the voice is English-only), `--plain` and `--json` (structured), and permanent with `voice = plain` in config. See [accessibility.md](accessibility.md) for why a screen reader is not guessed.
 
 ## Structure, the same in both
 
@@ -29,12 +29,12 @@ Standard version 1.0.0. Every user-facing message has two forms, written togethe
 
 | kind | voice | plain |
 |---|---|---|
-| `cant-see-any` | can't see any ciggies bro | not found |
-| `these-are-mine` | these are MY ciggies | not allowed |
-| `dont-have-any` | don't have any over here | none available |
-| `never-heard-of-you` | never heard of you | not authenticated |
+| `cant-see-any` | can't see any ciggies bro | wrong address |
+| `these-are-mine` | these are MY ciggies | 403 Forbidden |
+| `dont-have-any` | don't have any over here | 404 from the server's side |
+| `never-heard-of-you` | never heard of you | 401 Unauthorized |
 
-The voice forms are the family's catchphrases and equal `hear` in `errors/registry.toml` (`the_four_kinds_of_no_match_the_registry`). They are used for a refusal only; a bug has no catchphrase, and the voice goes straight.
+The voice forms are the family's catchphrases and equal `hear` in `errors/registry.toml`. The plain forms are the manual's names for the kinds, the part of `manual` in the registry before its first `:` or `;`: plain uses the manual's names (`the_four_kinds_of_no_match_the_registry` compares both). They are used for a refusal only; a bug has no catchphrase, and the voice goes straight.
 
 ## Fifty paired examples
 
@@ -50,16 +50,16 @@ Each row is the same message in both forms. The first group is the catalogue as 
 | 4 | `(enter = yes)` | `(enter = yes)` |
 | 5 | `(enter = no; this can't be undone)` | `(enter = no; this cannot be undone)` |
 | 6 | `that's not one of them. pick one of: y n` | `not an option. pick one of: y n` |
-| 7 | `can't see any ciggies bro: there's no carton 1.4 on stable` | `not found: there's no carton 1.4 on stable` |
-| 8 | `these are MY ciggies: cigo 1.4.1 needs cig 1.8.0 or newer` | `not allowed: cigo 1.4.1 needs cig 1.8.0 or newer` |
-| 9 | `don't have any over here: carton 0.1.0 is not installed` | `none available: carton 0.1.0 is not installed` |
-| 10 | `never heard of you: the signature on carton 0.1.0 does not match` | `not authenticated: the signature on carton 0.1.0 does not match` |
+| 7 | `can't see any ciggies bro: there's no carton 1.4 on stable` | `wrong address: there's no carton 1.4 on stable` |
+| 8 | `these are MY ciggies: cigo 1.4.1 needs cig 1.8.0 or newer` | `403 Forbidden: cigo 1.4.1 needs cig 1.8.0 or newer` |
+| 9 | `don't have any over here: carton 0.1.0 is not installed` | `404 from the server's side: carton 0.1.0 is not installed` |
+| 10 | `never heard of you: the signature on carton 0.1.0 does not match` | `401 Unauthorized: the signature on carton 0.1.0 does not match` |
 
 ### Products' real messages
 
 | # | voice | plain |
 |---|---|---|
-| 11 | `can't see any ciggies bro: ~/work/tidy.cig isn't there` | `not found: ~/work/tidy.cig isn't there` |
+| 11 | `can't see any ciggies bro: ~/work/tidy.cig isn't there` | `wrong address: ~/work/tidy.cig isn't there` |
 | 12 | `carton 0.1.1 installed: cig 1.20.1, cigo 1.17.0, CigCompile 0.2.0` | `carton 0.1.1 installed: cig 1.20.1, cigo 1.17.0, CigCompile 0.2.0` |
 | 13 | `trial: 14 scripts dry-ran the same on the new cig` | `trial: 14 scripts planned the same on the new cig` |
 | 14 | `nothing to do. ciginstaller rollback puts 0.1.0 back.` | `nothing to do. ciginstaller rollback restores 0.1.0.` |
@@ -112,4 +112,4 @@ Rows 31 to 50 are the shape each product follows when it writes its own catalogu
 1. Write the plain form first as a check that the facts are all there, then write the voice form beside it, in the same edit.
 2. Give both the same placeholders (`{0}`, `{1}`).
 3. Add it to `catalogue::ALL` so `every_message_has_both_forms` and `the_voice_keeps_its_rules` cover it.
-4. If it is a refusal, find its kind in `errors/registry.toml`; the colour follows the kind.
+4. If it is a refusal, find its kind in `errors/registry.toml`; the color follows the kind.

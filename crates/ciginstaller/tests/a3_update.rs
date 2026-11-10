@@ -4,12 +4,11 @@
 
 mod common;
 
-use std::io::Write;
 use std::path::Path;
 use std::process::{Command, Output, Stdio};
 
 use cigi_testkit::{Fixture, PublishOpts, Snapshot};
-use common::{cigi, fixture, ok, out, text};
+use common::{cigi, fixture, ok, out, text, type_at_prompts};
 
 fn scripts(fx: &Fixture, n: usize) {
     for i in 0..n {
@@ -187,7 +186,7 @@ fn a3_update_dry_run_and_up_to_date_change_nothing() {
 }
 
 /// A TTY for the child through util-linux `script`; its input is `keys`.
-fn on_tty(fx: &Fixture, args: &str, keys: &str, env: &[(&str, &str)]) -> (i32, String) {
+fn on_tty(fx: &Fixture, args: &str, keys: &[&str], env: &[(&str, &str)]) -> (i32, String) {
     let c = fx.cigi();
     let exe = c.get_program().to_string_lossy().to_string();
     let q = |s: &str| format!("'{}'", s.replace('\'', "'\\''"));
@@ -206,22 +205,7 @@ fn on_tty(fx: &Fixture, args: &str, keys: &str, env: &[(&str, &str)]) -> (i32, S
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
-    let mut child = s.spawn().expect("run script(1)");
-    {
-        let mut i = child.stdin.take().unwrap();
-        let _ = i.write_all(keys.as_bytes());
-        // keep the input open until the child is done: script ends the child at EOF
-        std::mem::forget(i);
-    }
-    let o = child.wait_with_output().expect("wait for script(1)");
-    (
-        o.status.code().unwrap_or(-1),
-        format!(
-            "{}{}",
-            String::from_utf8_lossy(&o.stdout),
-            String::from_utf8_lossy(&o.stderr)
-        ),
-    )
+    type_at_prompts(s, keys)
 }
 
 #[test]
@@ -256,7 +240,7 @@ fn a3_trial_difference() {
     files0.assert_same(&installed_files(&fx));
 
     // on a terminal: the prompt, and keep leaves 0.1.0
-    let (code, t) = on_tty(&fx, "update", "k\n", &[]);
+    let (code, t) = on_tty(&fx, "update", &["k"], &[]);
     assert!(
         t.contains("ccept") && t.contains("eview") && t.contains("eep"),
         "{t}"
@@ -266,10 +250,10 @@ fn a3_trial_difference() {
     files0.assert_same(&installed_files(&fx));
     assert!(which_cig(&fx).contains("cig 1.20.0"));
     // an empty answer is the default, which is keep
-    let (code, t) = on_tty(&fx, "update", "\n", &[]);
+    let (code, t) = on_tty(&fx, "update", &["\n"], &[]);
     assert_eq!(code, 2, "{t}");
     // review shows the diff, then accept switches
-    let (code, t) = on_tty(&fx, "update", "ra", &[]);
+    let (code, t) = on_tty(&fx, "update", &["r", "a"], &[]);
     assert_eq!(code, 0, "{t}");
     assert!(t.contains("+plan: 2 ops"), "{t}");
     assert!(which_cig(&fx).contains("cig 1.21.0"));
@@ -545,20 +529,20 @@ fn a3_notice_once_a_day_on_a_terminal_only() {
     two(&mut fx, "plan: 1 op");
     ok(&cigi(&fx, &["install", "carton", "--carton", "0.1.0"]));
     // the install cached a manifest that has 0.1.1: a command on a terminal says so, once
-    let (code, t) = on_tty(&fx, "list", "", &[]);
+    let (code, t) = on_tty(&fx, "list", &[], &[]);
     assert_eq!(code, 0, "{t}");
     assert!(t.contains("carton 0.1.1 is out"), "{t}");
     assert!(t.contains("ciginstaller update"), "{t}");
     let notice = read(&fx.cigscript().join("installer/notice.json"));
     assert!(notice.contains("\"carton\": \"0.1.1\""), "{notice}");
-    let (_, t) = on_tty(&fx, "list", "", &[]);
+    let (_, t) = on_tty(&fx, "list", &[], &[]);
     assert!(!t.contains("is out"), "a second notice the same day: {t}");
     // no terminal: never
     std::fs::remove_file(fx.cigscript().join("installer/notice.json")).unwrap();
     let o = raw(&fx, &["list"]);
     assert!(!text(&o).contains("is out"), "{}", text(&o));
     // and `auto_update = off` keeps a terminal quiet too
-    let (_, t) = on_tty(&fx, "list", "", &[("CIGI_AUTO_UPDATE", "off")]);
+    let (_, t) = on_tty(&fx, "list", &[], &[("CIGI_AUTO_UPDATE", "off")]);
     assert!(!t.contains("is out"), "{t}");
     assert!(!fx.cigscript().join("installer/notice.json").exists());
 }

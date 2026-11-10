@@ -1,11 +1,12 @@
 --- stdout ---
 ␛[38;2;107;114;128m·␛[0m cig 1.20.0
-␛[38;2;107;114;128m·␛[0m I think the PATH block is missing from your profile                      ␛[38;2;107;114;128mE1845␛[0m
+␛[38;2;180;83;9m·␛[0m I think the PATH block is missing from your profile                      ␛[38;2;107;114;128mE1845␛[0m
   because I checked ~/.profile, ~/.bashrc and ~/.zshrc: none has the block
   ␛[38;2;194;65;12m→␛[0m ciginstaller repair
 ␛[38;2;107;114;128m·␛[0m CigCompile 0.2.0
-␛[38;2;107;114;128m·␛[0m I think a program was built on an older cig                              ␛[38;2;107;114;128mE1806␛[0m
+␛[38;2;180;83;9m·␛[0m I think a program was built on an older cig                              ␛[38;2;107;114;128mE1806␛[0m
   because ~/work/tidy was built on cig 1.19.0 and cig 1.20.0 is installed
   ␛[38;2;194;65;12m→␛[0m cigcompile rebuild ~/work/tidy
+␛[38;2;107;114;128m·␛[0m nothing else needed a look
 ␛[38;2;21;128;61m✓␛[0m 2 findings, 2 fixes to run
 --- stderr ---

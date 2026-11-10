@@ -48,7 +48,7 @@ The output below comes from the project's output tests. The carton numbers
 ```sh
 ciginstaller install carton
 ```
-```
+```text
 ✓ carton 0.1.0 installed: cig 1.20.0, cigo 1.17.0, CigCompile 0.2.0
   trust: pinned 1, checksummed 2 (two sources agree); PATH block added to ~/.profile
   → open a new shell, or run: export PATH="$HOME/.cigscript/bin:$PATH"
@@ -61,7 +61,7 @@ and cigo) or `ciginstaller install stick cig`.
 ```sh
 ciginstaller which cigo
 ```
-```
+```text
 ✓ cigo 1.17.0, from carton 0.1.0 (pinned in .cig-carton)
   /home/u/.cigscript/toolchains/cigo/1.17.0/bin/cigo
 ```
@@ -73,7 +73,7 @@ that build. `ciginstaller which cigo --why` prints each step it took to choose.
 cd ~/work/site
 ciginstaller pin carton 0.1
 ```
-```
+```text
 ✓ carton pinned to 0.1 in ~/work/site/.cig-carton
   no installed carton fits 0.1 yet; the first run fetches one (pin_fetch)
 ```
@@ -81,7 +81,7 @@ ciginstaller pin carton 0.1
 ```sh
 ciginstaller update
 ```
-```
+```text
 · carton 0.1.0 → 0.1.1: cig 1.20.0 → 1.20.1   (cigo, CigCompile unchanged)
   product      installed   carton 0.1.1   changes
   cig             1.20.0         1.20.1   programs refuse instead of turning in…
@@ -96,7 +96,7 @@ against your project's scripts in a trial, and only then switches. Change your
 mind, and `ciginstaller rollback` puts the previous carton back. Run
 `ciginstaller` with no arguments for the one-screen status:
 
-```
+```text
 ✓ carton 0.1.0: cig 1.20.0, cigo 1.17.0, CigCompile 0.2.0
   channel stable, trust pinned 1, checksummed 2
   waiting: carton 0.1.1 (cig 1.20.0 → 1.20.1)
@@ -106,7 +106,7 @@ mind, and `ciginstaller rollback` puts the previous carton back. Run
 When something refuses, it says why and what to type next, and
 `ciginstaller explain <code>` has the long version. This one is real output:
 
-```
+```text
 $ ciginstaller explain E1811
 E1811 no such carton  (usage, installer family, since 0.1.0)
 
@@ -174,7 +174,7 @@ cargo test
 Running `install` against the real source ends where it should, because the
 `manifest` release that names the first carton does not exist yet:
 
-```
+```text
 $ ciginstaller install carton
 ✗ error[E1820 fetch]: https://github.com/otmof-ops/cig-installer/releases/download/manifest/manifest-stable.toml does not exist (404)
   = explain: ciginstaller explain E1820

@@ -19,7 +19,10 @@ fn main() {
         ui.ascii,
         t.elapsed().as_millis()
     );
-    let q = Question::yes_no("press a key", true).summary("y, n or enter");
-    let a = ui.ask(&q);
-    println!("answered {:?} by {:?}", a.key, a.how);
+    // two questions in a row: what answers the first must not answer the second
+    for n in 1..=2 {
+        let q = Question::yes_no(&format!("press a key ({n})"), true).summary("y, n or enter");
+        let a = ui.ask(&q);
+        println!("answer {n}: {:?} by {:?}", a.key, a.how);
+    }
 }

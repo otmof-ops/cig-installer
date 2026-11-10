@@ -74,6 +74,44 @@ fn times(s: &str) -> String {
     out
 }
 
+/// Sizes such as `24.4 MiB` as `<size>`: they follow the fixture's builds, which differ by
+/// profile, toolchain and platform, so a golden that kept them would only pass on one machine.
+fn sizes(s: &str) -> String {
+    const UNITS: [&str; 5] = ["TiB", "GiB", "MiB", "KiB", "B"];
+    let b: Vec<char> = s.chars().collect();
+    let mut out = String::new();
+    let mut i = 0;
+    while i < b.len() {
+        let starts = b[i].is_ascii_digit() && (i == 0 || !b[i - 1].is_ascii_alphanumeric());
+        if starts {
+            let mut j = i;
+            while b.get(j).is_some_and(|c| c.is_ascii_digit()) {
+                j += 1;
+            }
+            if b.get(j) == Some(&'.') && b.get(j + 1).is_some_and(|c| c.is_ascii_digit()) {
+                j += 1;
+                while b.get(j).is_some_and(|c| c.is_ascii_digit()) {
+                    j += 1;
+                }
+            }
+            if b.get(j) == Some(&' ') {
+                let rest: String = b[j + 1..].iter().take(3).collect();
+                if let Some(u) = UNITS.iter().find(|u| rest.starts_with(**u)) {
+                    let end = j + 1 + u.len();
+                    if !b.get(end).is_some_and(|c| c.is_ascii_alphanumeric()) {
+                        out.push_str("<size>");
+                        i = end;
+                        continue;
+                    }
+                }
+            }
+        }
+        out.push(b[i]);
+        i += 1;
+    }
+    out
+}
+
 /// The ids of transactions: the history's `id` and `txn` and the lines that name them.
 fn ids(s: &str, known: &[String]) -> String {
     let mut s = s.to_string();
@@ -105,7 +143,7 @@ fn normalize(fx: &Fixture, s: &str) -> String {
         .replace(fx.project.to_str().unwrap_or("?"), "<project>")
         .replace(fx.user_home.to_str().unwrap_or("?"), "~")
         .replace(fx.tmp.path().to_str().unwrap_or("?"), "<tmp>");
-    times(&ids(&s, &txn_ids(fx))).replace('\x1b', "␛")
+    sizes(&times(&ids(&s, &txn_ids(fx)))).replace('\x1b', "␛")
 }
 
 fn run(fx: &Fixture, variant: &str, args: &[&str]) -> String {

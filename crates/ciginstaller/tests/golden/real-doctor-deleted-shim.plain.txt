@@ -8,7 +8,7 @@ ok: toolchains: 4 toolchain(s) match their receipts
   because I checked every file's hash, mode and presence against .cigi-receipt.json
 ok: index: state.json and the shim-index agree
   because I checked the shim-index against the one state.json calls for
-refused: not found: shims: missing or replaced in bin/: cig (E1844)
+refused: wrong address: shims: missing or replaced in bin/: cig (E1844)
   because I checked each shim in bin/ against the store object it must be a link of
   next: ciginstaller repair
 ok: PATH: the shims come first on PATH in this shell, and no other copy shadows them
@@ -25,7 +25,7 @@ ok: trust: trust level of each install: bootstrap: ciginstaller 0.1.0; checksumm
   because I checked the trust entry of every receipt
 ok: history: the last successful update was at <time>
   because I checked state.json's history
-ok: disk: the store holds 8 object(s), 24.4 MiB, shared by 4 toolchain(s) as hard links; `gc` has nothing to free
+ok: disk: the store holds 8 object(s), <size>, shared by 4 toolchain(s) as hard links; `gc` has nothing to free
   because I checked the sizes in store/objects and what `gc --dry-run` plans
 ok: humidor: the humidor mirror agrees with the installed cig(s)
   because I checked humidor/index.json and each humidor/<version>/cig against the toolchain's binary

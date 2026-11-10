@@ -1,0 +1,7 @@
+--- stdout ---
+  program       built with   cig now   advisory
+  ~/work/tidy       1.19.0    1.20.0   rebuild with CigCompile
+  ~/work/site       1.20.0    1.20.0   -
+[ok] 2 programs; 1 needs a rebuild
+  -> cigcompile rebuild ~/work/tidy
+--- stderr ---

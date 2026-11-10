@@ -9,11 +9,13 @@
 /// The version of the design standard these tokens belong to.
 pub const STANDARD_VERSION: &str = "1.0.0";
 
-/// Which background the colours are chosen for.
+/// Which background the colors are chosen for.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Theme {
     Dark,
     Light,
+    /// The background is not known: colors that read on both black and white.
+    Neutral,
 }
 
 /// Roles, never raw colour codes.
@@ -68,7 +70,7 @@ impl Role {
 pub struct Token {
     pub rgb: (u8, u8, u8),
     pub ansi256: u8,
-    /// SGR parameters for the 16-colour fallback.
+    /// SGR parameters for the 16-color fallback.
     pub ansi16: &'static str,
 }
 
@@ -86,21 +88,29 @@ const fn t(r: u8, g: u8, b: u8, ansi256: u8, ansi16: &'static str) -> Token {
 pub fn token(role: Role, theme: Theme) -> Token {
     match (theme, role) {
         (Theme::Dark, Role::Ok) => t(0x4a, 0xde, 0x80, 78, "32"),
-        (Theme::Light, Role::Ok) => t(0x15, 0x80, 0x3d, 29, "32"),
+        (Theme::Light, Role::Ok) => t(0x15, 0x80, 0x3d, 29, "34"),
+        (Theme::Neutral, Role::Ok) => t(0x16, 0xa3, 0x4a, 35, "94"),
         (Theme::Dark, Role::Warn) => t(0xfb, 0xbf, 0x24, 214, "33"),
-        (Theme::Light, Role::Warn) => t(0xb4, 0x53, 0x09, 130, "33"),
-        (Theme::Dark, Role::Danger) => t(0xf8, 0x71, 0x71, 203, "31"),
+        (Theme::Light, Role::Warn) => t(0xb4, 0x53, 0x09, 130, "35"),
+        (Theme::Neutral, Role::Warn) => t(0xd9, 0x77, 0x06, 172, "35"),
+        (Theme::Dark, Role::Danger) => t(0xf8, 0x71, 0x71, 203, "91"),
         (Theme::Light, Role::Danger) => t(0xb9, 0x1c, 0x1c, 124, "31"),
-        (Theme::Dark, Role::Info) => t(0xd1, 0xd5, 0xdb, 188, "0"),
-        (Theme::Light, Role::Info) => t(0x6b, 0x72, 0x80, 243, "0"),
+        (Theme::Neutral, Role::Danger) => t(0xdc, 0x26, 0x26, 160, "31"),
+        (Theme::Dark, Role::Info) => t(0xd1, 0xd5, 0xdb, 188, "37"),
+        (Theme::Light, Role::Info) => t(0x6b, 0x72, 0x80, 243, "30"),
+        (Theme::Neutral, Role::Info) => t(0x6b, 0x72, 0x80, 243, "90"),
         (Theme::Dark, Role::Ember) => t(0xf9, 0x73, 0x16, 208, "93"),
-        (Theme::Light, Role::Ember) => t(0xc2, 0x41, 0x0c, 130, "93"),
+        (Theme::Light, Role::Ember) => t(0xc2, 0x41, 0x0c, 130, "94"),
+        (Theme::Neutral, Role::Ember) => t(0xea, 0x58, 0x0c, 166, "95"),
         (Theme::Dark, Role::EmberBright) => t(0xfb, 0x92, 0x3c, 209, "93"),
-        (Theme::Light, Role::EmberBright) => t(0xc2, 0x41, 0x0c, 130, "93"),
+        (Theme::Light, Role::EmberBright) => t(0xc2, 0x41, 0x0c, 130, "94"),
+        (Theme::Neutral, Role::EmberBright) => t(0xea, 0x58, 0x0c, 166, "95"),
         (Theme::Dark, Role::EmberInk) => t(0xf9, 0x73, 0x16, 208, "93"),
-        (Theme::Light, Role::EmberInk) => t(0xc2, 0x41, 0x0c, 130, "93"),
-        (Theme::Dark, Role::Ash400) => t(0x9c, 0xa3, 0xaf, 248, "2"),
-        (Theme::Light, Role::Ash400) => t(0x6b, 0x72, 0x80, 243, "2"),
+        (Theme::Light, Role::EmberInk) => t(0xc2, 0x41, 0x0c, 130, "94"),
+        (Theme::Neutral, Role::EmberInk) => t(0xea, 0x58, 0x0c, 166, "95"),
+        (Theme::Dark, Role::Ash400) => t(0x9c, 0xa3, 0xaf, 248, "90"),
+        (Theme::Light, Role::Ash400) => t(0x6b, 0x72, 0x80, 243, "30"),
+        (Theme::Neutral, Role::Ash400) => t(0x6b, 0x72, 0x80, 243, "90"),
         (_, Role::Bold) => t(0, 0, 0, 0, "1"),
     }
 }

@@ -1,5 +1,5 @@
 --- stdout ---
 --- stderr ---
 --- rendered ---
-␛[31m!␛[0m remove everything ciginstaller added?  toolchains, store, shims, profile blocks
-  [y]es  [N]o                                 ␛[2m(enter = no; this can't be undone)␛[0m
+␛[91m!␛[0m remove everything ciginstaller added?  toolchains, store, shims, profile blocks
+  type yes, then enter, to go ahead; no or enter stops  ␛[90m(enter = no; this can't be undone)␛[0m

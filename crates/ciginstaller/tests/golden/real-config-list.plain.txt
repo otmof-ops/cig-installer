@@ -14,5 +14,6 @@ ok: 12 settings, 2 not at their default
   preset                default                                  (unset)
   theme                 default                                  auto
   voice                 default                                  voice
+  preset: recorded only: nothing enforces the preset until cig-orchestrator#66 lands, so choosing paranoid does not turn protection on yet
   next: ciginstaller config set <setting> <value>
 --- stderr ---

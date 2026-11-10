@@ -17,7 +17,8 @@ pub struct Cli {
     /// One JSON object per result on stdout.
     #[arg(long, global = true)]
     pub json: bool,
-    /// The same facts without decoration.
+    /// The same facts in neutral words. Also automatic under CI (`CI` set), a screen reader
+    /// (`CIG_SCREEN_READER=1`), a non-English locale, and `voice = plain` in the installer's config.
     #[arg(long, global = true)]
     pub plain: bool,
     /// Never use color (also NO_COLOR).

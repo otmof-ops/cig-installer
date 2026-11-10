@@ -86,11 +86,11 @@ type Rgb = (u8, u8, u8);
 struct RoleDef {
     /// kebab-case, as in the JSON.
     name: String,
-    /// `None` for an attribute role (bold).
-    colors: Option<(Rgb, Rgb)>,
-    ansi256: Option<(u8, u8)>,
-    /// The SGR parameters for 16 colours, or the attribute.
-    sgr: String,
+    /// dark, light and neutral; `None` for an attribute role (bold).
+    colors: Option<(Rgb, Rgb, Rgb)>,
+    ansi256: Option<(u8, u8, u8)>,
+    /// The SGR parameters for 16 colors per theme (dark, light, neutral), or the attribute.
+    sgr: [String; 3],
 }
 
 struct PairDef {
@@ -224,20 +224,28 @@ impl Tokens {
                     name: k.clone(),
                     colors: None,
                     ansi256: None,
-                    sgr: attr.to_string(),
+                    sgr: [attr.to_string(), attr.to_string(), attr.to_string()],
                 });
                 continue;
             }
             let (d, l) = theme_pair(root, v)?;
-            let sgr = v
-                .get("ansi16")
-                .and_then(Value::as_str)
-                .ok_or_else(|| format!("{SOURCE}: role `{k}` has no ansi16"))?;
+            let n = colour(
+                root,
+                v.get("neutral")
+                    .ok_or_else(|| format!("{SOURCE}: role `{k}` has no neutral color"))?,
+            )?;
+            let sixteen = |theme: &str| -> R<String> {
+                v.get("ansi16")
+                    .and_then(|a| a.get(theme))
+                    .and_then(Value::as_str)
+                    .map(str::to_string)
+                    .ok_or_else(|| format!("{SOURCE}: role `{k}` has no ansi16.{theme}"))
+            };
             roles.push(RoleDef {
                 name: k.clone(),
-                colors: Some((d, l)),
-                ansi256: Some((nearest_256(d), nearest_256(l))),
-                sgr: sgr.to_string(),
+                colors: Some((d, l, n)),
+                ansi256: Some((nearest_256(d), nearest_256(l), nearest_256(n))),
+                sgr: [sixteen("dark")?, sixteen("light")?, sixteen("neutral")?],
             });
         }
         let mut pairs = Vec::new();
@@ -353,7 +361,7 @@ fn rust(t: &Tokens) -> String {
         "/// The version of the design standard these tokens belong to.\npub const STANDARD_VERSION: &str = \"{}\";\n",
         t.version
     );
-    o.push_str("/// Which background the colours are chosen for.\n#[derive(Debug, Clone, Copy, PartialEq, Eq)]\npub enum Theme {\n    Dark,\n    Light,\n}\n\n");
+    o.push_str("/// Which background the colors are chosen for.\n#[derive(Debug, Clone, Copy, PartialEq, Eq)]\npub enum Theme {\n    Dark,\n    Light,\n    /// The background is not known: colors that read on both black and white.\n    Neutral,\n}\n\n");
     o.push_str("/// Roles, never raw colour codes.\n#[derive(Debug, Clone, Copy, PartialEq, Eq)]\n#[rustfmt::skip]\npub enum Role {\n");
     for r in &t.roles {
         let _ = writeln!(o, "    {},", pascal(&r.name));
@@ -374,26 +382,31 @@ fn rust(t: &Tokens) -> String {
         );
     }
     o.push_str("        }\n    }\n}\n\n");
-    o.push_str("/// One role's value at each depth.\n#[derive(Debug, Clone, Copy, PartialEq, Eq)]\npub struct Token {\n    pub rgb: (u8, u8, u8),\n    pub ansi256: u8,\n    /// SGR parameters for the 16-colour fallback.\n    pub ansi16: &'static str,\n}\n\n");
+    o.push_str("/// One role's value at each depth.\n#[derive(Debug, Clone, Copy, PartialEq, Eq)]\npub struct Token {\n    pub rgb: (u8, u8, u8),\n    pub ansi256: u8,\n    /// SGR parameters for the 16-color fallback.\n    pub ansi16: &'static str,\n}\n\n");
     o.push_str("const fn t(r: u8, g: u8, b: u8, ansi256: u8, ansi16: &'static str) -> Token {\n    Token {\n        rgb: (r, g, b),\n        ansi256,\n        ansi16,\n    }\n}\n\n");
     o.push_str("/// The token for a role on a theme. An attribute role (`Bold`) has no colour: its token is\n/// unused and its `ansi16` is the attribute.\n#[rustfmt::skip]\npub fn token(role: Role, theme: Theme) -> Token {\n    match (theme, role) {\n");
     for r in &t.roles {
         let p = pascal(&r.name);
         match (r.colors, r.ansi256) {
-            (Some((d, l)), Some((d6, l6))) => {
-                let _ = writeln!(
-                    o,
-                    "        (Theme::Dark, Role::{p}) => t({:#04x}, {:#04x}, {:#04x}, {d6}, \"{}\"),",
-                    d.0, d.1, d.2, r.sgr
-                );
-                let _ = writeln!(
-                    o,
-                    "        (Theme::Light, Role::{p}) => t({:#04x}, {:#04x}, {:#04x}, {l6}, \"{}\"),",
-                    l.0, l.1, l.2, r.sgr
-                );
+            (Some((d, l, n)), Some((d6, l6, n6))) => {
+                for (theme, c, c6, sgr) in [
+                    ("Dark", d, d6, &r.sgr[0]),
+                    ("Light", l, l6, &r.sgr[1]),
+                    ("Neutral", n, n6, &r.sgr[2]),
+                ] {
+                    let _ = writeln!(
+                        o,
+                        "        (Theme::{theme}, Role::{p}) => t({:#04x}, {:#04x}, {:#04x}, {c6}, \"{sgr}\"),",
+                        c.0, c.1, c.2
+                    );
+                }
             }
             _ => {
-                let _ = writeln!(o, "        (_, Role::{p}) => t(0, 0, 0, 0, \"{}\"),", r.sgr);
+                let _ = writeln!(
+                    o,
+                    "        (_, Role::{p}) => t(0, 0, 0, 0, \"{}\"),",
+                    r.sgr[0]
+                );
             }
         }
     }
@@ -438,7 +451,7 @@ fn css(t: &Tokens) -> String {
         let _ = writeln!(o, "  --cig-ui-{k}: {};", hex(*d));
     }
     for r in &t.roles {
-        if let Some((d, _)) = r.colors {
+        if let Some((d, _, _)) = r.colors {
             let _ = writeln!(o, "  --cig-role-{}: {};", r.name, hex(d));
         }
     }
@@ -460,7 +473,7 @@ fn css(t: &Tokens) -> String {
             let _ = writeln!(o, "{indent}--cig-ui-{k}: {};", hex(*l));
         }
         for r in &t.roles {
-            if let Some((_, l)) = r.colors {
+            if let Some((_, l, _)) = r.colors {
                 let _ = writeln!(o, "{indent}--cig-role-{}: {};", r.name, hex(l));
             }
         }
@@ -499,7 +512,7 @@ fn egui(t: &Tokens) -> String {
         }
         for r in &t.roles {
             if let Some(p) = r.colors {
-                let c = pick(p);
+                let c = pick((p.0, p.1));
                 let _ = writeln!(o, "    {}: [{}, {}, {}],", snake(&r.name), c.0, c.1, c.2);
             }
         }
@@ -539,13 +552,13 @@ fn palettes(t: &Tokens) -> R<String> {
     root.insert("version".into(), Value::String(t.version.clone()));
     for (depth, key) in [("truecolor", 0), ("ansi256", 1), ("ansi16", 2)] {
         let mut themes = serde_json::Map::new();
-        for (theme, dark) in [("dark", true), ("light", false)] {
+        for (theme, at) in [("dark", 0), ("light", 1), ("neutral", 2)] {
             let mut roles = serde_json::Map::new();
             for r in &t.roles {
                 let v = match (r.colors, r.ansi256, key) {
-                    (Some((d, l)), _, 0) => Value::String(hex(if dark { d } else { l })),
-                    (Some(_), Some((d, l)), 1) => Value::from(if dark { d } else { l }),
-                    (_, _, 2) => Value::String(r.sgr.clone()),
+                    (Some(c), _, 0) => Value::String(hex([c.0, c.1, c.2][at])),
+                    (Some(_), Some(c), 1) => Value::from([c.0, c.1, c.2][at]),
+                    (_, _, 2) => Value::String(r.sgr[at].clone()),
                     _ => continue,
                 };
                 roles.insert(r.name.clone(), v);

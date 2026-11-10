@@ -2,5 +2,5 @@
 --- stderr ---
 --- rendered ---
 irreversible: remove everything ciginstaller added?  toolchains, store, shims, profile blocks
-  choices: yes (y), no (n, default)
+  type yes, then enter, to go ahead; no or enter stops
   (enter = no; this cannot be undone)

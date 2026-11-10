@@ -1,0 +1,12 @@
+--- stdout ---
+[ok] c-0007: 2 sections travel, 1 stays
+  -> ciginstaller crash send c-0007
+--- stderr ---
+--- rendered ---
++- what travels: the report ----------------------------------------------------
+| ciginstaller 0.1.0, cig 1.20.0, linux x86_64
+| exit 70 in `cig run`, E502
++-------------------------------------------------------------------------------
++- what stays: your files, paths and names -------------------------------------
+| nothing from ~/work is included
++-------------------------------------------------------------------------------

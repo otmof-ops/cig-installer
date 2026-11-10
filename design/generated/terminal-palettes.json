@@ -20,6 +20,16 @@
       "ember-bright": "#c2410c",
       "ember-ink": "#c2410c",
       "ash-400": "#6b7280"
+    },
+    "neutral": {
+      "ok": "#16a34a",
+      "warn": "#d97706",
+      "danger": "#dc2626",
+      "info": "#6b7280",
+      "ember": "#ea580c",
+      "ember-bright": "#ea580c",
+      "ember-ink": "#ea580c",
+      "ash-400": "#6b7280"
     }
   },
   "ansi256": {
@@ -42,29 +52,50 @@
       "ember-bright": 130,
       "ember-ink": 130,
       "ash-400": 243
+    },
+    "neutral": {
+      "ok": 35,
+      "warn": 172,
+      "danger": 160,
+      "info": 243,
+      "ember": 166,
+      "ember-bright": 166,
+      "ember-ink": 166,
+      "ash-400": 243
     }
   },
   "ansi16": {
     "dark": {
       "ok": "32",
       "warn": "33",
-      "danger": "31",
-      "info": "0",
+      "danger": "91",
+      "info": "37",
       "ember": "93",
       "ember-bright": "93",
       "ember-ink": "93",
-      "ash-400": "2",
+      "ash-400": "90",
       "bold": "1"
     },
     "light": {
-      "ok": "32",
-      "warn": "33",
+      "ok": "34",
+      "warn": "35",
       "danger": "31",
-      "info": "0",
-      "ember": "93",
-      "ember-bright": "93",
-      "ember-ink": "93",
-      "ash-400": "2",
+      "info": "30",
+      "ember": "94",
+      "ember-bright": "94",
+      "ember-ink": "94",
+      "ash-400": "30",
+      "bold": "1"
+    },
+    "neutral": {
+      "ok": "94",
+      "warn": "35",
+      "danger": "31",
+      "info": "90",
+      "ember": "95",
+      "ember-bright": "95",
+      "ember-ink": "95",
+      "ash-400": "90",
       "bold": "1"
     }
   }

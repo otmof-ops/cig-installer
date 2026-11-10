@@ -25,6 +25,9 @@ pub enum Icon {
     Refused,
     Bug,
     Note,
+    /// A finding that needs something done (a warning with a fix): the note's glyph, in `warn`,
+    /// and `action:` in plain.
+    Action,
     Irreversible,
 }
 
@@ -35,14 +38,14 @@ impl Icon {
             (Icon::Running, false) => "●",
             (Icon::Ask, false) => "?",
             (Icon::Refused | Icon::Bug, false) => "✗",
-            (Icon::Note, false) => "·",
+            (Icon::Note | Icon::Action, false) => "·",
             (Icon::Irreversible, false) => "!",
             (Icon::Ask, true) => "[?]",
             (Icon::Irreversible, true) => "[!]",
             (Icon::Done, true) => "[ok]",
             (Icon::Running, true) => "[..]",
             (Icon::Refused | Icon::Bug, true) => "[x]",
-            (Icon::Note, true) => "[-]",
+            (Icon::Note | Icon::Action, true) => "[-]",
         }
     }
 
@@ -54,6 +57,7 @@ impl Icon {
             Icon::Refused => "refused:",
             Icon::Bug => "bug:",
             Icon::Note => "note:",
+            Icon::Action => "action:",
             Icon::Irreversible => "irreversible:",
         }
     }
@@ -62,7 +66,7 @@ impl Icon {
         match self {
             Icon::Done => Role::Ok,
             Icon::Running => Role::EmberBright,
-            Icon::Ask => Role::Warn,
+            Icon::Ask | Icon::Action => Role::Warn,
             Icon::Bug | Icon::Irreversible => Role::Danger,
             // A refusal is painted by its kind of no (see `Ui::line`); without one it is a
             // plain "no" and reads as a warning, never as a bug.
@@ -119,15 +123,11 @@ impl Report {
     }
 }
 
-/// One finding of `cig-compat::check`, as a report: a refusal is `✗` with its code, a
-/// warning or note is `·`. Only the first fix fits `Report::next`; use `Ui::finding` to
+/// One finding of `cig-compat::check`, as a report: a refusal is `✗` with its code, a warning
+/// that has something to do is `·` in `warn` and `action:` in plain, a note is `·`. Only the first fix fits `Report::next`; use `Ui::finding` to
 /// print every fix, one `→` line each.
 pub fn finding_report(f: &Finding) -> Report {
-    let icon = if f.severity == Severity::Refuse {
-        Icon::Refused
-    } else {
-        Icon::Note
-    };
+    let icon = finding_icon(f);
     Report {
         icon,
         headline: f.headline.clone(),
@@ -135,6 +135,16 @@ pub fn finding_report(f: &Finding) -> Report {
         next: f.fixes.first().cloned(),
         code: Some(f.code),
         data: serde_json::Value::Null,
+    }
+}
+
+/// The icon of a finding: a refusal refuses, a warning that carries a fix needs action, the rest
+/// are notes.
+fn finding_icon(f: &Finding) -> Icon {
+    match f.severity {
+        Severity::Refuse => Icon::Refused,
+        Severity::Warn if !f.fixes.is_empty() => Icon::Action,
+        _ => Icon::Note,
     }
 }
 
@@ -183,7 +193,7 @@ impl Ui {
             _ => {
                 let g = icon.glyph(self.ascii);
                 (
-                    format!("{} {text}", self.paint(s, role, g)),
+                    format!("{} {text}", self.paint_glyph(s, role, g)),
                     g.chars().count() + 1 + text.chars().count(),
                 )
             }
@@ -232,7 +242,7 @@ impl Ui {
             } else {
                 out.push_str(&format!(
                     "  {} {}\n",
-                    self.paint(s, Role::Ember, self.arrow()),
+                    self.paint_glyph(s, Role::Ember, self.arrow()),
                     n
                 ));
             }
@@ -267,11 +277,7 @@ impl Ui {
 
     /// A `check` finding: the headline with its code, the detail, and every fix as a `→` line.
     pub fn render_finding(&self, f: &Finding) -> String {
-        let icon = if f.severity == Severity::Refuse {
-            Icon::Refused
-        } else {
-            Icon::Note
-        };
+        let icon = finding_icon(f);
         self.grammar(
             Stream::Out,
             icon,

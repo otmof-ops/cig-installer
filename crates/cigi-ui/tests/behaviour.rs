@@ -20,6 +20,7 @@ fn tty() -> Env {
     .with("LANG", "en_US.UTF-8")
     .with("TERM", "xterm-256color")
     .with("COLORTERM", "truecolor")
+    .with("COLORFGBG", "15;0")
 }
 
 fn flags() -> GlobalFlags {
@@ -181,8 +182,9 @@ fn asking_on_a_terminal() {
     cap.push_input("s");
     assert_eq!(ui.ask(&q).key, 's');
     assert!(cap.err().contains("pick one of: y n s"));
-    let a = ui.ask(&q); // end of input
-    assert_eq!((a.how, a.key), (How::NoTty, 'y'));
+    let a = ui.ask(&q); // end of input: nothing is taken, and the caller stops (exit 3)
+    assert_eq!((a.how, a.exit_code()), (How::Aborted, Some(3)));
+    assert!(!a.is_yes(&q), "an aborted question is never a yes");
     let irr = Question::irreversible("sure?");
     cap.push_input("");
     let a = ui.ask(&irr);
@@ -597,11 +599,11 @@ fn palette_roles_fall_back_by_depth() {
     );
     assert_eq!(
         sgr(C::Ansi16, T::Dark, R::Danger).as_deref(),
-        Some("\x1b[31m")
+        Some("\x1b[91m")
     );
     assert_eq!(
         sgr(C::Ansi16, T::Dark, R::Ash400).as_deref(),
-        Some("\x1b[2m")
+        Some("\x1b[90m")
     );
     assert_eq!(
         sgr(C::True, T::Light, R::Ember),
@@ -627,7 +629,7 @@ fn tables_align_and_truncate() {
         "x".repeat(100).as_str().into(),
     ])
     .row(vec!["bbb".into(), "2".into(), "short".into()]);
-    let (ui, _) = Ui::from_env(&flags(), &Env::default().with("LANG", "en_US.UTF-8")).captured();
+    let (ui, _) = Ui::from_env(&flags(), &tty().with("NO_COLOR", "1")).captured();
     let text = ui.render_table(&t);
     let lines: Vec<&str> = text.lines().collect();
     assert_eq!(lines[0], "  name    n   what");
@@ -640,7 +642,14 @@ fn tables_align_and_truncate() {
         .nth(1)
         .unwrap_or("")
         .contains(&"x".repeat(100)));
-    let (ascii, _) = Ui::from_env(&flags(), &Env::default()).captured();
+    let (ascii, _) = Ui::from_env(
+        &flags(),
+        &Env {
+            tty_out: true,
+            ..Env::default()
+        },
+    )
+    .captured();
     assert!(ascii
         .render_table(&t)
         .lines()

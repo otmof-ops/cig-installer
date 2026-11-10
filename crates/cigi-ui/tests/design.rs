@@ -17,10 +17,18 @@ fn tty() -> Env {
     .with("LANG", "en_US.UTF-8")
     .with("TERM", "xterm-256color")
     .with("COLORTERM", "truecolor")
+    .with("COLORFGBG", "15;0")
 }
 
 fn flags() -> GlobalFlags {
     GlobalFlags::default()
+}
+
+/// A terminal whose background nothing has said.
+fn unknown() -> Env {
+    let mut e = tty();
+    e.vars.remove("COLORFGBG");
+    e
 }
 
 fn ui(env: &Env) -> Ui {
@@ -31,9 +39,15 @@ fn ui(env: &Env) -> Ui {
 
 #[test]
 fn light_comes_from_colorfgbg_then_the_background_query_then_the_setting() {
-    assert_eq!(ui(&tty()).theme, Theme::Dark, "the default is dark");
+    assert_eq!(ui(&tty()).theme, Theme::Dark, "COLORFGBG says dark");
+    assert_eq!(
+        ui(&unknown()).theme,
+        Theme::Neutral,
+        "nothing said: neutral"
+    );
+    assert!(!ui(&unknown()).theme_known && ui(&tty()).theme_known);
     assert_eq!(ui(&tty().with("COLORFGBG", "0;15")).theme, Theme::Light);
-    let mut asked = tty();
+    let mut asked = unknown();
     asked.background = Some((255, 255, 255));
     assert_eq!(ui(&asked).theme, Theme::Light, "OSC 11 said white");
     asked.background = Some((0x1e, 0x1e, 0x2e));
@@ -228,7 +242,7 @@ fn the_error_label_is_code_and_area_and_the_doctor_line_comes_before_the_fix() {
     .captured();
     let t = p.render_error(&e);
     assert!(
-        t.starts_with("refused: error[E1811 carton]: not found: there's no carton"),
+        t.starts_with("refused: error[E1811 carton]: wrong address: there's no carton"),
         "{t}"
     );
     assert_eq!(
@@ -323,14 +337,14 @@ fn product_names_reach_headlines_and_tables_but_not_the_next_step() {
 fn wide_shows_every_column_in_full() {
     let table = Table::new(&[("a", Align::Left), ("what", Align::Left)])
         .row(vec!["x".into(), "y".repeat(200).as_str().into()]);
-    let (narrow, _) = ui(&Env::default().with("LANG", "en_US.UTF-8")).captured();
+    let (narrow, _) = ui(&tty()).captured();
     assert!(narrow.render_table(&table).contains('…'));
     let (wide, _) = Ui::from_env(
         &GlobalFlags {
             wide: true,
             ..flags()
         },
-        &Env::default().with("LANG", "en_US.UTF-8"),
+        &tty(),
     )
     .captured();
     let t = wide.render_table(&table);

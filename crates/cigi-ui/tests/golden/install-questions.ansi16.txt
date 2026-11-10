@@ -3,12 +3,12 @@
 --- rendered ---
 ␛[33m?␛[0m install the whole carton, or one stick?  the carton is cig, cigo, CigCompile and CigarScript, set to fit together
   ciginstaller carton lists what fits; a stick is one tool on its own.
-  [C]arton  [s]tick                                             ␛[2m(enter = carton)␛[0m
+  [C]arton  [s]tick                                             ␛[90m(enter = carton)␛[0m
 
 ␛[33m?␛[0m which security preset?  balanced
   balanced asks before anything leaves the machine; chill asks less.
-  [B]alanced  [c]hill  [s]trict  [p]aranoid                   ␛[2m(enter = balanced)␛[0m
+  [B]alanced  [c]hill  [s]trict  [p]aranoid                   ␛[90m(enter = balanced)␛[0m
 
 ␛[33m?␛[0m send crash reports?  only after you have read them
   nothing is sent without a yes, each time.
-  [y]es  [N]o                                                       ␛[2m(enter = no)␛[0m
+  [y]es  [N]o                                                       ␛[90m(enter = no)␛[0m

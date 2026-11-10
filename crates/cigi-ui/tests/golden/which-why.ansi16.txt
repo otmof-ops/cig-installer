@@ -1,5 +1,5 @@
 --- stdout ---
-  ␛[2mstep␛[0m   ␛[2mlooked at␛[0m                       ␛[2mfound␛[0m        ␛[2mresult␛[0m
+  ␛[90mstep␛[0m   ␛[90mlooked at␛[0m                       ␛[90mfound␛[0m        ␛[90mresult␛[0m
   1      CIGI_CARTON                     —            not set
   2      ~/work/site/.cig-version-cigo   —            no such file
   3      ~/work/site/.cig-carton         carton 0.1   ␛[93mused␛[0m

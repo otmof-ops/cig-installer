@@ -3,7 +3,7 @@
 
 # Components
 
-Standard version 1.0.0. The shared pieces of the terminal UI (issue #32), built in `crates/cigi-ui`, with the window's equivalents named where they differ. Colour comes from roles in [tokens.json](tokens.json); nothing here names a raw colour.
+Standard version 1.0.0. The shared pieces of the terminal UI (issue #32), built in `crates/cigi-ui`, with the window's equivalents named where they differ. Color comes from roles in [tokens.json](tokens.json); nothing here names a raw color.
 
 ## The grammar
 
@@ -27,11 +27,12 @@ In voice mode the code is right-aligned on the headline line; in plain it follow
 | refused (one of the four kinds of no) | `✗` | `[x]` | by kind | `refused:` |
 | a bug in us | `✗` | `[x]` | `danger` | `bug:` |
 | notice | `·` | `[-]` | `ash-400` | `note:` |
+| a finding that needs action (a warning with a fix) | `·` | `[-]` | `warn` | `action:` |
 | irreversible | `!` | `[!]` | `danger` | `irreversible:` |
 
 ASCII icons are used when the locale is not UTF-8 (`LANG=C`), when `TERM` is `dumb`, and when the terminal is one whose font is known to lack the glyphs (`TERM` of `linux`, `vt100`, `vt102`, `vt220` or `ansi`: the font check). `CIG_ASCII=1` forces ASCII and `CIG_ASCII=0` forces the drawn icons. A terminal cannot report its font, so the font check is a list, not a probe.
 
-### Colour roles
+### Color roles
 
 | role | dark | light | used for |
 |---|---|---|---|
@@ -44,7 +45,20 @@ ASCII icons are used when the locale is not UTF-8 (`LANG=C`), when `TERM` is `du
 | `ember-ink` | `#f97316` | `#c2410c` | ember as text on light |
 | `ash-400` | `#9ca3af` | `#6b7280` | headers, codes, secondary text |
 
-Depth: truecolor uses the values; 256 colours use the nearest entry (`ember` is 208); 16 colours use `ok` green, `warn` yellow, `danger` red, `ember` bright yellow (basic ANSI has no orange) and `ash-400` dim. Light is chosen by `theme = light`, else `COLORFGBG`, else an OSC 11 query bounded at 50 ms, else dark; `theme = dark` or `light` always wins. `NO_COLOR`, `--no-color`, a non-terminal stdout and `TERM=dumb` give no escape codes.
+Depth: truecolor uses the values; 256 colors use the nearest entry (`ember` is 208); 16 colors use per-theme SGR codes from the standard xterm palette, each at 4.5:1 or better on its background:
+
+| role | dark | light | neutral |
+|---|---|---|---|
+| `ok` | 32 green | 34 blue | 94 bright blue |
+| `warn` | 33 yellow | 35 magenta | 35 magenta |
+| `danger` | 91 bright red | 31 red | 31 red |
+| `info` | 37 white | 30 black | 90 bright black |
+| `ember` | 93 bright yellow | 94 bright blue | 95 bright magenta |
+| `ash-400` | 90 bright black | 30 black | 90 bright black |
+
+Basic ANSI has no orange, and no green or yellow that reads on white, so the light theme takes the nearest colors that pass.
+
+The theme is chosen by `theme = light` or `dark` (always wins), else `COLORFGBG`, else an OSC 11 query bounded at 50 ms. When none of them finds it the theme is neutral: text stays at the terminal's own foreground, and only non-text glyphs (icons, arrows, bars) are colored, from a palette in which every color is at least 3:1 on both black and white. `NO_COLOR`, `--no-color` and `TERM=dumb` give no escape codes, and a stream that is not a terminal gets none (stdout and stderr are judged separately).
 
 ## Progress
 
@@ -53,7 +67,7 @@ Depth: truecolor uses the values; 256 colours use the nearest entry (`ember` is 
 ✓ verified: 4 builds, signatures and sha256s
 ```
 
-One line per step; the running step's bar is in `ember`; done steps collapse to `✓`. Never more than one bar animating. Not a terminal: a line at 0%, then every 25%, then done, no carriage returns. Plain at a terminal: a line at the start and one at the end.
+One line per step; the running step's bar is in `ember`; done steps collapse to `✓`. The fill (`━`) and the track (`─`) are different glyphs, and in ASCII `[####----]` uses `#` and `-`, so the bar reads with no color at all. Never more than one bar animating. Not a terminal: a line at 0%, then every 25%, then done, no carriage returns. Plain at a terminal: a line at the start and one at the end.
 
 ## Prompts
 
@@ -64,7 +78,10 @@ One line per step; the running step's bar is in `ember`; done steps collapse to 
 ```
 
 - The default is the safe answer; for anything irreversible it is no, and the prompt says so. An irreversible question leads with `!` in `danger`.
-- On a terminal one keypress answers, with no enter. The terminal mode is set and restored by a small `sh` script that traps INT, TERM and HUP, so a Ctrl-C leaves the terminal as it was. If `sh`, `stty` or `dd` cannot be run, the prompt falls back to reading a line. Nothing here uses raw mode off a terminal.
+- In the voice, at a terminal, one keypress answers, with no enter. The terminal mode is set and restored by a small `/bin/sh` script that traps INT, TERM and HUP, so a Ctrl-C leaves the terminal as it was. Anything typed ahead is thrown away before the key is read, and anything that follows it for about 100 ms is thrown away after, so an arrow key, autorepeat or an Enter pressed from habit never answers the next prompt. A byte that starts an escape sequence is not an answer. If `sh`, `stty` or `dd` cannot be run, the prompt falls back to reading a line. Nothing here uses raw mode off a terminal.
+- Under plain (`--plain`, CI, a screen reader, `voice = plain`, a non-English locale) the answer is a typed line: a key or the whole label.
+- An irreversible question is always a typed line and takes `yes` and Enter. `y`, a bare Enter, `n` and `no` are all the default, which is no.
+- An answer that is not an option names the valid keys and asks again. After three, the run stops without changing anything and exits 3; so does the end of input. A default is never taken silently.
 - `--yes` answers the safe default, and `--yes-irreversible` is required for irreversible defaults.
 - No prompt without a terminal: the safe default is taken, one line says so, and the exit code is 3 when that default was a refusal.
 - Passwords and OS authentication never go through the UI's prompt; they go to the OS.
@@ -76,7 +93,7 @@ One line per step; the running step's bar is in `ember`; done steps collapse to 
   cig          1.20.0      1.20.1         programs refuse instead of turning into cig
 ```
 
-Left-aligned text, right-aligned numbers, headers in `ash-400`, changed cells in `ember`. Wrapped to the terminal width by cutting the last column with `…`; `--wide` (or `Table::wide`) shows it in full. `--json` carries the data.
+Left-aligned text, right-aligned numbers, headers in `ash-400`, changed cells in `ember`. Wrapped to the terminal width by cutting the last column with `…`, only for a person at a terminal in the voice. Piped output, plain and `--json` are never cut, and `--wide` (or `Table::wide`) shows the column in full. `--json` carries the data.
 
 ## Boxes
 
@@ -119,7 +136,7 @@ Terminals that do not answer OSC 11 cost the whole 50 ms once per run, unless `t
 
 Every screen has a golden in six variants under `crates/cigi-ui/tests/golden/<screen>.<variant>.txt`, compared byte for byte by `golden_output_per_screen` (escape bytes are shown as `␛`). Regenerate with `UPDATE_GOLDEN=1 cargo test -p cigi-ui --test golden` and read the diff before committing it.
 
-Variants: `dark` (truecolor, dark), `light` (truecolor, `COLORFGBG=0;15`), `ansi16`, `no-color` (`NO_COLOR`), `plain` (`--plain`, piped), `json` (`--json`, piped).
+Variants: `dark` (truecolor, `COLORFGBG=15;0`), `light` (truecolor, `COLORFGBG=0;15`), `ansi16`, `no-color` (`NO_COLOR`), `plain` (`--plain`, piped), `json` (`--json`, piped) and `ascii` (`LANG=C`, piped, in the voice: the `[ok] [..] [?] [x] [!] [-]` icons and no drawn character anywhere). `every_screen_has_a_golden_in_every_variant` checks that all seven exist for every screen. The unknown-background and 16-color-per-theme cases are covered by tests that read the escape codes (`an_unknown_background_leaves_text_alone_and_colors_only_glyphs`, the contrast tests).
 
 | screen | golden | what it shows |
 |---|---|---|
@@ -143,12 +160,17 @@ The regenerated goldens differ from the earlier ones only in these ways, each ch
 
 | change | goldens affected |
 |---|---|
-| `ok` is `#4ade80` (dark) and `#15803d` (light) instead of the placeholder greens; `warn`, `danger` and the light ember likewise | every colour variant that paints a `✓`, `?`, `!` or arrow |
+| `ok` is `#4ade80` (dark) and `#15803d` (light) instead of the placeholder greens; `warn`, `danger` and the light ember likewise | every color variant that paints a `✓`, `?`, `!` or arrow |
 | ember is `ember-ink` (`#c2410c`) on light, never `#ea580c` | `*.light.txt` with an arrow, a changed cell or a bar |
-| a refusal is painted by its kind, so `E1811` is `info` and not red | `error-no-such-carton.*` colour variants |
+| a refusal is painted by its kind, so `E1811` is `info` and not red | `error-no-such-carton.*` color variants |
 | the error label is `error[E1811 carton]` instead of `error[E1811 installer]`, and `E1890` is `error[E1890 internal]` | `error-*`, all variants |
-| plain names the kind of no (`not found:`, `not allowed:`) | `error-no-such-carton.plain`, `finding.plain` |
 | the product is CigCompile in prose | `install`, `status`, `update`, `table*` (the product column), `carton-list`, `programs`, `doctor`, `install-questions` |
-| an irreversible prompt leads with `!` and says `this can't be undone` in the voice | `prompt-irreversible.*` |
+| an irreversible prompt leads with `!`, asks for a typed `yes` and says `this can't be undone` in the voice | `prompt-irreversible.*` |
+| 16-color codes are per theme (`danger` is 91 on dark and 31 on light, ember is 93 on dark and 94 on light, `ash-400` is 90 and 30) | `*.ansi16.txt` |
+| the dark and 16-color variants say they are on a known dark background (`COLORFGBG=15;0`) | every `dark` and `ansi16` golden |
+| plain names a kind of no by the manual's name (`wrong address:`, `403 Forbidden:`) | `error-no-such-carton.plain`, `finding.plain` |
+| the doctor's findings use `action:` in plain | `doctor.*` |
+| the unicode bar's track is `─`, not `━` | `progress.*`, `update.*` |
+| new variant | every screen, `*.ascii.txt` |
 | the JSON bodies are unchanged | all `json` variants of existing screens |
 | new screens | `bug`, `carton-list`, `crash-list`, `crash-show`, `doctor`, `install-questions`, `programs`, `trial-differences`, `which-why` |

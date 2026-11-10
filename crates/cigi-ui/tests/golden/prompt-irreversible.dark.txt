@@ -2,4 +2,4 @@
 --- stderr ---
 --- rendered ---
 ␛[38;2;248;113;113m!␛[0m remove everything ciginstaller added?  toolchains, store, shims, profile blocks
-  [y]es  [N]o                                 ␛[38;2;156;163;175m(enter = no; this can't be undone)␛[0m
+  type yes, then enter, to go ahead; no or enter stops  ␛[38;2;156;163;175m(enter = no; this can't be undone)␛[0m

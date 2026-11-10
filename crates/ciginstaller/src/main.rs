@@ -114,7 +114,7 @@ fn dispatch(cli: Cli, ui: Ui) -> i32 {
     // kept after the command so `auto_update = notify` can look at the machine once it is done
     let mut notice_cx: Option<Cx> = None;
     if let Some(Command::Explain { code }) = &cli.command {
-        return explain(&ui, code.as_deref(), cli.plain);
+        return explain(&ui, code.as_deref());
     }
     let result = (|| -> Result<Outcome, InstallerError> {
         let mut cx = Cx::new(ui.duplicate(), globals, cwd)?;
@@ -304,13 +304,13 @@ fn flags_of(cli: &Cli) -> GlobalFlags {
     }
 }
 
-fn explain(ui: &Ui, code: Option<&str>, plain: bool) -> i32 {
+fn explain(ui: &Ui, code: Option<&str>) -> i32 {
     match code {
         None => {
             ui.page("explain", &cigi_ui::explain_list());
             0
         }
-        Some(c) => match cigi_ui::explain_with(&c.trim().to_ascii_uppercase(), plain) {
+        Some(c) => match cigi_ui::explain_with(&c.trim().to_ascii_uppercase(), ui.plain()) {
             Some(page) => {
                 ui.page("explain", &page);
                 0

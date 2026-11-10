@@ -69,7 +69,7 @@ fn the_background_query_without_a_terminal_answers_none_at_once() {
 #[test]
 fn nothing_built_from_an_env_queries_the_terminal() {
     // `from_env` is pure: even with every tty flag on and nothing said about the background,
-    // it must come back at once and fall to dark.
+    // it must come back at once and fall to the neutral theme.
     let env = Env {
         tty_out: true,
         tty_err: true,
@@ -80,5 +80,6 @@ fn nothing_built_from_an_env_queries_the_terminal() {
     let start = Instant::now();
     let ui = Ui::from_env(&GlobalFlags::default(), &env);
     assert!(start.elapsed() < Duration::from_millis(5));
-    assert_eq!(ui.theme, Theme::Dark);
+    assert_eq!(ui.theme, Theme::Neutral, "not found, so neutral");
+    assert!(!ui.theme_known);
 }

@@ -92,20 +92,26 @@ pub fn render_bar(
     let tail = format!("  {amount}{rate}  {}", clock(elapsed));
     let icon = if ui.ascii { "[..]" } else { "●" };
     let used = icon.chars().count() + 1 + label.chars().count() + 2 + tail.chars().count() + 2;
-    let mut line = format!("{} {label}", ui.paint(s, Role::EmberBright, icon));
+    let mut line = format!("{} {label}", ui.paint_glyph(s, Role::EmberBright, icon));
     if let Some(t) = total.filter(|t| *t > 0) {
         let n = ui.width.saturating_sub(used).clamp(10, 26);
         let frac = (done.min(t) as f64) / (t as f64);
         let full = ((frac * n as f64) as usize).min(n);
+        // The fill and the track are different glyphs, so the bar reads with no color at all:
+        // `━━━╸───` (the fill heavy, the track light) and `[###---]` in ASCII.
         let bar = if ui.ascii {
-            format!("[{}{}]", "#".repeat(full), "-".repeat(n - full))
+            format!(
+                "[{}{}]",
+                ui.paint_glyph(s, Role::Ember, &"#".repeat(full)),
+                ui.paint_glyph(s, Role::Ash400, &"-".repeat(n - full))
+            )
         } else if full >= n {
-            ui.paint(s, Role::Ember, &"━".repeat(n))
+            ui.paint_glyph(s, Role::Ember, &"━".repeat(n))
         } else {
             format!(
                 "{}{}",
-                ui.paint(s, Role::Ember, &format!("{}╸", "━".repeat(full))),
-                ui.paint(s, Role::Ash400, &"━".repeat(n - full - 1))
+                ui.paint_glyph(s, Role::Ember, &format!("{}╸", "━".repeat(full))),
+                ui.paint_glyph(s, Role::Ash400, &"─".repeat(n - full - 1))
             )
         };
         line.push_str(&format!("  {bar}"));
@@ -150,7 +156,7 @@ impl Bar {
         if self.ui.mode == Mode::Plain {
             self.ui.paint(Stream::Err, Role::EmberBright, "...")
         } else {
-            self.ui.paint(
+            self.ui.paint_glyph(
                 Stream::Err,
                 Role::EmberBright,
                 if self.ui.ascii { "[..]" } else { "●" },
@@ -247,7 +253,12 @@ impl Progress for Bar {
             } else {
                 (if ui.ascii { "[ok]" } else { "✓" }, ui.glyphs(said))
             };
-            format!("{} {text}\n", ui.paint(Stream::Err, Role::Ok, g))
+            let painted = if ui.mode == Mode::Plain {
+                ui.paint(Stream::Err, Role::Ok, g)
+            } else {
+                ui.paint_glyph(Stream::Err, Role::Ok, g)
+            };
+            format!("{painted} {text}\n")
         };
         match self.style {
             Style::Silent => {}

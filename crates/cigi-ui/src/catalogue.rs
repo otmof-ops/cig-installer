@@ -75,6 +75,24 @@ pub const PICK_ONE: Msg = Msg {
     plain: "not an option. pick one of: {0}",
 };
 
+pub const PICK_YES: Msg = Msg {
+    id: "ui.pick-yes",
+    voice: "that's not an answer. type yes to go ahead, or no to stop",
+    plain: "not an option. type yes to go ahead, or no to stop",
+};
+
+pub const TYPE_YES: Msg = Msg {
+    id: "ui.type-yes",
+    voice: "type yes, then enter, to go ahead; no or enter stops",
+    plain: "type yes, then enter, to go ahead; no or enter stops",
+};
+
+pub const GAVE_UP: Msg = Msg {
+    id: "ui.gave-up",
+    voice: "no usable answer, so I've stopped and changed nothing",
+    plain: "no valid answer: stopped, nothing was changed",
+};
+
 pub const CHOICES_DEFAULT: Msg = Msg {
     id: "ui.choices-default",
     voice: "default",
@@ -82,29 +100,31 @@ pub const CHOICES_DEFAULT: Msg = Msg {
 };
 
 /// The four kinds of no, in both forms. The voice forms are the family's catchphrases and
-/// must equal `hear` in `errors/registry.toml` (a test compares them).
+/// must equal `hear` in `errors/registry.toml`; the plain forms are the manual's names for
+/// them (#31: "plain uses the manual's names"), the part of `manual` before its first `:` or
+/// `;`. A test compares both.
 pub const NO_CANT_SEE_ANY: Msg = Msg {
     id: "no.cant-see-any",
     voice: "can't see any ciggies bro",
-    plain: "not found",
+    plain: "wrong address",
 };
 
 pub const NO_THESE_ARE_MINE: Msg = Msg {
     id: "no.these-are-mine",
     voice: "these are MY ciggies",
-    plain: "not allowed",
+    plain: "403 Forbidden",
 };
 
 pub const NO_DONT_HAVE_ANY: Msg = Msg {
     id: "no.dont-have-any",
     voice: "don't have any over here",
-    plain: "none available",
+    plain: "404 from the server's side",
 };
 
 pub const NO_NEVER_HEARD_OF_YOU: Msg = Msg {
     id: "no.never-heard-of-you",
     voice: "never heard of you",
-    plain: "not authenticated",
+    plain: "401 Unauthorized",
 };
 
 /// Every message above, for the catalogue tests.
@@ -116,6 +136,9 @@ pub const ALL: &[Msg] = &[
     ENTER_DEFAULT,
     ENTER_DEFAULT_IRREVERSIBLE,
     PICK_ONE,
+    PICK_YES,
+    TYPE_YES,
+    GAVE_UP,
     CHOICES_DEFAULT,
     NO_CANT_SEE_ANY,
     NO_THESE_ARE_MINE,

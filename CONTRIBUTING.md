@@ -25,7 +25,7 @@ Code is FSL-1.1-ALv2 and documentation is CC BY 4.0; [REUSE.toml](REUSE.toml)
 maps every path, and every source file carries SPDX headers. A new source file
 gets the same two lines as its neighbors, with the code identifier:
 
-```
+```text
 SPDX-FileCopyrightText: 2026 Jay Taylor (https://github.com/otmof-ops/cig-installer)
 SPDX-License-Identifier: FSL-1.1-ALv2
 ```

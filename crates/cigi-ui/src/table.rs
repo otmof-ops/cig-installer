@@ -120,7 +120,9 @@ impl Ui {
         let others: usize = widths[..n - 1].iter().map(|w| w + GAP).sum();
         let room = self.width.saturating_sub(INDENT + others);
         let ellipsis = if self.ascii { "..." } else { "…" };
-        let wide = t.wide || self.wide;
+        // Cut the last column to the terminal's width only for a person at a terminal, in the
+        // voice. Piped output, plain and json always carry every character.
+        let wide = t.wide || self.wide || !self.tty_out || self.mode != Mode::Voice;
         if !wide && widths[n - 1] > room && room >= 8 {
             widths[n - 1] = room;
         }

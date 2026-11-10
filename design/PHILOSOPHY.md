@@ -101,4 +101,4 @@ Right: at most one notice per command, never the same one twice in a day, and cr
 
 ### Calm
 
-Right: the ember breathes (a 2.4 second ease-in-out glow) on the step running now, and nothing else moves. Wrong: a spinner on every line, a flashing error, or colour change as the only signal. `prefers-reduced-motion` and `plain` turn even the breathing off.
+Right: the ember breathes (a 2.4 second ease-in-out glow) on the step running now, and nothing else moves. Wrong: a spinner on every line, a flashing error, or color change as the only signal. `prefers-reduced-motion` and `plain` turn even the breathing off.

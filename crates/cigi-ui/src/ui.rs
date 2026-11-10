@@ -139,6 +139,9 @@ pub struct Ui {
     /// Colour depth for stderr (stdout may be piped while the terminal is not).
     pub color_err: ColorMode,
     pub theme: Theme,
+    /// Was the theme found (setting, `COLORFGBG` or the background query)? When not, the theme
+    /// is `Neutral`: text stays at the terminal's own foreground and only glyphs are colored.
+    pub theme_known: bool,
     pub width: usize,
     /// `--wide`: tables are never truncated.
     pub wide: bool,
@@ -165,6 +168,7 @@ impl Default for Ui {
             tty_err: false,
             color_err: ColorMode::None,
             theme: Theme::Dark,
+            theme_known: true,
             width: 80,
             wide: false,
             term_dumb: false,
@@ -218,6 +222,16 @@ pub(crate) enum Stream {
     Err,
 }
 
+/// Is a locale name English? `C`, `POSIX`, an empty name and `en`, `en_AU.UTF-8` and the like are.
+fn english(lang: &str) -> bool {
+    let code = lang
+        .split(['_', '.', '@', '-'])
+        .next()
+        .unwrap_or("")
+        .to_ascii_lowercase();
+    matches!(code.as_str(), "" | "c" | "posix" | "en")
+}
+
 /// ASCII icons (`[ok] [..] [?] [x] [!] [-]`) when the locale is not UTF-8 (`LANG=C`), the
 /// terminal is dumb, or the terminal is one whose font is known to lack the glyphs (the
 /// Linux console and the VT100 family: the font check). `CIG_ASCII=1` forces ASCII and
@@ -240,29 +254,34 @@ impl Ui {
     /// `LANG=C`, `--plain`, `--json`, `CIG_PLAIN`, `COLUMNS`, `COLORFGBG`, `theme`.
     pub fn from_env_and_flags(flags: &GlobalFlags) -> Ui {
         let mut env = Env::real();
-        if Ui::should_probe(flags, &env) {
+        if Ui::would_probe(flags, &env, detect::in_foreground()) {
             let within = std::time::Duration::from_millis(budget::BACKGROUND_QUERY_MS);
             env.background = detect::query_background(within);
         }
         Ui::from_env(flags, &env)
     }
 
-    /// Should the terminal be asked for its background (OSC 11)? Only when the theme is on
-    /// `auto`, `COLORFGBG` has not said, a person is at a terminal that will paint colour, and
-    /// nothing says to keep quiet. The query is bounded (see `detect::query_background`).
-    fn should_probe(flags: &GlobalFlags, env: &Env) -> bool {
+    /// Should the terminal be asked for its background (OSC 11)? `foreground` is whether this
+    /// process is in the terminal's foreground group (`detect::in_foreground`). Only when the theme is on
+    /// `auto`, `COLORFGBG` has not said, a person is at a terminal that will paint color, the
+    /// output is in the voice (not plain, `--json`, CI, a screen reader or a non-English
+    /// locale), the session is not over SSH (a slow link would deliver the reply late), and this
+    /// process is in the terminal's foreground group. The query itself is bounded (see
+    /// `detect::query_background`).
+    pub fn would_probe(flags: &GlobalFlags, env: &Env, foreground: bool) -> bool {
         let term = env.get("TERM").unwrap_or("");
         flags.theme == ThemeChoice::Auto
             && !flags.no_probe
-            && !flags.json
-            && !flags.plain
             && !flags.no_color
             && env.tty_in
             && env.tty_out
             && env.get("COLORFGBG").is_none()
             && env.get("NO_COLOR").is_none()
-            && !env.on("CI")
+            && env.get("SSH_CONNECTION").is_none()
+            && env.get("SSH_TTY").is_none()
             && !matches!(term, "" | "dumb" | "linux")
+            && Ui::from_env(flags, env).mode == Mode::Voice
+            && foreground
     }
 
     pub fn from_env(flags: &GlobalFlags, env: &Env) -> Ui {
@@ -272,7 +291,12 @@ impl Ui {
         // that look like it (`QT_ACCESSIBILITY=1`) are set by default on KDE sessions, so they
         // are not read: that would make everyone's output plain. The signal is `CIG_SCREEN_READER`.
         let screen_reader = env.on("CIG_SCREEN_READER");
-        let plain_env = env.on("CIG_PLAIN") || env.on("CI") || screen_reader;
+        // The voice is English-only (#31): other languages get plain until a voice is written.
+        let lang = ["LC_ALL", "LC_MESSAGES", "LANG"]
+            .iter()
+            .find_map(|k| env.get(k))
+            .unwrap_or("C");
+        let plain_env = env.on("CIG_PLAIN") || env.on("CI") || screen_reader || !english(lang);
         let mode = if flags.json {
             Mode::Json
         } else if flags.plain || plain_env || flags.voice == VoiceChoice::Plain {
@@ -301,14 +325,17 @@ impl Ui {
             .unwrap_or("C")
             .to_ascii_lowercase();
         let utf8 = locale.contains("utf-8") || locale.contains("utf8");
-        let theme = match flags.theme {
-            ThemeChoice::Dark => Theme::Dark,
-            ThemeChoice::Light => Theme::Light,
-            ThemeChoice::Auto => env
+        let (theme, theme_known) = match flags.theme {
+            ThemeChoice::Dark => (Theme::Dark, true),
+            ThemeChoice::Light => (Theme::Light, true),
+            ThemeChoice::Auto => match env
                 .get("COLORFGBG")
                 .and_then(detect::parse_colorfgbg)
                 .or_else(|| env.background.map(detect::theme_of_background))
-                .unwrap_or(Theme::Dark),
+            {
+                Some(t) => (t, true),
+                None => (Theme::Neutral, false),
+            },
         };
         let width = env
             .get("COLUMNS")
@@ -323,6 +350,7 @@ impl Ui {
             tty_err: env.tty_err,
             color_err: on(env.tty_err),
             theme,
+            theme_known,
             width,
             wide: flags.wide,
             term_dumb,
@@ -347,6 +375,7 @@ impl Ui {
             tty_err: self.tty_err,
             color_err: self.color_err,
             theme: self.theme,
+            theme_known: self.theme_known,
             width: self.width,
             wide: self.wide,
             term_dumb: self.term_dumb,
@@ -383,7 +412,18 @@ impl Ui {
         }
     }
 
+    /// Color for text. When the theme is not known the text stays at the terminal's own
+    /// foreground (only bold is applied): no color is safe for words on an unknown background.
     pub(crate) fn paint(&self, s: Stream, role: Role, text: &str) -> String {
+        if self.theme == Theme::Neutral && role != Role::Bold {
+            return text.to_string();
+        }
+        paint(self.color_for(s), self.theme, role, text)
+    }
+
+    /// Color for a non-text glyph (an icon, an arrow, a bar). Uses the neutral palette, every
+    /// color of which is at least 3:1 on both black and white, when the theme is not known.
+    pub(crate) fn paint_glyph(&self, s: Stream, role: Role, text: &str) -> String {
         paint(self.color_for(s), self.theme, role, text)
     }
 
@@ -427,18 +467,16 @@ impl Ui {
         }
     }
 
-    /// One answer to a prompt: a single keypress on a terminal (no enter), else a line.
-    /// `None` at end of input, `Some(None)` for enter, `Some(Some(c))` for a key.
-    pub(crate) fn read_answer(&self) -> Option<Option<char>> {
-        if matches!(self.io, Io::Std) && self.tty_in {
-            if let Some(key) = detect::read_key() {
-                let echo = key.map_or(String::new(), |c| c.to_string());
-                self.write(Stream::Err, &format!("{echo}\n"));
-                return Some(key);
-            }
-        }
-        let line = self.read_line()?;
-        Some(line.trim().chars().next())
+    /// Real keyboard and screen (not a capture)?
+    pub(crate) fn is_std(&self) -> bool {
+        matches!(self.io, Io::Std)
+    }
+
+    /// Is the output in plain words (`--plain`, CI, a screen reader, `voice = plain`, a non-English
+    /// locale, or `--json`)? Everything that picks a form (the explain pages, the catalogue)
+    /// asks this, never a flag alone.
+    pub fn plain(&self) -> bool {
+        self.mode != Mode::Voice
     }
 
     /// A catalogue message in the active mode (`--json` has no sentences; it gets the plain form).
@@ -470,6 +508,7 @@ impl Ui {
             .replace('·', "-")
             .replace('━', "=")
             .replace('╸', ">")
+            .replace('─', "-")
     }
 
     pub(crate) fn arrow(&self) -> &'static str {

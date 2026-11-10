@@ -1,6 +1,6 @@
 --- stdout ---
 --- stderr ---
-refused: error[E1811 carton]: not found: there's no carton 1.4 on the stable channel
+refused: error[E1811 carton]: wrong address: there's no carton 1.4 on the stable channel
   = subject: 1.4
   = hint: newest on stable is 0.1.1; 0.2.0-beta.2 is on beta
   = explain: ciginstaller explain E1811

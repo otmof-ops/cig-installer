@@ -2,4 +2,4 @@
 --- stderr ---
 --- rendered ---
 ! remove everything ciginstaller added?  toolchains, store, shims, profile blocks
-  [y]es  [N]o                                (enter = no; this cannot be undone)
+  type yes, then enter, to go ahead; no or enter stops  (enter = no; this cannot be undone)

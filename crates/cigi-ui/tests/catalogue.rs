@@ -81,6 +81,9 @@ fn the_four_kinds_of_no_match_the_registry() {
             "{id}: the voice is the family's catchphrase"
         );
         assert_ne!(m.plain, m.voice);
+        // plain uses the manual's names (#31): the part of `manual` before its first `:` or `;`
+        let manual = no.manual.split([':', ';']).next().unwrap_or("").trim();
+        assert_eq!(m.plain, manual, "{id}: plain is the registry's manual name");
     }
     assert!(catalogue::kind_of_no("none").is_none());
     assert!(catalogue::kind_of_no("depends").is_none());

@@ -6,7 +6,6 @@
 //! exception, because its words are the requirement.
 
 mod common;
-use std::io::Write;
 use std::path::Path;
 use std::process::{Command, Output, Stdio};
 
@@ -27,7 +26,7 @@ fn bare(fx: &Fixture, dir: &Path, args: &[&str]) -> Output {
 }
 
 /// A terminal for the child through util-linux `script`; its input is `keys`.
-fn on_tty(fx: &Fixture, args: &str, keys: &str) -> (i32, String) {
+fn on_tty(fx: &Fixture, args: &str, keys: &[&str]) -> (i32, String) {
     let c = fx.cigi();
     let exe = c.get_program().to_string_lossy().to_string();
     let q = |s: &str| format!("'{}'", s.replace('\'', "'\\''"));
@@ -46,22 +45,7 @@ fn on_tty(fx: &Fixture, args: &str, keys: &str) -> (i32, String) {
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
-    let mut child = s.spawn().expect("run script(1)");
-    {
-        let mut i = child.stdin.take().expect("script stdin");
-        let _ = i.write_all(keys.as_bytes());
-        // script ends the child at EOF, so the input stays open until the child is done
-        std::mem::forget(i);
-    }
-    let o = child.wait_with_output().expect("wait for script(1)");
-    (
-        o.status.code().unwrap_or(-1),
-        format!(
-            "{}{}",
-            String::from_utf8_lossy(&o.stdout),
-            String::from_utf8_lossy(&o.stderr)
-        ),
-    )
+    type_at_prompts(s, keys)
 }
 
 fn simple() -> Fixture {
@@ -90,7 +74,7 @@ fn json_of(o: &Output) -> serde_json::Value {
 fn a4_menu_on_a_terminal_asks_what_you_are_after_then_the_settings() {
     let fx = simple();
     // one keypress each: 3 = a carton, s = strict, n = never send crash reports
-    let (code, t) = on_tty(&fx, "install --no-path", "3sn");
+    let (code, t) = on_tty(&fx, "install --no-path", &["3", "s", "n"]);
     assert_eq!(code, 0, "{t}");
     for want in [
         "what are you after?",
@@ -115,7 +99,7 @@ fn a4_menu_a_stick_asks_which_product_and_installs_only_it() {
     let fx = simple();
     // one keypress each: 1 = a stick, 1 = the first product (cig), then enter takes the
     // preset's and the reports question's defaults
-    let (code, t) = on_tty(&fx, "install --no-path", "11\n\n");
+    let (code, t) = on_tty(&fx, "install --no-path", &["1", "1", "\n", "\n"]);
     assert_eq!(code, 0, "{t}");
     assert!(t.contains("which product?"), "{t}");
     let s = state(&fx);
@@ -132,7 +116,7 @@ fn a4_menu_a_stick_asks_which_product_and_installs_only_it() {
 #[test]
 fn a4_menu_is_not_asked_for_a_dry_run() {
     let fx = simple();
-    let (code, t) = on_tty(&fx, "install --dry-run", "");
+    let (code, t) = on_tty(&fx, "install --dry-run", &[]);
     assert_eq!(code, 3, "{t}");
     assert!(t.contains("E1871"), "{t}");
     assert!(!t.contains("what are you after?"), "{t}");
@@ -495,7 +479,7 @@ fn a4_pin_help_lists_every_tool_with_a_pin_file() {
 #[test]
 fn a4_the_preset_question_and_config_say_it_is_not_enforced() {
     let fx = simple();
-    let (code, t) = on_tty(&fx, "install --no-path", "3sn");
+    let (code, t) = on_tty(&fx, "install --no-path", &["3", "s", "n"]);
     assert_eq!(code, 0, "{t}");
     assert!(t.contains("cig-orchestrator#66"), "in the question: {t}");
     assert!(t.contains("nothing enforces the preset"), "{t}");

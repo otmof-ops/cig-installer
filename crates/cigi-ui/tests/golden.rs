@@ -19,7 +19,9 @@ fn variants() -> Vec<(&'static str, Ui, Capture)> {
         ..Env::default()
     }
     .with("LANG", "en_US.UTF-8")
-    .with("TERM", "xterm-256color");
+    .with("TERM", "xterm-256color")
+    // a dark terminal that has said so; the unknown background is tested in design.rs
+    .with("COLORFGBG", "15;0");
     let piped = Env::default().with("LANG", "en_US.UTF-8");
     let flags = GlobalFlags::default();
     let mk = |name, ui: Ui| {
@@ -67,6 +69,11 @@ fn variants() -> Vec<(&'static str, Ui, Capture)> {
                 },
                 &piped,
             ),
+        ),
+        // LANG=C: the ASCII icons and glyphs, in the voice
+        mk(
+            "ascii",
+            Ui::from_env(&flags, &Env::default().with("LANG", "C")),
         ),
     ]
 }
@@ -352,23 +359,29 @@ fn golden_output_per_screen() {
         String::new()
     });
     check_golden("doctor", &|ui| {
+        let finding = |code, headline: &str, because: &str, fix: &str| Finding {
+            code,
+            severity: Severity::Warn,
+            headline: headline.into(),
+            detail: vec![because.into()],
+            fixes: vec![fix.into()],
+            subject: "doctor".into(),
+        };
         ui.say(&Report::new(Icon::Note, "cig 1.20.0"));
-        ui.say(
-            &Report::new(
-                Icon::Note,
-                "I think the PATH block is missing from your profile",
-            )
-            .code("E1845")
-            .detail("because I checked ~/.profile, ~/.bashrc and ~/.zshrc: none has the block")
-            .next("ciginstaller repair"),
-        );
+        ui.finding(&finding(
+            "E1845",
+            "I think the PATH block is missing from your profile",
+            "because I checked ~/.profile, ~/.bashrc and ~/.zshrc: none has the block",
+            "ciginstaller repair",
+        ));
         ui.say(&Report::new(Icon::Note, "cigcompile 0.2.0"));
-        ui.say(
-            &Report::new(Icon::Note, "I think a program was built on an older cig")
-                .code("E1806")
-                .detail("because ~/work/tidy was built on cig 1.19.0 and cig 1.20.0 is installed")
-                .next("cigcompile rebuild ~/work/tidy"),
-        );
+        ui.finding(&finding(
+            "E1806",
+            "I think a program was built on an older cig",
+            "because ~/work/tidy was built on cig 1.19.0 and cig 1.20.0 is installed",
+            "cigcompile rebuild ~/work/tidy",
+        ));
+        ui.say(&Report::new(Icon::Note, "nothing else needed a look"));
         ui.finish(
             "doctor",
             &Ok(Report::done("2 findings, 2 fixes to run")
