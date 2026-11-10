@@ -673,6 +673,8 @@ the installer: shims, pins, updates, rollbacks, repair, uninstall, and the comma
 | [`E1871`](#e1871-a-question-was-needed-and-there-is-no-tty) | a question was needed and there is no TTY | not one of the four | `ciginstaller <command> --yes`, if you mean it |
 | [`E1872`](#e1872-platform-not-supported) | platform not supported | don't have any over here | `ciginstaller carton show <version> --verbose` lists the targets |
 | [`E1873`](#e1873-offline-was-requested-and-the-step-needs-the-network) | offline was requested and the step needs the network | these are MY ciggies | `ciginstaller <command>` without --offline |
+| [`E1874`](#e1874-there-is-nothing-to-build-the-shims-from) | there is nothing to build the shims from | don't have any over here | `ciginstaller install carton` |
+| [`E1875`](#e1875-the-setting-is-not-in-the-file) | the setting is not in the file | don't have any over here | `ciginstaller config get <key>` |
 
 ### E1840 nothing installed for this tool
 
@@ -1053,6 +1055,40 @@ Related: [`E1815`](#e1815-no-build-for-this-platform), [`E1807`](#e1807-operatin
 1. --offline is set, or offline = true in the config (probe `config-offline`). **Remedy:** run the command without --offline, or fetch first and keep working offline
 
 Related: [`E1810`](#e1810-no-manifest), [`E1820`](#e1820-download-failed), [`E1842`](#e1842-pinned-carton-unavailable-and-fetching-refused).
+
+### E1874 there is nothing to build the shims from
+
+*usage · since 0.1.0 · arises in any*
+
+**Kind of no:** don't have any over here (nobody's: right place, right you, nothing there; 404 from the server's side; an empty result).
+
+`ciginstaller shims sync` rebuilds every shim from what is installed, and nothing is installed, or the installer's own toolchain has no shim program to link them to. No shim was changed.
+
+**What to type next:** `ciginstaller install carton`
+
+**Known causes**, ranked; the doctor checks them in this order:
+
+1. no carton or tool is installed on this machine (no probe; a suggestion, not a finding). **Remedy:** `ciginstaller install carton` installs one and makes its shims
+2. the installer's own toolchain is damaged and has no shim program (no probe; a suggestion, not a finding). **Remedy:** `ciginstaller repair` restores it from the store
+
+Related: [`E1831`](#e1831-installed-file-differs-from-its-receipt), [`E1840`](#e1840-nothing-installed-for-this-tool).
+
+### E1875 the setting is not in the file
+
+*usage · since 0.1.0 · arises in any*
+
+**Kind of no:** don't have any over here (nobody's: right place, right you, nothing there; 404 from the server's side; an empty result).
+
+`ciginstaller config unset` removes a setting's line from the config file, and the file has no line for it. The value in force comes from the environment or the default, which `config get` names.
+
+**What to type next:** `ciginstaller config get <key>`
+
+**Known causes**, ranked; the doctor checks them in this order:
+
+1. the setting was never set with `config set`, or was already unset (no probe; a suggestion, not a finding). **Remedy:** nothing to undo: `ciginstaller config` lists every setting and where its value comes from
+2. the value comes from a CIGI_<KEY> environment variable, not the file (no probe; a suggestion, not a finding). **Remedy:** unset the variable in your shell
+
+Related: [`E1870`](#e1870-usage).
 
 
 ## installer (`E1880`–`E1889`)

@@ -1280,6 +1280,46 @@ probe = "config-offline"
 remedy = "run the command without --offline, or fetch first and keep working offline"
 
 [[code]]
+code = "E1874"
+title = "there is nothing to build the shims from"
+meaning = "`ciginstaller shims sync` rebuilds every shim from what is installed, and nothing is installed, or the installer's own toolchain has no shim program to link them to. No shim was changed."
+fix = "`ciginstaller install carton`"
+no = "dont-have-any"
+arises = ["any"]
+tags = ["installer"]
+since = "0.1.0"
+related = ["E1831", "E1840"]
+[[code.cause]]
+why = "no carton or tool is installed on this machine"
+no = "dont-have-any"
+probe = "none"
+remedy = "`ciginstaller install carton` installs one and makes its shims"
+[[code.cause]]
+why = "the installer's own toolchain is damaged and has no shim program"
+probe = "none"
+remedy = "`ciginstaller repair` restores it from the store"
+
+[[code]]
+code = "E1875"
+title = "the setting is not in the file"
+meaning = "`ciginstaller config unset` removes a setting's line from the config file, and the file has no line for it. The value in force comes from the environment or the default, which `config get` names."
+fix = "`ciginstaller config get <key>`"
+no = "dont-have-any"
+arises = ["any"]
+tags = ["installer"]
+since = "0.1.0"
+related = ["E1870"]
+[[code.cause]]
+why = "the setting was never set with `config set`, or was already unset"
+no = "dont-have-any"
+probe = "none"
+remedy = "nothing to undo: `ciginstaller config` lists every setting and where its value comes from"
+[[code.cause]]
+why = "the value comes from a CIGI_<KEY> environment variable, not the file"
+probe = "none"
+remedy = "unset the variable in your shell"
+
+[[code]]
 code = "E1890"
 title = "a bug in the installer"
 meaning = "ciginstaller hit a state it believes cannot happen. The machine was not changed."

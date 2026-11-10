@@ -87,7 +87,8 @@ pub enum Command {
     List,
     /// What runs here, and why.
     Which {
-        tool: String,
+        /// A tool; with none, every tool of the family and why it runs from where it does.
+        tool: Option<String>,
         /// The resolver's steps.
         #[arg(long)]
         why: bool,
@@ -131,6 +132,16 @@ pub enum Command {
         #[arg(long, value_name = "DIR")]
         project: Option<PathBuf>,
     },
+    // ---- status, settings, history, shims (a4) ----
+    /// This machine at a glance: the carton, the tools, how they were trusted, what is waiting.
+    Status,
+    /// Settings: list them, `get <key>`, `set <key> <value>`, `unset <key>`.
+    Config(ConfigCmd),
+    /// What this machine has been through, newest first.
+    History,
+    /// The shims in `bin/`: `sync` rebuilds them and the index from state, `list` shows them.
+    Shims(ShimsCmd),
+    // ---- end of the a4 block ----
     #[command(name = "__selfcheck", hide = true)]
     SelfCheck,
     #[command(name = "__resolve", hide = true)]
@@ -261,3 +272,37 @@ pub enum SelfSub {
         check: bool,
     },
 }
+
+// ---- status, settings, history, shims (a4) ----
+#[derive(Args)]
+pub struct ConfigCmd {
+    #[command(subcommand)]
+    pub sub: Option<ConfigSub>,
+}
+
+#[derive(Subcommand)]
+pub enum ConfigSub {
+    /// Every setting, its value and where the value comes from.
+    List,
+    /// One setting's value and where it comes from.
+    Get { key: String },
+    /// Set a setting in the config file (checked first; an environment variable still outranks it).
+    Set { key: String, value: String },
+    /// Remove a setting from the config file, back to its default.
+    Unset { key: String },
+}
+
+#[derive(Args)]
+pub struct ShimsCmd {
+    #[command(subcommand)]
+    pub sub: ShimsSub,
+}
+
+#[derive(Subcommand)]
+pub enum ShimsSub {
+    /// Rebuild every shim and the shim index from what is installed, in one transaction.
+    Sync,
+    /// Each shim and what it runs here.
+    List,
+}
+// ---- end of the a4 block ----

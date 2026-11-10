@@ -87,7 +87,7 @@ fn dispatch(cli: Cli, ui: Ui) -> i32 {
         self_updated: cli.self_updated.clone(),
     };
     let (name, cwd) = match &cli.command {
-        None => ("ciginstaller", None),
+        None | Some(Command::Status) => ("status", None),
         Some(Command::Explain { .. }) => ("explain", None),
         Some(Command::Install(_)) => ("install", None),
         Some(Command::Carton(_)) => ("carton", None),
@@ -105,6 +105,11 @@ fn dispatch(cli: Cli, ui: Ui) -> i32 {
         Some(Command::Gc { .. }) => ("gc", None),
         Some(Command::Check { project, .. }) => ("check", project.clone()),
         Some(Command::SelfCheck) => ("__selfcheck", None),
+        // ---- status, settings, history, shims (a4) ----
+        Some(Command::Config(_)) => ("config", None),
+        Some(Command::History) => ("history", None),
+        Some(Command::Shims(_)) => ("shims", None),
+        // ---- end of the a4 block ----
     };
     // the exit code a successful command ends with when it is not 0 (`update --check --exit-code`)
     let mut exit_override: Option<i32> = None;
@@ -114,11 +119,6 @@ fn dispatch(cli: Cli, ui: Ui) -> i32 {
         return explain(&ui, code.as_deref(), cli.plain);
     }
     let result = (|| -> Result<Outcome, InstallerError> {
-        if cli.command.is_none() {
-            return Ok(Outcome::Report(
-                Report::done("ciginstaller is installed").next("ciginstaller list"),
-            ));
-        }
         let mut cx = Cx::new(ui_clone(&cli), globals, cwd)?;
         let result = match &cli.command {
             Some(Command::Install(c)) => cmd::install::run(&mut cx, c),
@@ -138,7 +138,7 @@ fn dispatch(cli: Cli, ui: Ui) -> i32 {
             Some(Command::List) => cmd::list::run(&mut cx),
             Some(Command::Which {
                 tool, why, path, ..
-            }) => cmd::which::run(&mut cx, tool, *why, *path),
+            }) => cmd::which::run(&mut cx, tool.as_deref(), *why, *path),
             Some(Command::Resolve { tool, args, .. }) => {
                 match cmd::resolve::run(&mut cx, tool, args) {
                     Ok(code) => Err(InstallerError::new("E1832", "").with_exit(code)),
@@ -167,6 +167,12 @@ fn dispatch(cli: Cli, ui: Ui) -> i32 {
             Some(Command::Gc { dry_run, keep_days }) => cmd::gc::run(&mut cx, *dry_run, *keep_days),
             Some(Command::Check { carton, .. }) => cmd::check::run(&mut cx, carton.as_deref()),
             Some(Command::SelfCheck) => cmd::self_cmd::selfcheck(&mut cx),
+            // ---- status, settings, history, shims (a4) ----
+            None | Some(Command::Status) => cmd::status::run(&mut cx),
+            Some(Command::Config(c)) => cmd::config::run(&mut cx, c.sub.as_ref()),
+            Some(Command::History) => cmd::history::run(&mut cx),
+            Some(Command::Shims(c)) => cmd::shims::run(&mut cx, &c.sub),
+            // ---- end of the a4 block ----
             _ => Ok(Outcome::Report(Report::done("nothing to do"))),
         };
         // the first good command of a freshly installed build says it is healthy (SPEC 12.4)
@@ -194,7 +200,13 @@ fn dispatch(cli: Cli, ui: Ui) -> i32 {
         (_, Err(e)) => ui.finish(name, &Err(e)),
     };
     // `auto_update = notify`: at most one line a day, after an interactive command went well
-    if ok && code == 0 && !matches!(name, "update" | "rollback" | "resolve" | "explain") {
+    if ok
+        && code == 0
+        && !matches!(
+            name,
+            "update" | "rollback" | "resolve" | "explain" | "status"
+        )
+    {
         if let Some(cx) = &notice_cx {
             flows::notice::maybe_notify(cx);
         }

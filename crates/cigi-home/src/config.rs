@@ -148,6 +148,49 @@ impl Config {
         self.values.get(key).cloned()
     }
 
+    /// Is this key set by its `CIGI_<KEY>` environment variable (or a flag for this run)?
+    pub fn env_has(&self, key: &str) -> bool {
+        self.env.contains_key(key)
+    }
+
+    /// Where the effective value of `key` comes from: `environment`, `file` or `default`.
+    pub fn source(&self, key: &str) -> &'static str {
+        if self.env.contains_key(key) {
+            "environment"
+        } else if self.values.contains_key(key) {
+            "file"
+        } else {
+            "default"
+        }
+    }
+
+    /// Remove a key's lines from the file text, through the journal. Returns whether the file
+    /// had one; when it had none nothing is written. Comments and other keys are untouched.
+    pub fn unset_in(&mut self, txn: &mut Txn, key: &str) -> Result<bool, StateError> {
+        if spec(key).is_none() {
+            return Err(StateError::Usage(format!("unknown setting `{key}`")));
+        }
+        let mut out = String::new();
+        let mut found = false;
+        for line in self.text.lines() {
+            match parse_line(line) {
+                Some((k, _)) if k == key => found = true,
+                _ => {
+                    out.push_str(line);
+                    out.push('\n');
+                }
+            }
+        }
+        if !found {
+            return Ok(false);
+        }
+        let p = txn.home().config_path();
+        txn.write(&p, out.as_bytes(), Some(0o644))?;
+        self.text = out;
+        self.values.remove(key);
+        Ok(true)
+    }
+
     /// Check a key and value against 5.2 (`E1870` otherwise).
     pub fn validate(key: &str, value: &str) -> Result<(), StateError> {
         let s = spec(key).ok_or_else(|| StateError::Usage(format!("unknown setting `{key}`")))?;
@@ -250,6 +293,17 @@ mod tests {
         });
         assert_eq!(c.get("channel"), "nightly");
         assert_eq!(c.get_file("channel").as_deref(), Some("beta"));
+    }
+
+    #[test]
+    fn source_says_where_the_value_comes_from() {
+        let c = Config::from_text("channel = beta\n", &|k| {
+            (k == "CIGI_THEME").then(|| "dark".to_string())
+        });
+        assert_eq!(c.source("channel"), "file");
+        assert_eq!(c.source("theme"), "environment");
+        assert_eq!(c.source("keep_days"), "default");
+        assert!(c.env_has("theme") && !c.env_has("channel"));
     }
 
     #[test]
