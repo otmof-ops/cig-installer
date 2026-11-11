@@ -58,7 +58,7 @@ pub use humidor::{
 pub use index::ShimIndex;
 pub use journal::{
     list_txns, prune_txns, recover, Before, FlipIntent, Journal, JournalOp, RecoverOutcome,
-    Recovered, RollbackFailure, RollbackReport, Txn, TxnInfo, TxnStatus,
+    Recovered, RollbackFailure, RollbackReport, Txn, TxnInfo, TxnStatus, TXN_RETENTION_DAYS,
 };
 pub use lock::InstallerLock;
 pub use migrate::{migrate_store, StoreMigration};

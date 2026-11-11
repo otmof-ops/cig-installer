@@ -281,6 +281,7 @@ pub fn run(cx: &mut Cx, a: &UpdateArgs) -> Result<Updated, InstallerError> {
     }
     let mut txn = cx.begin(&format!("update carton {cur} to {tv}"))?;
     let txn_id = txn.id().to_string();
+    let txn_dir = txn.dir().to_path_buf();
     let staged = stage(cx, &mut txn, &m, &target, &cur, &changes, &fetched, a);
     let staged = match staged {
         Ok(s) => s,
@@ -402,9 +403,15 @@ pub fn run(cx: &mut Cx, a: &UpdateArgs) -> Result<Updated, InstallerError> {
         .detail(format!(
             "carton {cur} stays installed until the next update, so you can go back"
         ))
+        .detail(format!(
+            "cig can undo it too, for {} days: close ciginstaller, then `cig runs adopt {}` and `cig unburn <the run id it prints>`",
+            cigi_home::TXN_RETENTION_DAYS,
+            txn_dir.display()
+        ))
         .next("ciginstaller rollback");
     let r = r.data(json!({
         "from": cur.to_string(), "to": tv.to_string(), "txn": txn_id,
+        "undo": format!("cig runs adopt {}", txn_dir.display()),
         "changes": plan_lines, "whats_new": fresh, "links": links,
         "announced": announced,
         "fetched": fetched.iter().map(|f| json!({"tool": f.tool, "version": f.version.to_string()})).collect::<Vec<_>>(),

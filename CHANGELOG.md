@@ -6,6 +6,14 @@ All notable changes to cig-installer. The format follows Keep a Changelog; the
 project follows semantic versioning. Nothing is released yet, so everything
 below is under Unreleased, and the first version will take it as its section.
 
+### cig can undo an update too, and the journal is a documented contract (#7)
+
+- `update`'s report says how cig undoes it, for as long as the transaction is kept: close
+  ciginstaller, then `cig runs adopt <home>/installer/txn/<id>` and `cig unburn <run id>`; the JSON
+  carries it as `undo`. cig verifies the transaction and refuses one that wrote outside the home.
+- docs/JOURNAL.md: the journal's lines, ops and before-states, which `ciginstaller rollback` and
+  `cig runs adopt` both read.
+
 ### A bug you reported is told to you when a carton fixes it, for every tool (#12)
 
 - After an update, a report this machine filed against cigo, cigcompile, cigar or the installer
