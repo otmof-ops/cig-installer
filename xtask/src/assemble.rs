@@ -614,7 +614,7 @@ pub fn fixed_refs(notes: &str, own: &str) -> Vec<(String, u64)> {
         if !KEYS.contains(&key.as_str()) {
             continue;
         }
-        let r = w[1].trim_end_matches(|c: char| matches!(c, ',' | '.' | ';' | ':' | ')' | '*'));
+        let r = w[1].trim_end_matches([',', '.', ';', ':', ')', '*']);
         let Some((repo, num)) = r.split_once('#') else {
             continue;
         };
