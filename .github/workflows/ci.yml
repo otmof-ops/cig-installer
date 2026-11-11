@@ -93,8 +93,10 @@ jobs:
       - uses: actions/checkout@v4
       - name: Install Rust (stable) and the musl toolchain
         run: |
-          # the runner's Azure apt mirror can stop resolving for an hour or more: each try is time-bound,
-          # and after a failed one apt goes to the main Ubuntu archive instead of the runner's mirror list
+          # Canonical's names can stop resolving for hours (2026-11-11: the runner's mirror list and
+          # archive.ubuntu.com alike, while public resolvers still answered). Each try is time-bound; after
+          # a failed one apt goes to the main archive, and a name this runner cannot resolve is pinned in
+          # /etc/hosts from DNS over HTTPS to 1.1.1.1, which needs no lookup. apt still checks signatures.
           for i in 1 2 3 4; do
             if timeout 300 sudo apt-get -o Acquire::Retries=3 update \
               && timeout 300 sudo apt-get -o Acquire::Retries=3 install -y --no-install-recommends musl-tools; then
@@ -105,6 +107,16 @@ jobs:
               if [ -f "$f" ] && grep -q 'mirror+file:' "$f"; then
                 sudo sed -i 's#mirror+file:/etc/apt/apt-mirrors.txt#http://archive.ubuntu.com/ubuntu/#g' "$f"
                 echo "apt: $f now uses archive.ubuntu.com"
+              fi
+            done
+            for h in archive.ubuntu.com security.ubuntu.com; do
+              if ! getent hosts "$h" >/dev/null; then
+                ip=$(curl -fsS --max-time 10 -H 'accept: application/dns-json' "https://1.1.1.1/dns-query?name=$h&type=A" \
+                  | jq -r '[.Answer[]? | select(.type == 1) | .data][0] // empty' || true)
+                if [ -n "$ip" ]; then
+                  echo "$ip $h" | sudo tee -a /etc/hosts >/dev/null
+                  echo "apt: $h pinned to $ip"
+                fi
               fi
             done
             sleep $((i * 15))
