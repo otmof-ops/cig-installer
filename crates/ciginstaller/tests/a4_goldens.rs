@@ -147,10 +147,14 @@ fn normalize(fx: &Fixture, s: &str) -> String {
 }
 
 fn run(fx: &Fixture, variant: &str, args: &[&str]) -> String {
+    run_on(fx, variant, args, "file:///mirror")
+}
+
+fn run_on(fx: &Fixture, variant: &str, args: &[&str], mirror: &str) -> String {
     let mut c = fx.cigi();
     // a fixed mirror, so no fixture path (and no cut-short one) reaches a golden
     c.env("CIGI_ALLOW_SINGLE_SOURCE", "true")
-        .env("CIGI_MIRROR", "file:///mirror")
+        .env("CIGI_MIRROR", mirror)
         .arg(variant)
         .args(args);
     let o = loop {
@@ -215,4 +219,24 @@ fn a4_golden_doctor_with_a_deleted_shim() {
     let fx = machine();
     std::fs::remove_file(fx.cigscript().join("bin/cig")).unwrap();
     check(&fx, "real-doctor-deleted-shim", &["doctor"]);
+}
+
+#[test]
+fn a4_golden_update_no_trial() {
+    // `update --no-trial` says it once: `trial: skipped (--no-trial)`, never "trial skipped: trial skipped"
+    // the update changes the machine, so each form runs on its own fresh one (0.1.2 waiting)
+    let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/golden");
+    for (variant, flag) in VARIANTS {
+        let fx = machine();
+        let got = run_on(&fx, flag, &["update", "--no-trial"], &fx.mirror_file_url());
+        assert!(!got.contains("trial skipped"), "{got}");
+        let path = dir.join(format!("real-update-no-trial.{variant}.txt"));
+        if std::env::var_os("UPDATE_GOLDEN").is_some() {
+            std::fs::write(&path, &got).unwrap();
+            continue;
+        }
+        let want = std::fs::read_to_string(&path)
+            .unwrap_or_else(|_| panic!("missing golden {}", path.display()));
+        assert_eq!(got, want, "golden mismatch: real-update-no-trial.{variant}");
+    }
 }

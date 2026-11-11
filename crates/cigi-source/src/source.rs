@@ -28,6 +28,11 @@ pub trait Source: Send + Sync {
     /// true for GitHub (manifest and product sidecars come from different repositories),
     /// false for a mirror or a directory (one operator serves both).
     fn independent(&self) -> bool;
+    /// Does this source carry its files over plain http (a loopback mirror)? Then only a build
+    /// a pin vouches for is accepted, whatever `allow_single_source` says (E1900).
+    fn plain_http(&self) -> bool {
+        false
+    }
     fn fetch(
         &self,
         loc: &Location,
@@ -224,6 +229,9 @@ impl Source for MirrorSource {
     }
     fn independent(&self) -> bool {
         false
+    }
+    fn plain_http(&self) -> bool {
+        self.base.scheme() == "http"
     }
     fn fetch(
         &self,

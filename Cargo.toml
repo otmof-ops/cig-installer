@@ -31,6 +31,13 @@ serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1", features = ["preserve_order"] }
 time = { version = "0.3", features = ["formatting", "parsing", "macros"] }
 ureq = { version = "2", default-features = false, features = ["tls"] }
+# The TLS roots: the system's store (which honors SSL_CERT_FILE and SSL_CERT_DIR), and the
+# bundled Mozilla roots only when the system has none (#48).
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12", "logging"] }
+rustls-native-certs = "0.7"
+webpki-roots = "0.26"
+# The fixture server's throwaway loopback certificate (tests only).
+rcgen = { version = "0.13", default-features = false, features = ["crypto", "pem", "ring"] }
 tar = "0.4"
 flate2 = "1"
 tempfile = "3"

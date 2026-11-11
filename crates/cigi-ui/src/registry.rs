@@ -233,6 +233,7 @@ pub fn area(code: &str) -> &'static str {
         Some(1875) => "config",
         Some(1876..=1878) => "license",
         Some(1890..=1899) => "internal",
+        Some(1900) => "mirror",
         _ => "installer",
     }
 }

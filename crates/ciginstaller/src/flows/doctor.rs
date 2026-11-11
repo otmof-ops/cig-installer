@@ -158,12 +158,41 @@ pub fn findings(cx: &mut Cx, a: &DoctorArgs) -> Vec<Item> {
     disk(cx, &mut v);
     humidor_item(cx, &mut v);
     reports_items(cx, &mut v);
+    mirror_items(cx, &mut v);
     v.push(note(
         "not in this build",
         "the guard's checks and the guard's kernel features are not checked",
         "this build of ciginstaller has neither, so there is nothing to look at",
     ));
     v
+}
+
+/// A mirror reached over plain http (#48): off loopback it is refused outright, on loopback it
+/// works for builds a pin vouches for and no others. Reads the setting only.
+fn mirror_items(cx: &Cx, v: &mut Vec<Item>) {
+    use cigi_home::config::{loopback_host, plain_http_host};
+    let mirror = cx.cfg.get("mirror");
+    let Some(host) = plain_http_host(&mirror) else {
+        return;
+    };
+    let because = "the `mirror` setting (or CIGI_MIRROR)";
+    if loopback_host(&host) {
+        v.push(note(
+            "mirror",
+            format!("{mirror} is plain http on this machine: only builds a pin vouches for are accepted from it"),
+            because,
+        ));
+    } else {
+        v.push(
+            act(
+                "mirror",
+                format!("{mirror} is plain http, which every fetch refuses"),
+                because,
+            )
+            .fix("ciginstaller config unset mirror")
+            .code("E1900"),
+        );
+    }
 }
 
 /// The ashtray's queue, the consent setting and each report route's last success and last

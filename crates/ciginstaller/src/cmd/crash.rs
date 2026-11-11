@@ -23,7 +23,9 @@ use crate::cli::{CrashCmd, CrashSub};
 use crate::crash::{
     self, anon, blame, health, route, routes, Consent, Found, Kind, Report as Saved, Source,
 };
+use crate::cx::{Cx, Globals};
 use crate::errors::ie;
+use crate::flows::report as report_flow;
 
 pub struct Env<'a> {
     pub ui: &'a Ui,
@@ -184,11 +186,61 @@ fn list(env: &Env) -> Result<Report, InstallerError> {
     Ok(rep.next("ciginstaller crash show <report>").data(data))
 }
 
+// ----- what travels ---------------------------------------------------------------------
+
+/// The object `show` prints and `send` sends: `route::travel`'s, after the installer's version
+/// block is attached to a report whose details carry none (#11). A report another tool queued
+/// (cig, cigo, cigcompile, cigar) knows only its own version; the installer knows the carton and
+/// every tool's build, so it adds that when the report leaves, marked as taken at send time.
+/// Both commands come through here, so what `show` prints is byte for byte what `send` sends.
+fn travelling(env: &Env, r: &Saved) -> Value {
+    let has_block = r.details.as_ref().is_some_and(|d| {
+        // `bug` keeps the block as `version_matrix`, `report`'s bundle as `version_block`
+        ["version_matrix", "version_block"]
+            .iter()
+            .any(|k| d.get(k).is_some_and(|m| !m.is_null()))
+    });
+    let attachable = match &r.details {
+        None => true,
+        Some(d) => d.is_object() || d.is_null(),
+    };
+    if has_block || !attachable {
+        return route::travel(r, &env.root);
+    }
+    let mut block = block_now(env);
+    if let Some(o) = block.as_object_mut() {
+        o.insert("taken".into(), json!("at send time"));
+    }
+    let mut with = r.clone();
+    let mut d = match with.details.take() {
+        Some(Value::Object(o)) => o,
+        _ => serde_json::Map::new(),
+    };
+    d.insert("version_matrix".into(), block);
+    with.details = Some(Value::Object(d));
+    route::travel(&with, &env.root)
+}
+
+/// `ciginstaller report --block --json`'s block, read now. With no readable state it is the
+/// reduced block that says so (the ashtray works when the state is the problem).
+fn block_now(env: &Env) -> Value {
+    let globals = Globals {
+        yes: false,
+        offline: true,
+        home: Some(env.root.clone()),
+        self_updated: None,
+    };
+    match Cx::new(env.ui.duplicate(), globals, None) {
+        Ok(mut cx) => report_flow::version_block(&mut cx),
+        Err(e) => report_flow::block_without_state(&e),
+    }
+}
+
 // ----- show -------------------------------------------------------------------------------
 
 fn show(env: &Env, id: &str) -> Result<Report, InstallerError> {
     let r = find(env, id)?;
-    let view = route::travel(&r, &env.root);
+    let view = travelling(env, &r);
     let mut rep = Report::done(format!(
         "{} report {} from {}",
         r.kind.word(),
@@ -329,7 +381,7 @@ fn send_one(env: &Env, r: &mut Saved, via: &Via) -> Result<Sent, InstallerError>
     if crash::explicit_never(&env.cfg) {
         return Err(never_error(env, Some(r)));
     }
-    let body = route::travel(r, &env.root);
+    let body = travelling(env, r);
     match via.only {
         Some(routes::Route::Link) => {
             let repo = target_of(&env.root, r);

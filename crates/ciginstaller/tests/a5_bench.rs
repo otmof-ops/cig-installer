@@ -314,9 +314,9 @@ fn after_update_check_is_off_by_default_and_local() {
         ))["data"]["value"],
         "off"
     );
-    let server = off.serve();
+    let server = off.serve_tls();
     let o = off
-        .cigi_with_mirror(&server.url())
+        .cigi_with_server(&server)
         .env("CIGI_ALLOW_SINGLE_SOURCE", "true")
         .args(["--yes", "update"])
         .output()
@@ -331,9 +331,9 @@ fn after_update_check_is_off_by_default_and_local() {
     two(&mut on);
     ok(&cigi(&on, &["install", "carton", "--carton", "0.1.0"]));
     ok(&cigi(&on, &["config", "set", "bench_after_update", "on"]));
-    let server = on.serve();
+    let server = on.serve_tls();
     let o = on
-        .cigi_with_mirror(&server.url())
+        .cigi_with_server(&server)
         .env("CIGI_ALLOW_SINGLE_SOURCE", "true")
         .args(["--yes", "update"])
         .output()

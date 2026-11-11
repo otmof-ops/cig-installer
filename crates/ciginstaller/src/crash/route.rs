@@ -166,6 +166,7 @@ pub struct SendFailure {
 pub fn post(route: &Url, body: &Value) -> Result<Option<String>, SendFailure> {
     let fail = |why: String| SendFailure { why };
     let agent = ureq::AgentBuilder::new()
+        .tls_config(cigi_source::http::tls_config())
         .user_agent(cigi_source::http::USER_AGENT)
         .redirects(0)
         .timeout_connect(Duration::from_secs(10))

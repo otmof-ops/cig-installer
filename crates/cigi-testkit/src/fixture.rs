@@ -349,6 +349,21 @@ impl Fixture {
         FixtureServer::start(&self.releases)
     }
 
+    /// As `serve`, over HTTPS with a throwaway certificate: a mirror that takes any trust level
+    /// (plain http takes pinned builds only, #48). Run the installer with `cigi_with_server`.
+    pub fn serve_tls(&self) -> FixtureServer {
+        FixtureServer::start_tls(&self.releases)
+    }
+
+    /// As `cigi_with_mirror(server.url())`, trusting the server's certificate when it has one.
+    pub fn cigi_with_server(&self, server: &FixtureServer) -> Command {
+        let mut c = self.cigi_with_mirror(&server.url());
+        if let Some(ca) = server.ca_file() {
+            c.env("SSL_CERT_FILE", ca);
+        }
+        c
+    }
+
     /// The installer binary with scratch HOME and CIGSCRIPT_HOME, the mirror set to `file://<releases>`,
     /// `NO_COLOR=1`, `TERM=dumb`, and `PATH` = scratch `bin` first. Run from the project directory.
     pub fn cigi(&self) -> Command {

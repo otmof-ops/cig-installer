@@ -86,7 +86,7 @@ pub fn check_scheme(u: &Url) -> Result<(), FetchError> {
     match u.scheme() {
         "https" => Ok(()),
         "http" if is_loopback(u) => Ok(()),
-        "http" => Err(FetchError::Refused {
+        "http" => Err(FetchError::PlainHttp {
             url: u.to_string(),
             why: "plain http is only allowed to a loopback address".into(),
         }),
@@ -97,6 +97,18 @@ pub fn check_scheme(u: &Url) -> Result<(), FetchError> {
     }
 }
 
+/// A redirect may not lower the scheme: https never goes on to http, not even to loopback.
+pub fn check_redirect_scheme(from: &Url, to: &Url) -> Result<(), FetchError> {
+    check_scheme(to)?;
+    if from.scheme() == "https" && to.scheme() != "https" {
+        return Err(FetchError::PlainHttp {
+            url: to.to_string(),
+            why: "redirect from https to http".into(),
+        });
+    }
+    Ok(())
+}
+
 fn net(url: &Url, why: impl ToString) -> FetchError {
     FetchError::Network {
         url: url.to_string(),
@@ -105,6 +117,40 @@ fn net(url: &Url, why: impl ToString) -> FetchError {
 }
 
 /// Issue the request, following redirects under the policy; returns the final response.
+/// The TLS settings every HTTPS request uses (#48): certificates are checked against the system's
+/// trust store, which honors `SSL_CERT_FILE` and `SSL_CERT_DIR` as OpenSSL does, so an
+/// organisation's own certificate authority works the way it does for curl and git. The bundled
+/// Mozilla roots are used only when the system has no store at all (a bare container). There is
+/// no setting that skips verification.
+pub fn tls_config() -> std::sync::Arc<rustls::ClientConfig> {
+    static CONFIG: std::sync::OnceLock<std::sync::Arc<rustls::ClientConfig>> =
+        std::sync::OnceLock::new();
+    CONFIG
+        .get_or_init(|| {
+            let mut roots = rustls::RootCertStore::empty();
+            if let Ok(native) = rustls_native_certs::load_native_certs() {
+                roots.add_parsable_certificates(native);
+            }
+            if roots.is_empty() {
+                roots.extend(webpki_roots::TLS_SERVER_ROOTS.iter().cloned());
+            }
+            let provider = std::sync::Arc::new(rustls::crypto::ring::default_provider());
+            let config = rustls::ClientConfig::builder_with_provider(provider)
+                .with_safe_default_protocol_versions()
+                .map(|b| {
+                    b.with_root_certificates(roots.clone())
+                        .with_no_client_auth()
+                })
+                .unwrap_or_else(|_| {
+                    rustls::ClientConfig::builder()
+                        .with_root_certificates(roots)
+                        .with_no_client_auth()
+                });
+            std::sync::Arc::new(config)
+        })
+        .clone()
+}
+
 fn open(url: &Url, cfg: &HttpConfig) -> Result<ureq::Response, FetchError> {
     check_scheme(url)?;
     if url.query().is_some()
@@ -118,6 +164,7 @@ fn open(url: &Url, cfg: &HttpConfig) -> Result<ureq::Response, FetchError> {
         });
     }
     let agent = ureq::AgentBuilder::new()
+        .tls_config(tls_config())
         .user_agent(USER_AGENT)
         .redirects(0)
         .timeout_connect(cfg.connect_timeout)
@@ -147,13 +194,7 @@ fn open(url: &Url, cfg: &HttpConfig) -> Result<ureq::Response, FetchError> {
         let next = cur
             .join(loc)
             .map_err(|e| net(&cur, format!("bad redirect target: {e}")))?;
-        check_scheme(&next)?;
-        if cur.scheme() == "https" && next.scheme() != "https" {
-            return Err(FetchError::Refused {
-                url: next.to_string(),
-                why: "redirect from https to http".into(),
-            });
-        }
+        check_redirect_scheme(&cur, &next)?;
         let same = host_key(&next) == origin;
         let allowed = same || (cfg.redirects == RedirectPolicy::Github && github_host(&next));
         if !allowed {

@@ -11,6 +11,13 @@ below is under Unreleased, and the first version will take it as its section.
 Installing, pinning, switching, updating and rolling back the family, on
 Linux, with every build checked first and every change one undoable step.
 
+### Quick closes (#49, #11, #48)
+
+- `update --no-trial` says `trial: skipped (--no-trial)` once, in the voice, plain and `--json` forms (#49).
+- A report another tool queued (cig, cigo, cigcompile, cigar) carries the installer's version block when it is shown or sent, marked as taken at send time; `crash show` and `crash send` make the same object (#11).
+- Plain `http://` mirrors are refused (E1900, the installer's second range, E1900-E1999) unless they are on a loopback address, and over loopback only builds a pin vouches for are accepted, whatever `allow_single_source` says. `config set mirror` refuses a non-loopback `http://`, and `doctor` reports one already set (#48).
+- Certificates are checked against the system's trust store, which honors `SSL_CERT_FILE` and `SSL_CERT_DIR`, and the bundled Mozilla roots only on a system with none; an unpinned build over loopback http is refused before anything is asked for. Tests run their mirror over HTTPS with a throwaway certificate, and `https_to_http_redirect_refused` now redirects for real (#48).
+
 ### Compiled programs (#30, the unblocked part)
 
 - **`ciginstaller programs [--project DIR] [--json]`** lists the compiled programs

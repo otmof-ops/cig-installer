@@ -36,6 +36,7 @@ pub struct FixtureServer {
     root: PathBuf,
     stop: Arc<AtomicBool>,
     handle: Option<JoinHandle<()>>,
+    tls: Option<TlsFront>,
 }
 
 struct Stalled {
@@ -101,15 +102,37 @@ impl FixtureServer {
             root: root.to_path_buf(),
             stop,
             handle: Some(handle),
+            tls: None,
         }
     }
 
-    /// `http://127.0.0.1:PORT`: usable as a mirror (loopback http is allowed).
+    /// As `start`, behind HTTPS: `url()` is `https://127.0.0.1:PORT`, served with a throwaway
+    /// self-signed certificate for 127.0.0.1 that `ca_file()` holds (pass it as `SSL_CERT_FILE`,
+    /// which the installer's trust store honors). Requests are recorded as before.
+    pub(crate) fn start_tls(root: &Path) -> FixtureServer {
+        let mut s = FixtureServer::start(root);
+        s.tls = Some(TlsFront::start(s.addr));
+        s
+    }
+
+    /// The certificate to trust for an HTTPS fixture server (`None` for plain HTTP).
+    pub fn ca_file(&self) -> Option<&Path> {
+        self.tls.as_ref().map(|t| t.ca.as_path())
+    }
+
+    /// `http://127.0.0.1:PORT`, or `https://` for a server from `start_tls`. Over plain http a
+    /// mirror is accepted for pinned builds only (#48); HTTPS takes any trust level.
     pub fn url(&self) -> String {
-        format!("http://{}", self.addr)
+        match &self.tls {
+            Some(t) => format!("https://{}", t.addr),
+            None => format!("http://{}", self.addr),
+        }
     }
     pub fn port(&self) -> u16 {
-        self.addr.port()
+        match &self.tls {
+            Some(t) => t.addr.port(),
+            None => self.addr.port(),
+        }
     }
     /// Every request so far, in arrival order.
     pub fn requests(&self) -> Vec<Recorded> {
@@ -154,6 +177,7 @@ impl FixtureServer {
 
 impl Drop for FixtureServer {
     fn drop(&mut self) {
+        drop(self.tls.take());
         self.stop.store(true, Ordering::Relaxed);
         self.server.unblock();
         if let Some(h) = self.handle.take() {
@@ -299,4 +323,157 @@ impl Drop for ShortBodyServer {
             let _ = h.join();
         }
     }
+}
+
+/// The HTTPS front of a fixture server: a loopback listener that ends TLS with a throwaway
+/// certificate and relays each connection, byte for byte, to the plain server behind it.
+struct TlsFront {
+    addr: std::net::SocketAddr,
+    ca: PathBuf,
+    _dir: tempfile::TempDir,
+    stop: Arc<AtomicBool>,
+    handle: Option<JoinHandle<()>>,
+}
+
+impl TlsFront {
+    fn start(inner: std::net::SocketAddr) -> TlsFront {
+        let key = must(
+            rcgen::generate_simple_self_signed(vec![
+                "127.0.0.1".to_string(),
+                "localhost".to_string(),
+            ])
+            .map_err(|e| e.to_string()),
+            "make a loopback certificate",
+        );
+        let dir = must(
+            tempfile::tempdir().map_err(|e| e.to_string()),
+            "certificate folder",
+        );
+        let ca = dir.path().join("fixture-ca.pem");
+        must(
+            std::fs::write(&ca, key.cert.pem()).map_err(|e| e.to_string()),
+            "write the certificate",
+        );
+        let provider = Arc::new(rustls::crypto::ring::default_provider());
+        let config = must(
+            rustls::ServerConfig::builder_with_provider(provider)
+                .with_safe_default_protocol_versions()
+                .map_err(|e| e.to_string())
+                .and_then(|b| {
+                    b.with_no_client_auth()
+                        .with_single_cert(
+                            vec![key.cert.der().clone()],
+                            rustls::pki_types::PrivateKeyDer::Pkcs8(
+                                key.key_pair.serialize_der().into(),
+                            ),
+                        )
+                        .map_err(|e| e.to_string())
+                }),
+            "TLS server settings",
+        );
+        let config = Arc::new(config);
+        let listener = must(
+            std::net::TcpListener::bind("127.0.0.1:0").map_err(|e| e.to_string()),
+            "bind loopback (TLS)",
+        );
+        let addr = must(
+            listener.local_addr().map_err(|e| e.to_string()),
+            "TLS address",
+        );
+        must(
+            listener.set_nonblocking(true).map_err(|e| e.to_string()),
+            "non-blocking listener",
+        );
+        let stop = Arc::new(AtomicBool::new(false));
+        let handle = {
+            let stop = stop.clone();
+            std::thread::spawn(move || {
+                while !stop.load(Ordering::Relaxed) {
+                    match listener.accept() {
+                        Ok((tcp, _)) => {
+                            let (config, stop) = (config.clone(), stop.clone());
+                            std::thread::spawn(move || relay(tcp, config, inner, &stop));
+                        }
+                        Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {
+                            std::thread::sleep(Duration::from_millis(5));
+                        }
+                        Err(_) => break,
+                    }
+                }
+            })
+        };
+        TlsFront {
+            addr,
+            ca,
+            _dir: dir,
+            stop,
+            handle: Some(handle),
+        }
+    }
+}
+
+impl Drop for TlsFront {
+    fn drop(&mut self) {
+        self.stop.store(true, Ordering::Relaxed);
+        if let Some(h) = self.handle.take() {
+            let _ = h.join();
+        }
+    }
+}
+
+/// One TLS connection, relayed to the plain server until either side closes, the server stops,
+/// or a minute passes with nothing moving.
+fn relay(
+    tcp: std::net::TcpStream,
+    config: Arc<rustls::ServerConfig>,
+    inner: std::net::SocketAddr,
+    stop: &AtomicBool,
+) {
+    use std::io::ErrorKind::{TimedOut, WouldBlock};
+    let quiet = Duration::from_millis(5);
+    if tcp.set_nonblocking(false).is_err() || tcp.set_read_timeout(Some(quiet)).is_err() {
+        return;
+    }
+    let Ok(conn) = rustls::ServerConnection::new(config) else {
+        return;
+    };
+    let Ok(mut up) = std::net::TcpStream::connect(inner) else {
+        return;
+    };
+    if up.set_read_timeout(Some(quiet)).is_err() {
+        return;
+    }
+    let mut tls = rustls::StreamOwned::new(conn, tcp);
+    let mut buf = vec![0u8; 64 * 1024];
+    let mut idle = std::time::Instant::now();
+    while !stop.load(Ordering::Relaxed) && idle.elapsed() < Duration::from_secs(60) {
+        let mut moved = false;
+        match tls.read(&mut buf) {
+            Ok(0) => break,
+            Ok(n) => {
+                if up.write_all(&buf[..n]).is_err() {
+                    break;
+                }
+                moved = true;
+            }
+            Err(e) if matches!(e.kind(), WouldBlock | TimedOut) => {}
+            Err(_) => break,
+        }
+        match up.read(&mut buf) {
+            Ok(0) => break,
+            Ok(n) => {
+                if tls.write_all(&buf[..n]).and_then(|()| tls.flush()).is_err() {
+                    break;
+                }
+                moved = true;
+            }
+            Err(e) if matches!(e.kind(), WouldBlock | TimedOut) => {}
+            Err(_) => break,
+        }
+        if moved {
+            idle = std::time::Instant::now();
+        }
+    }
+    tls.conn.send_close_notify();
+    let _ = tls.flush();
 }

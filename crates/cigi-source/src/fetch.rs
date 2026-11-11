@@ -356,6 +356,17 @@ pub fn get_artifact_for(
         ))
         .into());
     }
+    // over plain http only a pinned build is accepted (#48): say so before asking for anything
+    if src.plain_http() && !trust.has_pin_for(&art) {
+        return Err(TrustError::PlainHttp {
+            why: format!(
+                "{} is plain http, which proves nothing about the file; only a build a pin \
+                 vouches for is accepted over it, and allow_single_source does not change that",
+                src.name()
+            ),
+        }
+        .into());
+    }
     let dir = downloads_dir(home);
     std::fs::create_dir_all(&dir).map_err(io_err(&dir))?;
     let partial = dir.join(format!(
@@ -370,6 +381,16 @@ pub fn get_artifact_for(
     let verified = trust
         .admit_artifact(&art, sidecar.as_deref(), &partial)?
         .with_independent(src.independent());
+    if src.plain_http() && verified.level != crate::trust::TrustLevel::Pinned {
+        return Err(TrustError::PlainHttp {
+            why: format!(
+                "{} is plain http, which proves nothing about the file; only a build a pin \
+                 vouches for is accepted over it, and allow_single_source does not change that",
+                src.name()
+            ),
+        }
+        .into());
+    }
     if !src.independent()
         && verified.level == crate::trust::TrustLevel::Checksummed
         && !trust.allows_single_source()

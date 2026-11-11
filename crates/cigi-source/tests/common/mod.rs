@@ -28,6 +28,26 @@ pub fn strict_trust() -> DigestTrust {
         .with_attest(Arc::new(cigi_source::NoAttest))
 }
 
+/// As `trust()` with a pin for each of `builds` (tool, version) on this host, taken from the
+/// published manifest: what a ciginstaller that ships pins for them would hold.
+pub fn pinned_trust(fx: &Fixture, builds: &[(&str, &str)]) -> DigestTrust {
+    let m = manifest_of(fx, "stable");
+    let table: Vec<(&'static str, &'static str)> = builds
+        .iter()
+        .map(|(tool, ver)| {
+            let v = cig_compat::Version::parse(ver).unwrap();
+            let art = m
+                .artifact(tool, &v, &cig_compat::Target::host())
+                .unwrap_or_else(|| panic!("no {tool} {ver}"));
+            let key = cigi_source::pins::key(tool, ver, &art.target.to_string());
+            let leak = |s: String| -> &'static str { Box::leak(s.into_boxed_str()) };
+            (leak(key), leak(art.sha256.clone()))
+        })
+        .collect();
+    let table: &'static [(&'static str, &'static str)] = Box::leak(table.into_boxed_slice());
+    strict_trust().with_pins(table)
+}
+
 pub fn manifest_of(fx: &Fixture, channel: &str) -> Manifest {
     let text =
         std::fs::read_to_string(fx.releases.join(format!("manifest-{channel}.toml"))).unwrap();

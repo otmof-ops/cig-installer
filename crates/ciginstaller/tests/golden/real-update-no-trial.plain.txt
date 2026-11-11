@@ -1,0 +1,17 @@
+--- exit 0 ---
+--- stdout ---
+note: manifest not attested
+ok: updated carton 0.1.1 to 0.1.2
+  fresh carton: 0.1.2 - fixture carton 0.1.2
+  cig 1.20.2 args=crash announce-fixed carton=
+  cig 1.20.2: https://github.com/otmof-ops/cig-script/releases/tag/v1.20.2
+  cigo 1.17.1: https://github.com/otmof-ops/cig-orchestrator/releases/tag/v1.17.1
+  cig 1.20.1 -> 1.20.2
+  cigo 1.17.0 -> 1.17.1
+  trial: skipped (--no-trial)
+  trust: checksummed 2
+  carton 0.1.1 stays installed until the next update, so you can go back
+  next: ciginstaller rollback
+--- stderr ---
+... fetching cig 1.20.2  0%  (0.0/<size>)
+... fetching cigo 1.17.1  0%  (0.0/<size>)

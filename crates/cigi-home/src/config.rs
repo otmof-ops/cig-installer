@@ -104,6 +104,29 @@ pub struct Config {
     env: BTreeMap<String, String>,
 }
 
+/// The host of a `mirror` value that starts with `http://` (any case), else `None`.
+pub fn plain_http_host(value: &str) -> Option<String> {
+    let v = value.trim();
+    let rest = v.get(..7).filter(|p| p.eq_ignore_ascii_case("http://"))?;
+    let rest = &v[rest.len()..];
+    let auth = rest.split(['/', '?', '#']).next().unwrap_or("");
+    let host = auth.rsplit('@').next().unwrap_or("");
+    let host = match host.strip_prefix('[') {
+        Some(h6) => format!("[{}]", h6.split(']').next().unwrap_or("")),
+        None => host.split(':').next().unwrap_or("").to_string(),
+    };
+    Some(host.to_ascii_lowercase())
+}
+
+/// Is a host from `plain_http_host` a loopback address? A name never is, `localhost` included.
+pub fn loopback_host(host: &str) -> bool {
+    if host == "[::1]" {
+        return true;
+    }
+    host.parse::<std::net::Ipv4Addr>()
+        .is_ok_and(|a| a.is_loopback())
+}
+
 impl Config {
     /// Read `installer/config` (absent is fine) and the `CIGI_<KEY>` environment.
     pub fn load(home: &Home) -> Result<Config, StateError> {
@@ -246,6 +269,12 @@ impl Config {
                     .collect::<Vec<_>>()
                     .join(", ")
             ))),
+            None if key == "mirror" => match plain_http_host(value) {
+                Some(host) if !loopback_host(&host) => Err(StateError::PlainHttp(format!(
+                    "`mirror` is an https address (plain http only to a loopback address, and then only for builds a pin vouches for); got `{value}`"
+                ))),
+                _ => Ok(()),
+            },
             None if key == "rollout" => {
                 if crate::rollout::parse_percent(value).is_some() {
                     Ok(())
@@ -390,6 +419,30 @@ mod tests {
                 "{} has no list of values and no range",
                 k.key
             );
+        }
+    }
+
+    #[test]
+    fn a_plain_http_mirror_is_refused_unless_loopback() {
+        for bad in [
+            "http://example.com/m",
+            "HTTP://example.com",
+            "http://192.168.1.5:8080/",
+            "http://localhost/",
+            "http://127.0.0.1@example.com/",
+            " http://example.com ",
+        ] {
+            let e = Config::validate("mirror", bad).unwrap_err();
+            assert_eq!(e.code(), "E1900", "{bad}");
+        }
+        for good in [
+            "https://example.com/m",
+            "file:///m",
+            "/srv/mirror",
+            "http://127.0.0.1:8080/",
+            "http://[::1]:9/",
+        ] {
+            assert!(Config::validate("mirror", good).is_ok(), "{good}");
         }
     }
 

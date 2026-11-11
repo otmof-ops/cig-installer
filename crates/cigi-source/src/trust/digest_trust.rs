@@ -63,6 +63,9 @@ impl Trust for DigestTrust {
     fn allows_single_source(&self) -> bool {
         self.allow_single_source
     }
+    fn has_pin_for(&self, art: &Artifact) -> bool {
+        self.pin_for(art).is_some()
+    }
 
     fn admit_manifest(
         &self,

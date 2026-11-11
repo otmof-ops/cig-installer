@@ -124,6 +124,17 @@ Around those levels:
   admits every build before it writes it, writes through a partial file and a
   rename, puts the manifest in last, never removes a file, and refuses to write
   a manifest older than the one already in the directory.
+- **A mirror is `https://` or a folder (#48).** A plain `http://` mirror is
+  refused when it is set, found by `doctor`, and refused at every fetch (E1900),
+  because over plain http anyone on the network path can change the manifest,
+  the checksums and every build together. On a loopback address it is allowed
+  for testing, and then only for builds whose digests are compiled into this
+  installer: the refusal comes before anything is asked for, and
+  `allow_single_source` does not open it. Certificates are checked against the
+  system's trust store, which honors `SSL_CERT_FILE` and `SSL_CERT_DIR` as
+  OpenSSL does, so an organisation's own certificate authority works as it does
+  for curl and git. The bundled Mozilla roots are used only on a system with
+  no store at all. There is no setting that skips verification.
 - **Downloads are plain and narrow.** One HTTPS client, `GET` only, with
   `User-Agent: ciginstaller`. Redirects stay on the same host or go to GitHub's
   release host, never from HTTPS to HTTP, and stop after five. It downloads the

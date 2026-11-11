@@ -131,9 +131,9 @@ fn a4_repair_refetches_when_the_store_object_is_damaged_too() {
         b"# changed in place\n",
     );
     write_in_place(&tc(&fx, "cig/1.20.0/bin/cig"), b"#!/bin/sh\necho broken\n");
-    let srv = fx.serve();
+    let srv = fx.serve_tls();
     let o = fx
-        .cigi_with_mirror(&srv.url())
+        .cigi_with_server(&srv)
         .env("CIGI_ALLOW_SINGLE_SOURCE", "true")
         .args(["--yes", "--json", "repair"])
         .output()
