@@ -6,22 +6,43 @@
 #![cfg(unix)]
 
 mod common;
-use std::process::{Command, Output};
+use std::process::{Command, Output, Stdio};
 use std::time::{Duration, Instant};
 
 use cigi_testkit::Fixture;
 use common::*;
 use serde_json::Value;
 
+/// The longest any run here may take: nothing here may wait on a descriptor.
+const LIMIT: Duration = Duration::from_secs(60);
+
+/// Run to the end within `LIMIT` or fail the test. The limit is kept here rather than by
+/// `timeout(1)`, which macOS does not ship.
+fn run_within(c: &mut Command) -> Output {
+    c.stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+    let mut child = c.spawn().expect("run ciginstaller under sh");
+    let t0 = Instant::now();
+    loop {
+        if child.try_wait().expect("wait").is_some() {
+            return child.wait_with_output().expect("output");
+        }
+        if t0.elapsed() > LIMIT {
+            let _ = child.kill();
+            let _ = child.wait();
+            panic!("hung for more than {LIMIT:?}");
+        }
+        std::thread::sleep(Duration::from_millis(2));
+    }
+}
+
 /// The installer under `sh`, with descriptor 9 going to `out` and `fd` as `CIG_TIMINGS_FD`
-/// (when given). A hard timeout: nothing here may wait on a descriptor.
+/// (when given), within `LIMIT`.
 fn with_fd(fx: &Fixture, fd: Option<&str>, out: &std::path::Path, args: &[&str]) -> (Output, f64) {
     let base = fx.cigi();
-    let mut c = Command::new("timeout");
-    c.arg("60")
-        .arg("sh")
-        .arg("-c")
-        .arg(r#"out=$1; shift; exec "$@" 9>"$out""#);
+    let mut c = Command::new("sh");
+    c.arg("-c").arg(r#"out=$1; shift; exec "$@" 9>"$out""#);
     c.arg("sh")
         .arg(out)
         .arg(base.get_program())
@@ -42,7 +63,7 @@ fn with_fd(fx: &Fixture, fd: Option<&str>, out: &std::path::Path, args: &[&str])
         c.env("CIG_TIMINGS_FD", fd);
     }
     let t = Instant::now();
-    let o = c.output().expect("run ciginstaller under sh");
+    let o = run_within(&mut c);
     (o, t.elapsed().as_secs_f64() * 1000.0)
 }
 
@@ -73,7 +94,7 @@ fn b1_phases_go_to_the_descriptor_in_format_1() {
     }
     // the phases are inside the process: never more than what the whole run took, shell included
     assert!(sum > 0.0 && sum <= wall, "phases {sum} ms, wall {wall} ms");
-    assert!(Duration::from_secs(60).as_secs_f64() * 1000.0 > wall);
+    assert!(LIMIT.as_secs_f64() * 1000.0 > wall);
 }
 
 #[test]
