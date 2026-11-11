@@ -56,10 +56,11 @@ fn sync(cx: &mut Cx) -> Result<Outcome, InstallerError> {
         .cloned()
         .collect();
     // family shims in bin/ that no installed tool serves any more
-    let stale: Vec<String> = cigi_shim::TOOLS
+    let stale: Vec<String> = cigi_shim::SHIMS
         .iter()
-        .filter(|t| !names.iter().any(|n| n == *t) && shim_path(&cx.home, t).exists())
-        .map(|t| t.to_string())
+        .map(|(n, _)| *n)
+        .filter(|s| !names.iter().any(|n| n == s) && shim_path(&cx.home, s).exists())
+        .map(|s| s.to_string())
         .collect();
     let index_before = std::fs::read_to_string(cx.home.shim_index_path()).ok();
     let yanked = cached_yanked(cx);

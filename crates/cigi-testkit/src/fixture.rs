@@ -57,6 +57,9 @@ pub struct Fixture {
     /// A second shim name on cigo's tool definition (`cigo` is an archive, which may have several):
     /// for proving what the installer does with a name the shim binary does not serve.
     pub extra_cigo_shim: Option<String>,
+    /// When set, the manifest lists only one shim for `cigar` (no `cigar-lsp`) and the archive
+    /// holds only `bin/cigar`: simulates an older cigar release from before the language server.
+    pub cigar_without_lsp: bool,
     products: Vec<ProductBuilder>,
     cartons: Vec<CartonSpec>,
     advisories: Vec<String>,
@@ -91,6 +94,7 @@ impl Fixture {
             project,
             releases,
             extra_cigo_shim: None,
+            cigar_without_lsp: false,
             products: Vec::new(),
             cartons: Vec::new(),
             advisories: Vec::new(),
@@ -178,6 +182,11 @@ impl Fixture {
         let mut assets = Vec::new();
         let mut builds = Vec::new();
         for p in &self.products {
+            let mut p = p.clone();
+            if p.tool == "cigar" && self.cigar_without_lsp {
+                p.without_lsp = true;
+            }
+            let p = &p;
             let b = p.build();
             let path = self.releases.join(&b.name);
             must(std::fs::write(&path, &b.served), "write asset");
@@ -267,6 +276,13 @@ impl Fixture {
                     &format!(
                         "windows_path = \"bin/cigo.cmd\" }}, {{ name = \"{extra}\", path = \"bin/cigo\" }} ]"
                     ),
+                );
+            }
+            // older cigar: the manifest lists only cigar, no cigar-lsp
+            if *t == "cigar" && self.cigar_without_lsp {
+                def = def.replace(
+                    ", { name = \"cigar-lsp\", path = \"bin/cigar-lsp\", windows_path = \"bin/cigar-lsp.exe\" } ]",
+                    " ]",
                 );
             }
             o.push_str(&def);
@@ -480,6 +496,9 @@ fn tool_def(tool: &str, host: &str) -> String {
         "cig" => binary("cig", "otmof-ops/cig-script"),
         "cigcompile" => binary("cigcompile", "otmof-ops/cig-compile"),
         "cigo" => "[tool.cigo]\nrepo    = \"otmof-ops/cig-orchestrator\"\ntag     = \"v{version}\"\nlayout  = \"archive\"\nasset   = \"cig-orchestrator-v{version}.tar.gz\"\nsidecar = \"{asset}.sha256\"\nstrip   = 1\nshims   = [ { name = \"cigo\", path = \"bin/cigo\", windows_path = \"bin/cigo.cmd\" } ]\ntargets = [ \"any\" ]\nattests = false\n\n".to_string(),
+        "cigar" => format!(
+            "[tool.cigar]\nrepo    = \"otmof-ops/cigar-script\"\ntag     = \"v{{version}}\"\nlayout  = \"archive\"\nasset   = \"cigar-v{{version}}-{{os}}-{{arch}}.tar.gz\"\nsidecar = \"{{asset}}.sha256\"\nstrip   = 0\nshims   = [ {{ name = \"cigar\", path = \"bin/cigar\", windows_path = \"bin/cigar.exe\" }}, {{ name = \"cigar-lsp\", path = \"bin/cigar-lsp\", windows_path = \"bin/cigar-lsp.exe\" }} ]\ntargets = [ \"{host}\" ]\nattests = false\n\n"
+        ),
         "ciginstaller" => format!(
             "[tool.ciginstaller]\nrepo    = \"otmof-ops/cig-installer\"\ntag     = \"v{{version}}\"\nlayout  = \"archive\"\nasset   = \"ciginstaller-v{{version}}-{{os}}-{{arch}}.tar.gz\"\nsidecar = \"{{asset}}.sha256\"\nstrip   = 0\nshims   = []\ntargets = [ \"{host}\" ]\nattests = false\n\n"
         ),

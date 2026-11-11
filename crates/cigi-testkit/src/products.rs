@@ -25,6 +25,8 @@ pub fn asset_name(tool: &str, version: &str) -> String {
     match tool {
         "cigo" => format!("cig-orchestrator-v{version}.tar.gz"),
         "ciginstaller" => format!("ciginstaller-v{version}-{os}-{arch}.tar.gz"),
+        // CigarScript's release packs `cigar` and `cigar-lsp` in one archive per machine
+        "cigar" => format!("cigar-v{version}-{os}-{arch}.tar.gz"),
         other => format!("{other}-v{version}-{os}-{arch}{}", exe_suffix()),
     }
 }
@@ -52,6 +54,8 @@ pub struct ProductBuilder {
     pub(crate) selfcheck_fails: bool,
     pub(crate) shell: String,
     pub(crate) extra_files: Vec<(String, Vec<u8>)>,
+    /// For `cigar`: skip `bin/cigar-lsp` in the archive (an older release with no language server).
+    pub(crate) without_lsp: bool,
 }
 
 /// A product ready to publish: the bytes as served, and what the manifest will claim.
@@ -80,6 +84,7 @@ impl ProductBuilder {
             selfcheck_fails: false,
             shell: String::new(),
             extra_files: Vec::new(),
+            without_lsp: false,
         }
     }
 
@@ -165,7 +170,7 @@ impl ProductBuilder {
     }
 
     pub fn is_archive(&self) -> bool {
-        matches!(self.tool.as_str(), "cigo" | "ciginstaller")
+        matches!(self.tool.as_str(), "cigo" | "ciginstaller" | "cigar")
     }
 
     fn cig_script(&self) -> Vec<u8> {
@@ -194,6 +199,25 @@ impl ProductBuilder {
             return t.finish();
         }
         match self.tool.as_str() {
+            "cigar" => {
+                // as CigarScript's release.yml packs it: bin/ at the top, no folder above it
+                t.dir("bin/");
+                t.file("bin/cigar", &self.cig_script(), true);
+                if !self.without_lsp {
+                    t.file(
+                        "bin/cigar-lsp",
+                        format!(
+                            "#!/bin/sh\n{}echo \"cigar-lsp {v} args=$*\"\nexit \"${{FAKE_EXIT:-0}}\"\n",
+                            self.shell
+                        )
+                        .as_bytes(),
+                        true,
+                    );
+                }
+                for (p, b) in &self.extra_files {
+                    t.file(p, b, false);
+                }
+            }
             "cigo" => {
                 let top = format!("cig-orchestrator-v{v}");
                 t.dir(&format!("{top}/"));

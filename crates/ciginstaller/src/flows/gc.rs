@@ -331,16 +331,26 @@ fn names_of(home: &Home, state: &State) -> BTreeSet<String> {
     );
     let mut names = BTreeSet::new();
     for (t, v) in &builds {
-        if let Some(r) = Version::parse(v)
+        let receipt = Version::parse(v)
             .ok()
-            .and_then(|v| read_receipt(home, t, &v).ok())
-        {
-            names.extend(
-                r.shims
-                    .iter()
-                    .map(|s| s.name.clone())
-                    .filter(|n| cigi_shim::TOOLS.contains(&n.as_str())),
-            );
+            .and_then(|v| read_receipt(home, t, &v).ok());
+        match receipt {
+            Some(r) => {
+                if cigi_shim::tool_of(t) == Some(t.as_str()) {
+                    names.insert(t.clone());
+                }
+                names.extend(
+                    r.shims
+                        .iter()
+                        .map(|s| s.name.clone())
+                        .filter(|n| cigi_shim::tool_of(n) == Some(t.as_str())),
+                );
+            }
+            None => {
+                for s in cigi_shim::shims_of(t) {
+                    names.insert(s.to_string());
+                }
+            }
         }
     }
     names

@@ -381,15 +381,16 @@ fn the_tracked_inputs_parse_with_the_clients_parser() {
     for t in ["cig", "cigo", "cigcompile", "cigar", "ciginstaller"] {
         assert!(m.tools.contains_key(t), "{t}");
     }
-    // cigar's release workflow names its assets `cigar-${GITHUB_REF_NAME}-<os>-<arch>[.exe]`, and
-    // it has no [product.cigar] until it has a release a carton can name
+    // cigar's release workflow packs `cigar` and `cigar-lsp` as
+    // `cigar-${GITHUB_REF_NAME}-<os>-<arch>.tar.gz`, and it has no [product.cigar] until it has a
+    // release a carton can name
     let cigar = &m.tools["cigar"];
     let n = cigar.names(&v("0.1.0"), "windows-x86_64").unwrap();
-    assert_eq!(n.asset, "cigar-v0.1.0-windows-x86_64.exe");
-    assert_eq!(n.sidecar, "cigar-v0.1.0-windows-x86_64.exe.sha256");
+    assert_eq!(n.asset, "cigar-v0.1.0-windows-x86_64.tar.gz");
+    assert_eq!(n.sidecar, "cigar-v0.1.0-windows-x86_64.tar.gz.sha256");
     assert_eq!(
         cigar.names(&v("0.1.0"), "linux-x86_64").unwrap().asset,
-        "cigar-v0.1.0-linux-x86_64"
+        "cigar-v0.1.0-linux-x86_64.tar.gz"
     );
     assert_eq!(
         cigar.targets.len(),
@@ -400,8 +401,12 @@ fn the_tracked_inputs_parse_with_the_clients_parser() {
         .targets
         .iter()
         .any(|t| t == "linux-arm" || t == "freebsd-x86_64"));
-    assert_eq!(cigar.shims.len(), 1);
-    assert_eq!(cigar.shims[0].name, "cigar");
+    let shims: Vec<&str> = cigar.shims.iter().map(|s| s.name.as_str()).collect();
+    assert_eq!(
+        shims,
+        ["cigar", "cigar-lsp"],
+        "a shim for each program in the archive"
+    );
     assert!(cigar.attests);
     assert!(m.products.keys().all(|(t, _)| t != "cigar"));
     // the real asset names, as the releases have them

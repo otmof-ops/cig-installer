@@ -40,21 +40,25 @@ shims   = [ { name = "cigcompile", path = "bin/cigcompile", windows_path = "bin/
 targets = [ "freebsd-x86_64", "linux-aarch64", "linux-arm", "linux-x86_64", "macos-aarch64", "macos-x86_64", "windows-aarch64", "windows-x86_64" ]
 attests = true
 
-# CigarScript's package tool. Read from otmof-ops/cigar-script, .github/workflows/release.yml: a tag
-# `vX.Y.Z` builds one binary, `cigar` (Cargo.toml has a single [[bin]]; there is no `cigar-lsp`, so
-# no shim for one), and names it `cigar-${GITHUB_REF_NAME}-<os>-<arch>[.exe]` with a `.sha256`
-# beside it, for the five targets below (the Linux builds are musl), then attests the linux, macos
-# and windows assets. cigar has no release yet: no [product.cigar] table in products.toml and no
-# carton names it until it does, and that first release is the maintainer's call. When it comes,
-# add `[product.cigar."<version>"]` (requires, license read from LICENSE at that tag) and name it
-# with `cargo xtask manifest assemble --cigar <version>`.
+# CigarScript's package tool and its language server. Read from otmof-ops/cigar-script,
+# .github/workflows/release.yml: a tag `vX.Y.Z` builds `cigar` and `cigar-lsp` (Cargo.toml's two
+# [[bin]]) and packs them as `cigar-${GITHUB_REF_NAME}-<os>-<arch>.tar.gz`, holding `bin/cigar` and
+# `bin/cigar-lsp` (`.exe` on Windows) with nothing above `bin/`, and a `.sha256` beside it, for the
+# five targets below (the Linux builds are musl), then attests the archives. Each program gets a
+# shim, so an editor finds `cigar-lsp` on PATH and it is the one the project's carton names.
+# cigar has no release yet: no [product.cigar] table in products.toml and no carton names it until
+# it does, and that first release is the maintainer's call. When it comes, add
+# `[product.cigar."<version>"]` (requires, license read from LICENSE at that tag) and name it with
+# `cargo xtask manifest assemble --cigar <version>`.
 [tool.cigar]
 repo    = "otmof-ops/cigar-script"
 tag     = "v{version}"
-layout  = "binary"
-asset   = "cigar-v{version}-{os}-{arch}{exe}"
+layout  = "archive"
+asset   = "cigar-v{version}-{os}-{arch}.tar.gz"
 sidecar = "{asset}.sha256"
-shims   = [ { name = "cigar", path = "bin/cigar", windows_path = "bin/cigar.exe" } ]
+strip   = 0
+shims   = [ { name = "cigar", path = "bin/cigar", windows_path = "bin/cigar.exe" },
+            { name = "cigar-lsp", path = "bin/cigar-lsp", windows_path = "bin/cigar-lsp.exe" } ]
 targets = [ "linux-aarch64", "linux-x86_64", "macos-aarch64", "macos-x86_64", "windows-x86_64" ]
 attests = true
 

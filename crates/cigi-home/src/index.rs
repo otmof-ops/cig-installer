@@ -35,10 +35,12 @@ pub fn legacy_pin_files() -> Vec<String> {
 pub struct ShimIndex {
     /// The carton used when nothing pins one.
     pub machine: Option<String>,
-    /// carton -> tool -> path of the tool's real file, relative to the home with `/` between
-    /// parts (an index of the older form holds absolute paths until [`ShimIndex::normalized`]).
+    /// carton -> shim name -> path the shim runs, relative to the home with `/` between parts
+    /// (an index of the older form holds absolute paths until [`ShimIndex::normalized`]). One
+    /// tool may have more than one shim (SHIMS): a carton with `cigar` writes rows for `cigar`
+    /// and for `cigar-lsp`.
     pub cartons: BTreeMap<String, BTreeMap<String, PathBuf>>,
-    /// tool -> path: the fallback when the machine carton lacks the tool.
+    /// shim name -> path: the fallback when the machine carton lacks the shim.
     pub sticks: BTreeMap<String, PathBuf>,
     /// path -> `dev:ino:size:mtime` of the target as its receipt recorded it. A path without an
     /// entry is not identity-checked by the shim.
@@ -78,62 +80,91 @@ fn carton_order(a: &str, b: &str) -> std::cmp::Ordering {
 }
 
 impl ShimIndex {
-    /// Build the index from `state` and the receipts on disk: for each carton
-    /// and tool, the toolchain's shim target; sticks likewise. A tool whose
-    /// toolchain is not installed is left out (the shim then reports it).
+    /// Build the index from `state` and the receipts on disk: for each carton and tool, one row
+    /// per shim the tool has in [`cigi_shim::SHIMS`] (keyed by the shim's name, not the tool's);
+    /// sticks likewise. A tool whose toolchain is not installed, or a shim whose target is not
+    /// in the receipt or not on disk, is left out (the shim then reports it). The tool's own
+    /// entry (shim name = tool name) is written as before, so nothing the shim reads today
+    /// changes meaning; a second shim like `cigar-lsp` gets its own row that only a shim named
+    /// `cigar-lsp` looks up.
     pub fn from_state(home: &Home, state: &State) -> ShimIndex {
         let mut idx = ShimIndex {
             machine: state.machine_carton.clone(),
             ..ShimIndex::default()
         };
         let mut identities: BTreeMap<PathBuf, String> = BTreeMap::new();
-        let mut target = |tool: &str, version: &str| -> Option<PathBuf> {
-            let v = ver(version)?;
-            let r = toolchain::read_receipt(home, tool, &v).ok()?;
-            let rel = r.shim_target(tool);
-            if !cig_compat::is_plain_rel_path(&rel) {
-                return None;
+        let mut shim_targets = |tool: &str, version: &str| -> Vec<(String, PathBuf)> {
+            let Some(v) = ver(version) else {
+                return Vec::new();
+            };
+            let Ok(r) = toolchain::read_receipt(home, tool, &v) else {
+                return Vec::new();
+            };
+            // The names to write for this tool: every shim from the receipt whose name is in
+            // SHIMS and whose SHIMS tool matches the one we are reading. The tool's own name
+            // is always one of them, even when the receipt lists no shim entry for it (an
+            // older receipt): `shim_target(tool)` then falls back to `bin/<tool>`.
+            let mut names: BTreeSet<&str> = r
+                .shims
+                .iter()
+                .filter_map(|s| {
+                    cigi_shim::tool_of(&s.name).and_then(|t| (t == tool).then_some(s.name.as_str()))
+                })
+                .collect();
+            if cigi_shim::tool_of(tool) == Some(tool) {
+                names.insert(tool);
             }
-            let mut p = home.toolchain(tool, &v);
-            for part in rel.split('/') {
-                p.push(part);
+            let mut out: Vec<(String, PathBuf)> = Vec::new();
+            for shim_name in names {
+                let rel = r.shim_target(shim_name);
+                if !cig_compat::is_plain_rel_path(&rel) {
+                    continue;
+                }
+                let mut p = home.toolchain(tool, &v);
+                for part in rel.split('/') {
+                    p.push(part);
+                }
+                // the shim's target must be on disk: an archive that did not ship it (an older
+                // cigar without cigar-lsp) gets no row, the shim then takes the slow path and
+                // the resolver answers E1840.
+                if !p.is_file() {
+                    continue;
+                }
+                let from_home = format!("toolchains/{tool}/{v}/{rel}");
+                let id = r
+                    .identity
+                    .get(&rel)
+                    .cloned()
+                    .or_else(|| cigi_shim::Identity::measure(&p).ok().map(|i| i.render()));
+                let from_home = PathBuf::from(from_home);
+                if let Some(id) = id {
+                    identities.insert(from_home.clone(), id);
+                }
+                out.push((shim_name.to_string(), from_home));
             }
-            // relative to the home, `/`-separated whatever the platform
-            let from_home = format!("toolchains/{tool}/{v}/{rel}");
-            // what the receipt recorded; a receipt from before the record existed is measured
-            // now (`ciginstaller repair` writes it into the receipt)
-            let id = r
-                .identity
-                .get(&rel)
-                .cloned()
-                .or_else(|| cigi_shim::Identity::measure(&p).ok().map(|i| i.render()));
-            let from_home = PathBuf::from(from_home);
-            if let Some(id) = id {
-                identities.insert(from_home.clone(), id);
-            }
-            Some(from_home)
+            out
         };
         for (carton, rec) in &state.cartons {
-            let mut tools = BTreeMap::new();
+            let mut shims = BTreeMap::new();
             for (tool, version) in &rec.tools {
-                if let Some(p) = target(tool, version) {
-                    tools.insert(tool.clone(), p);
+                for (shim_name, p) in shim_targets(tool, version) {
+                    shims.insert(shim_name, p);
                 }
             }
-            idx.cartons.insert(carton.clone(), tools);
+            idx.cartons.insert(carton.clone(), shims);
         }
         for s in &state.sticks {
-            if let Some(p) = target(&s.tool, &s.version) {
+            for (shim_name, p) in shim_targets(&s.tool, &s.version) {
                 // a rolled-back tool runs in place of the machine carton's own build
                 if s.is_rollback() {
                     if let Some(m) = idx.machine.clone() {
                         idx.cartons
                             .entry(m)
                             .or_default()
-                            .insert(s.tool.clone(), p.clone());
+                            .insert(shim_name.clone(), p.clone());
                     }
                 }
-                idx.sticks.insert(s.tool.clone(), p);
+                idx.sticks.insert(shim_name, p);
             }
         }
         idx.identities = identities;
@@ -523,6 +554,39 @@ legacy-pin-files\t.cig-version\t.cigar-version\t.cigo-version
         assert_eq!(i.pick(None, "cigcompile"), None);
         // a pin whose carton lacks the tool does not fall back to a stick
         assert_eq!(i.pick(Some("0.2.0"), "cigo"), None);
+    }
+
+    #[test]
+    fn a_shim_of_another_tool_round_trips_through_the_index() {
+        // cigar carries its language server, cigar-lsp, in one archive; the index gets a row
+        // for each shim name so that bin/cigar-lsp finds its target without a slow path
+        let p = |s: &str| PathBuf::from(format!("toolchains/{s}"));
+        let mut i = ShimIndex {
+            machine: Some("0.1.0".into()),
+            ..ShimIndex::default()
+        };
+        i.cartons.insert(
+            "0.1.0".into(),
+            BTreeMap::from([
+                ("cigar".to_string(), p("cigar/0.1.0/bin/cigar")),
+                ("cigar-lsp".to_string(), p("cigar/0.1.0/bin/cigar-lsp")),
+            ]),
+        );
+        i.identities.insert(
+            p("cigar/0.1.0/bin/cigar-lsp"),
+            "64769:1409:4321:1700000000000000001".into(),
+        );
+        let rendered = i.render();
+        assert!(rendered.contains("\tcigar\ttoolchains/cigar/0.1.0/bin/cigar\n"));
+        assert!(rendered.contains("\tcigar-lsp\ttoolchains/cigar/0.1.0/bin/cigar-lsp\t"));
+        let back = ShimIndex::parse(&rendered).unwrap();
+        assert_eq!(back, i);
+        // the shim looks the row up by its own name, so cigar and cigar-lsp are independent
+        let (c, path) = i.pick(None, "cigar-lsp").unwrap();
+        assert_eq!(c.as_deref(), Some("0.1.0"));
+        assert_eq!(path, p("cigar/0.1.0/bin/cigar-lsp"));
+        let (_, path) = i.pick(None, "cigar").unwrap();
+        assert_eq!(path, p("cigar/0.1.0/bin/cigar"));
     }
 
     #[test]

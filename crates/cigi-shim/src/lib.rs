@@ -25,6 +25,31 @@ use pins::{
 
 /// The tools the shim serves.
 pub const TOOLS: [&str; 4] = ["cig", "cigo", "cigcompile", "cigar"];
+
+/// The shim files the installer places in `bin/` and the tool each runs. One tool may have more
+/// than one shim: `cigar-lsp` is a shim of `cigar` so that an editor that starts `cigar-lsp` in a
+/// project gets the language server of the cigar the project resolves to. A name not in this
+/// table is refused (E1844), the same as a name not in [`TOOLS`] before this table existed.
+pub const SHIMS: [(&str, &str); 5] = [
+    ("cig", "cig"),
+    ("cigo", "cigo"),
+    ("cigcompile", "cigcompile"),
+    ("cigar", "cigar"),
+    ("cigar-lsp", "cigar"),
+];
+
+/// The tool a shim serves, or `None` when the name is not one of the shims.
+pub fn tool_of(shim: &str) -> Option<&'static str> {
+    SHIMS.iter().find_map(|(s, t)| (*s == shim).then_some(*t))
+}
+
+/// The shims a tool serves (`[("cigar", "cigar-lsp")]` for `cigar`, one shim for every other).
+pub fn shims_of(tool: &str) -> Vec<&'static str> {
+    SHIMS
+        .iter()
+        .filter_map(|(s, t)| (*t == tool).then_some(*s))
+        .collect()
+}
 /// The files the Windows self-update and the shim agree on, relative to `CIGSCRIPT_HOME`.
 /// `bin\cigi.exe` is the shim there, not a second copy of the installer; when
 /// `bin\ciginstaller.exe` cannot start while [`PENDING_CHECK`] is still there, the shim puts

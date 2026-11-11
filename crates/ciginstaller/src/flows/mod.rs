@@ -47,8 +47,15 @@ pub fn present(home: &Home, tool: &str, v: &Version) -> bool {
 
 /// The file a shim should run for a tool build, from its receipt.
 pub fn tool_exe(home: &Home, tool: &str, v: &Version) -> Option<PathBuf> {
+    shim_exe(home, tool, v, tool)
+}
+
+/// The file a shim named `shim_name` should run for a tool build, from its receipt. Used when a
+/// tool has more than one shim (`cigar-lsp` is the language server beside `cigar`): the receipt
+/// names its target, else `bin/<shim_name>` is the fallback.
+pub fn shim_exe(home: &Home, tool: &str, v: &Version, shim_name: &str) -> Option<PathBuf> {
     let r = read_receipt(home, tool, v).ok()?;
-    let target = r.shim_target(tool);
+    let target = r.shim_target(shim_name);
     // the path comes from a file on disk: it must stay inside its toolchain
     if !cigi_home::toolchain::safe_rel(&target) {
         return None;

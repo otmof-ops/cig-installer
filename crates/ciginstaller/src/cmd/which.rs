@@ -13,7 +13,7 @@ use serde_json::json;
 use super::tabular::details;
 use super::Outcome;
 use crate::cx::Cx;
-use crate::resolve::{resolve, resolve_for, Mode, Resolution};
+use crate::resolve::{resolve_shim, Mode, Resolution};
 
 pub fn run(
     cx: &mut Cx,
@@ -42,6 +42,8 @@ pub fn run(
 
 /// Every tool of the family: what runs here and why. A tool that cannot be resolved gets a row
 /// saying so, with its code; the command still answers, and its next step is the first fix.
+/// One row per tool, not per shim; a tool's other shims (`cigar-lsp` beside `cigar`) appear
+/// as a `shims` field in JSON and an "also" line under that tool's row in text.
 fn all(cx: &mut Cx, why: bool) -> Result<Outcome, InstallerError> {
     let mut table = Table::new(&[
         ("tool", Align::Left),
@@ -53,8 +55,18 @@ fn all(cx: &mut Cx, why: bool) -> Result<Outcome, InstallerError> {
     let mut steps: Vec<String> = Vec::new();
     let mut resolved = 0;
     let mut first_fix: Option<String> = None;
-    for tool in cigi_shim::TOOLS {
-        match resolve(cx, tool, Mode::Which) {
+    // (row index, "also: ..." text) for insertion after rendering the table
+    let mut alsos: Vec<(usize, String)> = Vec::new();
+    for (i, tool) in cigi_shim::TOOLS.iter().enumerate() {
+        let tool = *tool;
+        let extras: Vec<&str> = cigi_shim::shims_of(tool)
+            .into_iter()
+            .filter(|s| *s != tool)
+            .collect();
+        if !extras.is_empty() {
+            alsos.push((i, format!("also: {}", extras.join(", "))));
+        }
+        match resolve_shim(cx, tool, Mode::Which, None) {
             Ok(res) => {
                 // No `touch_last_used` here: this is a survey of every tool, it must leave
                 // `state.json` alone (the one-tool form keeps its once-a-day touch).
@@ -80,6 +92,7 @@ fn all(cx: &mut Cx, why: bool) -> Result<Outcome, InstallerError> {
                     "path": res.path.display().to_string(),
                     "why": res.why_text(),
                     "steps": res.steps,
+                    "shims": extras,
                 }));
             }
             Err(e) => {
@@ -106,6 +119,7 @@ fn all(cx: &mut Cx, why: bool) -> Result<Outcome, InstallerError> {
                     "why": null,
                     "code": e.code,
                     "error": e.message,
+                    "shims": extras,
                 }));
             }
         }
@@ -120,7 +134,16 @@ fn all(cx: &mut Cx, why: bool) -> Result<Outcome, InstallerError> {
         "{resolved} of {} tools run from here",
         cigi_shim::TOOLS.len()
     ));
-    for l in details(&cx.ui, &table) {
+    // the rendered lines: a header, then one line per row, in order. Insert an "also" line
+    // right after the matching tool's row (its index + 1 in the Vec after prior inserts).
+    let mut lines = details(&cx.ui, &table);
+    for (offset, (row, text)) in alsos.iter().enumerate() {
+        let at = row + 1 + offset + 1; // header + row index + prior inserts + 1 to go after
+        if at <= lines.len() {
+            lines.insert(at, format!("  {text}"));
+        }
+    }
+    for l in lines {
         r = r.detail(l);
     }
     for l in steps {
@@ -142,7 +165,7 @@ fn one(
     // Exit rule: only the codes that mean "refused" (a pin or CIGI_CARTON the machine cannot
     // meet: E1816, E1842, E1801) exit 2. Everything else keeps its own code: E1840 (no tool) is
     // 127, E1831 and the rest follow the registry, E1890 (a bug) is 70.
-    let res = resolve_for(cx, tool, Mode::Which, script).map_err(|mut e| {
+    let res = resolve_shim(cx, tool, Mode::Which, script).map_err(|mut e| {
         if matches!(e.code, "E1816" | "E1842" | "E1801" | "E1809" | "E1819") {
             e.exit = EXIT_REFUSED;
         }
