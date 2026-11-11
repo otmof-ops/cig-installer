@@ -455,16 +455,17 @@ Related: [`E1827`](#e1827-sidecar-missing-or-disagrees), [`E1822`](#e1822-trust-
 
 **Kind of no:** these are MY ciggies (the door: it knows you and said no; 403 Forbidden; permission denied; a lock; a refusal by policy).
 
-The artifact is verified at a lower level than the floor you set with `trust`, so it was refused.
+The artifact was verified at a lower level than the `trust` setting's floor, so it was refused. Levels, from lowest to highest, are `checksummed`, `attested`, `signed` and `pinned`: `signed` means the signed update metadata (decision 0004) vouches for the artifact, and `pinned` that its digest is compiled into this installer. The failure named which level the artifact reached and which level the floor asks for.
 
 **What to type next:** `ciginstaller config get trust`
 
 **Known causes**, ranked; the doctor checks them in this order:
 
 1. only one source agrees, so it is checksummed, and trust is set higher (probe `trust-level`). **Remedy:** lower the floor on purpose with `ciginstaller config set trust checksummed`, or install from the source that attests
-2. the manifest's pin for this artifact is missing in this release of ciginstaller (probe `manifest-pins`). **Remedy:** `ciginstaller self update`
+2. `trust = signed` is set and this installer has no signed root compiled in yet, so no artifact can reach `signed` (probe `trust-level`). **Remedy:** `ciginstaller self update` to an installer that carries a signed root, or lower the floor until it does
+3. `trust = pinned` is set and the manifest's pin for this artifact is missing in this release of ciginstaller (probe `manifest-pins`). **Remedy:** `ciginstaller self update`
 
-Related: [`E1827`](#e1827-sidecar-missing-or-disagrees), [`E1828`](#e1828-attestation-failed).
+Related: [`E1821`](#e1821-digest-or-size-mismatch), [`E1827`](#e1827-sidecar-missing-or-disagrees), [`E1828`](#e1828-attestation-failed), [`E1901`](#e1901-the-update-channels-signed-metadata-was-refused).
 
 ### E1823 manifest expired
 

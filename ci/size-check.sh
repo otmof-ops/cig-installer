@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
 # SPDX-FileCopyrightText: 2026 Jay Taylor (https://github.com/otmof-ops/cig-installer)
 # SPDX-License-Identifier: FSL-1.1-ALv2
-# Fails when a release binary is over its budget (SPEC 14.4): installer under 10 MB, shim under 500 KB.
+# Fails when a release binary is over its budget (SPEC 14.4 as amended by DECISIONS 3 for the
+# signed update channel, #9): installer under 14 MB (about 8 MB before `tough` and its C crypto
+# library, about 5 MB for TUF itself), and shim under 500 KB.
 # The shim's 400 KB of the SPEC was measured on glibc (351 KB); the static musl build carries libc
 # itself and is 443 KB at opt-level "s" or "z" alike, so the budget for the shipped build is 500 KB.
 # usage: ci/size-check.sh <directory holding ciginstaller and cigi-shim>
@@ -17,5 +19,5 @@ check() {
     exit 1
   fi
 }
-check ciginstaller 10000000
+check ciginstaller 14000000
 check cigi-shim 500000
