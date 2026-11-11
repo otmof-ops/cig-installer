@@ -92,18 +92,30 @@ pub fn shim_names(home: &Home, state: &State) -> BTreeSet<String> {
     );
     let mut names = BTreeSet::new();
     for (t, v) in &builds {
-        // the fallback (no readable receipt): every shim name SHIMS says this tool carries
-        for s in cigi_shim::shims_of(t) {
-            names.insert(s.to_string());
-        }
-        if let Ok(v) = Version::parse(v) {
-            if let Ok(r) = read_receipt(home, t, &v) {
+        let receipt = Version::parse(v)
+            .ok()
+            .and_then(|v| read_receipt(home, t, &v).ok());
+        match receipt {
+            Some(r) => {
+                // the receipt is the source of truth for what the install placed: the tool's
+                // own name (always a shim, even if a receipt from before shims were recorded
+                // has an empty list), plus every shim in it that SHIMS owns for this tool.
+                if cigi_shim::tool_of(t) == Some(t.as_str()) {
+                    names.insert(t.clone());
+                }
                 names.extend(
                     r.shims
                         .iter()
                         .map(|s| s.name.clone())
                         .filter(|n| cigi_shim::tool_of(n) == Some(t.as_str())),
                 );
+            }
+            None => {
+                // no readable receipt: the fallback is what SHIMS says this tool carries, so
+                // the shim files cover every name the installer serves
+                for s in cigi_shim::shims_of(t) {
+                    names.insert(s.to_string());
+                }
             }
         }
     }

@@ -54,6 +54,8 @@ pub struct ProductBuilder {
     pub(crate) selfcheck_fails: bool,
     pub(crate) shell: String,
     pub(crate) extra_files: Vec<(String, Vec<u8>)>,
+    /// For `cigar`: skip `bin/cigar-lsp` in the archive (an older release with no language server).
+    pub(crate) without_lsp: bool,
 }
 
 /// A product ready to publish: the bytes as served, and what the manifest will claim.
@@ -82,6 +84,7 @@ impl ProductBuilder {
             selfcheck_fails: false,
             shell: String::new(),
             extra_files: Vec::new(),
+            without_lsp: false,
         }
     }
 
@@ -200,15 +203,17 @@ impl ProductBuilder {
                 // as CigarScript's release.yml packs it: bin/ at the top, no folder above it
                 t.dir("bin/");
                 t.file("bin/cigar", &self.cig_script(), true);
-                t.file(
-                    "bin/cigar-lsp",
-                    format!(
-                        "#!/bin/sh\n{}echo \"cigar-lsp {v} args=$*\"\nexit \"${{FAKE_EXIT:-0}}\"\n",
-                        self.shell
-                    )
-                    .as_bytes(),
-                    true,
-                );
+                if !self.without_lsp {
+                    t.file(
+                        "bin/cigar-lsp",
+                        format!(
+                            "#!/bin/sh\n{}echo \"cigar-lsp {v} args=$*\"\nexit \"${{FAKE_EXIT:-0}}\"\n",
+                            self.shell
+                        )
+                        .as_bytes(),
+                        true,
+                    );
+                }
                 for (p, b) in &self.extra_files {
                     t.file(p, b, false);
                 }

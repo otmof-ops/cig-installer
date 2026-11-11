@@ -400,8 +400,8 @@ fn a4_which_with_no_tool_lists_every_tool_and_why() {
     let fx = installed();
     let d = data(&fx, &["which", "--why"]);
     let rows = d["tools"].as_array().unwrap();
-    // one row per shim the installer places: SHIMS is cig, cigo, cigcompile, cigar and cigar-lsp
-    assert_eq!(rows.len(), 5, "{d}");
+    // one row per tool, not per shim: cigar-lsp is listed under cigar's `shims` field
+    assert_eq!(rows.len(), 4, "{d}");
     let row = |t: &str| rows.iter().find(|r| r["tool"] == t).unwrap();
     for t in ["cig", "cigo"] {
         let r = row(t);
@@ -421,20 +421,20 @@ fn a4_which_with_no_tool_lists_every_tool_and_why() {
         row("cigar")
     );
     assert_eq!(row("cigar")["path"], Value::Null);
-    // cigar-lsp is a shim of cigar: its row is listed and tells the same "not installed"
-    assert_eq!(row("cigar-lsp")["path"], Value::Null);
-    assert!(
-        row("cigar-lsp")["code"]
-            .as_str()
-            .unwrap()
-            .starts_with("E18"),
+    // cigar's row names its other shims: cigar-lsp is the language server
+    assert_eq!(
+        row("cigar")["shims"],
+        serde_json::json!(["cigar-lsp"]),
         "{}",
-        row("cigar-lsp")
+        row("cigar")
     );
+    assert_eq!(row("cig")["shims"], serde_json::json!([]));
 
     let o = cigi(&fx, &["--plain", "which"]);
     ok(&o);
-    assert!(out(&o).contains("2 of 5"), "{}", out(&o));
+    assert!(out(&o).contains("2 of 4"), "{}", out(&o));
+    // the text form has an "also" line under cigar's row
+    assert!(out(&o).contains("also: cigar-lsp"), "{}", out(&o));
 }
 
 #[test]

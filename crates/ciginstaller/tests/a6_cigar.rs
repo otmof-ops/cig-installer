@@ -99,7 +99,13 @@ fn a_carton_with_cigar_installs_and_shims_it() {
         "toolchains/cigar/0.1.0/bin/cigar-lsp"
     );
     assert!(root.join("bin/cigar-lsp").exists(), "the cigar-lsp shim");
+    // prove the fast path: the slow path would need bin/ciginstaller to reach the resolver,
+    // so moving it aside leaves only the fast path's own index to serve the shim
+    let installer = root.join("bin/ciginstaller");
+    let aside = root.join("bin/ciginstaller.aside");
+    std::fs::rename(&installer, &aside).unwrap();
     let o = fx.run_shim("cigar-lsp", &fx.project, &[]);
+    std::fs::rename(&aside, &installer).unwrap();
     ok(&o);
     assert!(
         text(&o).starts_with("cigar-lsp 0.1.0 args="),
@@ -240,4 +246,77 @@ fn repair_recreates_a_deleted_cigar_lsp_shim() {
         "{}",
         text(&o)
     );
+}
+
+#[test]
+fn an_index_from_before_the_change_still_runs_cigar_fast_and_cigar_lsp_slow() {
+    // A machine that has installed cigar when the installer's index knew only cigar rows
+    // (header is still `cigi-index 2`): the fast path finds `cigar`, and `cigar-lsp` falls
+    // through to __resolve which runs the shim's target in the same toolchain.
+    let fx = setup();
+    let root = fx.cigscript();
+    // rewrite the index with no cigar-lsp rows, preserving the identity on the cigar rows
+    let before = std::fs::read_to_string(root.join("installer/shim-index")).unwrap();
+    assert!(before.starts_with("cigi-index 2\n"));
+    let trimmed: String = before
+        .lines()
+        .filter(|l| !l.contains("\tcigar-lsp\t"))
+        .collect::<Vec<_>>()
+        .join("\n")
+        + "\n";
+    assert!(trimmed.contains("\tcigar\t"), "{trimmed}");
+    assert!(!trimmed.contains("\tcigar-lsp\t"), "{trimmed}");
+    std::fs::write(root.join("installer/shim-index"), &trimmed).unwrap();
+    // cigar still runs fast: the ciginstaller binary is beside the shim; moving it aside
+    // proves the fast path answers without reaching the resolver
+    let installer = root.join("bin/ciginstaller");
+    let aside = root.join("bin/ciginstaller.aside");
+    std::fs::rename(&installer, &aside).unwrap();
+    let o = fx.run_shim("cigar", &fx.project, &[]);
+    std::fs::rename(&aside, &installer).unwrap();
+    ok(&o);
+    assert!(text(&o).starts_with("cigar 0.1.0 args="), "{}", text(&o));
+    // cigar-lsp takes the slow path: __resolve runs the shim's target in the same toolchain
+    let o = fx.run_shim("cigar-lsp", &fx.project, &[]);
+    ok(&o);
+    assert!(
+        text(&o).starts_with("cigar-lsp 0.1.0 args="),
+        "{}",
+        text(&o)
+    );
+}
+
+#[test]
+fn a_cigar_that_lacks_cigar_lsp_refuses_the_shim_with_e1840() {
+    // An older cigar release whose manifest lists only `cigar` and whose archive carries only
+    // `bin/cigar`: no bin/cigar-lsp is placed, and a `which cigar-lsp` run says E1840 (exit 127)
+    // naming cigar as the tool the shim is beside.
+    let mut fx = fixture();
+    fx.cigar_without_lsp = true;
+    fx.carton("0.1.0", &[("cig", "1.20.0"), ("cigar", "0.1.0")]);
+    fx.publish("stable");
+    ok(&cigi(&fx, &["install", "carton", "--carton", "0.1.0"]));
+    let root = fx.cigscript();
+    assert!(root.join("bin/cigar").exists(), "the cigar shim");
+    assert!(
+        !root.join("bin/cigar-lsp").exists(),
+        "no cigar-lsp shim when the cigar release does not ship it"
+    );
+    assert!(
+        !root.join("toolchains/cigar/0.1.0/bin/cigar-lsp").exists(),
+        "no cigar-lsp binary in the toolchain either"
+    );
+    let idx = std::fs::read_to_string(root.join("installer/shim-index")).unwrap();
+    assert!(idx.contains("\tcigar\t"), "{idx}");
+    assert!(!idx.contains("\tcigar-lsp\t"), "{idx}");
+    // which cigar-lsp refuses with E1840 and exit 127 (EXIT_SHIM)
+    let mut c = fx.cigi();
+    c.env("CIGI_ALLOW_SINGLE_SOURCE", "true")
+        .args(["which", "cigar-lsp"]);
+    let o = cigi_testkit::output_retrying(&mut c).unwrap();
+    assert_eq!(o.status.code(), Some(127), "{}", text(&o));
+    assert!(text(&o).contains("E1840"), "{}", text(&o));
+    // product_names rewrites `cigar` into CigarScript before a version or at the end of the
+    // phrase (`or use cigar`); the shim name `cigar-lsp` stays as the hyphen is after_glue
+    assert!(text(&o).contains("0.1.0 has no cigar-lsp"), "{}", text(&o));
 }

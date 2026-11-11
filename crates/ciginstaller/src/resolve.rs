@@ -146,7 +146,8 @@ pub fn resolve(cx: &mut Cx, tool: &str, mode: Mode) -> Result<Resolution, Instal
 /// whose SHIMS tool is a different name (`cigar-lsp` -> `cigar`) resolves that tool and the
 /// path returned is the shim's own target in the resolved toolchain. The carton and the build
 /// are the tool's, so an editor that starts `cigar-lsp` in a project gets the server of the
-/// cigar the project resolves to.
+/// cigar the project resolves to. When the chosen build does not ship the shim's binary
+/// (an older archive), E1840 says so and names the tool the shim is beside.
 pub fn resolve_shim(
     cx: &mut Cx,
     shim_name: &str,
@@ -160,10 +161,22 @@ pub fn resolve_shim(
             crate::flows::shim_exe(&cx.home, tool, &res.build, shim_name).ok_or_else(|| {
                 InstallerError::new(
                     "E1831",
-                    format!("{shim_name} {} has no readable receipt", res.build),
+                    format!("no readable receipt for {tool} {}", res.build),
                 )
                 .with_fix("ciginstaller repair")
             })?;
+        if !path.is_file() {
+            return Err(InstallerError::new(
+                "E1840",
+                format!(
+                    "{tool} {} has no {shim_name}; install a {tool} that ships it, or use {tool}",
+                    res.build
+                ),
+            )
+            .with_fix(format!(
+                "ciginstaller install carton # one whose {tool} ships {shim_name}"
+            )));
+        }
         res.path = path;
     }
     Ok(res)

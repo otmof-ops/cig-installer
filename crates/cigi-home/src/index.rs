@@ -124,6 +124,12 @@ impl ShimIndex {
                 for part in rel.split('/') {
                     p.push(part);
                 }
+                // the shim's target must be on disk: an archive that did not ship it (an older
+                // cigar without cigar-lsp) gets no row, the shim then takes the slow path and
+                // the resolver answers E1840.
+                if !p.is_file() {
+                    continue;
+                }
                 let from_home = format!("toolchains/{tool}/{v}/{rel}");
                 let id = r
                     .identity
