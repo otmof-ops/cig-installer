@@ -1923,7 +1923,7 @@ title = "a setting is locked by the machine"
 meaning = "A setting is locked by the machine layer: the file `/etc/cigscript/config.toml` (`locked = [...]`), the managed preferences a configuration profile installs on macOS (a `Locked` array), or `HKLM\\SOFTWARE\\Policies\\otmof-ops\\CigScript` on Windows (a `Locked` REG_MULTI_SZ value). Whoever manages this machine set it, so `config set` and `config unset` refuse, and the environment, your own config file and a flag do not change what is in force. Nothing was written."
 fix = "`ciginstaller config get <setting>` names the store that locks it; ask whoever manages this machine to change it there"
 no = "these-are-mine"
-arises = ["config", "install", "any"]
+arises = ["any"]
 tags = ["installer"]
 since = "0.1.0"
 related = ["E1870", "E1875", "E1830"]
