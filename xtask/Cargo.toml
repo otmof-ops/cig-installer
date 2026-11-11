@@ -10,7 +10,7 @@ publish = false
 
 [dependencies]
 cig-compat = { workspace = true }
-cigi-source = { workspace = true }
+cigi-source = { workspace = true, features = ["tuf"] }
 cigi-testkit = { workspace = true }
 cigi-ui = { path = "../crates/cigi-ui" }
 hex = { workspace = true }
@@ -18,3 +18,12 @@ serde_json = { workspace = true }
 sha2 = { workspace = true }
 time = { workspace = true }
 toml = { workspace = true }
+tough = { workspace = true }
+tokio = { workspace = true }
+jiff = { workspace = true }
+aws-lc-rs = { workspace = true }
+
+[dev-dependencies]
+tempfile = { workspace = true }
+tiny_http = { workspace = true }
+url = { workspace = true }

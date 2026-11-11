@@ -1859,6 +1859,25 @@ probe = "none"
 remedy = "ask the mirror's operator to serve https only; nothing here can be told to follow it"
 
 [[code]]
+code = "E1901"
+title = "the update channel's signed metadata was refused"
+meaning = "The update channel's signed metadata (The Update Framework: root, timestamp, snapshot, targets and the releases delegation) did not verify: a signature, a threshold, an expiry, a version that went backwards, or a build whose length or hash is not the one the signed targets name. Nothing was installed and nothing changed on this machine."
+fix = "`ciginstaller update --check --refresh` once the channel is current again; `ciginstaller doctor --network` names what failed"
+no = "these-are-mine"
+arises = ["update", "doctor", "any"]
+tags = ["installer"]
+since = "0.1.0"
+related = ["E1822", "E1900"]
+[[code.cause]]
+why = "the signed metadata expired, or a newer version was seen before (a replay or a freeze)"
+probe = "none"
+remedy = "wait for the channel's next timestamp, then `ciginstaller update --check --refresh`"
+[[code.cause]]
+why = "a build's length or sha256 differs from what the signed targets name (it was swapped on the way)"
+probe = "none"
+remedy = "`ciginstaller update --check --refresh` from GitHub (`ciginstaller config unset mirror`); report it if it repeats"
+
+[[code]]
 code = "E1902"
 title = "a shim target is outside its home"
 meaning = "A shim was asked to run a build whose path leads out of the home the shim sits in: an index written for another home (this one was moved or restored), or an index that was edited. Nothing was run."

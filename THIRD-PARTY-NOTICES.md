@@ -102,7 +102,6 @@ ciginstaller and cigi-shim link the Rust crates below, pulled from crates.io as 
 | deranged | 0.5.9 | Jacob Pratt <jacob@jhpratt.dev> | https://github.com/jhpratt/deranged |
 | digest | 0.10.7 | RustCrypto Developers | https://github.com/RustCrypto/traits |
 | displaydoc | 0.2.7 | Jane Lusby <jlusby@yaah.dev> | https://github.com/yaahc/displaydoc |
-| errno | 0.3.14 | Chris Wong <lambda.fairy@gmail.com>, Dan Gohman <dev@sunfishcode.online> | https://github.com/lambda-fairy/rust-errno |
 | find-msvc-tools | 0.1.15 | unrecorded | https://github.com/rust-lang/cc-rs |
 | flate2 | 1.1.11 | Alex Crichton <alex@alexcrichton.com>, Josh Triplett <josh@joshtriplett.org> | https://github.com/rust-lang/flate2-rs |
 | form_urlencoded | 1.2.2 | The rust-url developers | https://github.com/servo/rust-url |
@@ -195,4 +194,3 @@ ciginstaller and cigi-shim link the Rust crates below, pulled from crates.io as 
 | crate | version | holder | source |
 |---|---|---|---|
 | foldhash | 0.2.0 | Orson Peters <orsonpeters@gmail.com> | https://github.com/orlp/foldhash |
-| zlib-rs | 0.6.8 | unrecorded | https://github.com/trifectatechfoundation/zlib-rs |

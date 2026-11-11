@@ -19,6 +19,10 @@ pub mod progress;
 pub mod sidecar;
 pub mod source;
 pub mod trust;
+#[cfg(feature = "tuf")]
+pub mod tuf_floor;
+#[cfg(feature = "tuf")]
+pub mod tuf_transport;
 
 pub use archive::unpack_tar_gz;
 pub use bundle::{
@@ -38,3 +42,5 @@ pub use trust::{
     Admitted, Attest, DigestTrust, GhAttest, NoAttest, SeenState, StubAttest, Trust, TrustLevel,
     Verified,
 };
+#[cfg(feature = "tuf")]
+pub use trust::{TufConfig, TufTrust};

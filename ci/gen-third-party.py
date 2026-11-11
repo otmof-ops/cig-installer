@@ -23,27 +23,34 @@ def metadata(target):
     return json.loads(out)
 
 
-def shipped(meta):
-    pkgs = {p["id"]: p for p in meta["packages"]}
-    nodes = {n["id"]: n for n in meta["resolve"]["nodes"]}
-    start = [i for i, p in pkgs.items() if p["name"] in SHIPPED]
-    seen, todo = set(), list(start)
-    while todo:
-        i = todo.pop()
-        if i in seen:
-            continue
-        seen.add(i)
-        for d in nodes[i]["deps"]:
-            # a dev-only edge is not linked into a release binary
-            if any(k["kind"] != "dev" for k in d["dep_kinds"]):
-                todo.append(d["pkg"])
-    return [pkgs[i] for i in seen if pkgs[i]["source"]]  # path members have no source
+def linked(target):
+    """(name, version) of every crate a release build of the shipped binaries links for `target`.
+
+    `cargo tree -p` resolves features the way `cargo build -p ciginstaller -p cigi-shim` does,
+    unlike `cargo metadata`, whose graph unifies features across the whole workspace (xtask turns
+    on cigi-source's `tuf`, which the installer does not link)."""
+    args = ["cargo", "tree", "--locked", "-e", "normal,build", "--target", target,
+            "--prefix", "none", "--format", "{p}"]
+    for name in sorted(SHIPPED):
+        args += ["-p", name]
+    out = subprocess.check_output(args, cwd=root, text=True)
+    seen = set()
+    for line in out.splitlines():
+        parts = line.replace("(*)", "").split()
+        if len(parts) >= 2 and parts[1].startswith("v"):
+            seen.add((parts[0], parts[1][1:]))
+    return seen
+
+
+def shipped(meta, target):
+    want = linked(target)
+    return [p for p in meta["packages"] if p["source"] and (p["name"], p["version"]) in want]
 
 
 def main():
     rows = {}
     for t in TARGETS:
-        for p in shipped(metadata(t)):
+        for p in shipped(metadata(t), t):
             rows[(p["name"], p["version"])] = p
     fam = collections.OrderedDict()
     for (name, ver), p in sorted(rows.items()):

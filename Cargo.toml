@@ -42,6 +42,12 @@ rcgen = { version = "0.13", default-features = false, features = ["crypto", "pem
 tar = "0.4"
 flate2 = "1"
 tempfile = "3"
+# Signed metadata (decision 0004). Exact pin: pre-1.0, and a bump is a reviewed change.
+tough = { version = "=0.24.0", default-features = false }
+tokio = { version = "1", default-features = false, features = ["rt"] }
+futures = { version = "0.3", default-features = false, features = ["std"] }
+jiff = "0.2"
+aws-lc-rs = "1"
 tiny_http = "0.12"
 cig-compat = { path = "crates/cig-compat" }
 cigi-home = { path = "crates/cigi-home" }

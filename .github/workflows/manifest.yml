@@ -2,7 +2,9 @@ name: manifest
 
 # Assembles the next manifest (SPEC 6) with `cargo xtask manifest assemble` and keeps it as a
 # workflow ARTIFACT for review. It is not uploaded to any release: publishing it to the rolling
-# `manifest` release stays the operator's act, after reading the report in the job log.
+# `manifest` release stays the operator's act, after reading the report in the job log. The
+# artifact also carries `tuf-entries.json`, the signed-target entries; the `tuf` workflow signs
+# them with the online keys when it is given this run's id (no key is used here).
 on:
   workflow_dispatch:
     inputs:
@@ -73,7 +75,7 @@ jobs:
           fi
       - name: cargo xtask manifest assemble
         run: |
-          args=(--carton "$IN_CARTON" --channel "$IN_CHANNEL" --notes "$IN_NOTES" --out "out/manifest-$IN_CHANNEL.toml")
+          args=(--carton "$IN_CARTON" --channel "$IN_CHANNEL" --notes "$IN_NOTES" --out "out/manifest-$IN_CHANNEL.toml" --tuf-entries out/tuf-entries.json)
           [[ -n "$IN_CIG" ]]        && args+=(--cig "$IN_CIG")
           [[ -n "$IN_CIGO" ]]       && args+=(--cigo "$IN_CIGO")
           [[ -n "$IN_CIGCOMPILE" ]] && args+=(--cigcompile "$IN_CIGCOMPILE")

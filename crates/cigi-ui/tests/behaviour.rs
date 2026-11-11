@@ -702,7 +702,7 @@ fn results_go_to_stdout_and_chatter_to_stderr() {
 
 // ---- the registry -----------------------------------------------------------------------
 
-const SPEC_CODES: [(u32, &str); 85] = [
+const SPEC_CODES: [(u32, &str); 86] = [
     (1800, "combination refused"),
     (1801, "a product needs another"),
     (1802, "a stick does not fit its carton"),
@@ -801,6 +801,7 @@ const SPEC_CODES: [(u32, &str); 85] = [
     (1890, "a bug in the installer"),
     (1891, "a journal could not be recovered"),
     (1900, "a mirror over plain http"),
+    (1901, "the update channel's signed metadata was refused"),
     (1902, "a shim target is outside its home"),
     (1903, "a shim target is not the build its receipt recorded"),
 ];

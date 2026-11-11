@@ -3,10 +3,11 @@
 
 # 0004: Signed metadata (TUF) for what the installer fetches
 
-- Status: proposed
+- Status: accepted (2026-11-11)
 - Date: 2026-11-10
 - Issues: otmof-ops/cig-installer#9
-- Evidence: `spikes/tough-eval` (22 tests, run with `cargo test` inside it)
+- Evidence: `spikes/tough-eval` (22 tests, run with `cargo test` inside it); the same attacks against
+  the installer's own client in `xtask/tests/tuf_attacks.rs` and `xtask/tests/tuf_http.rs`
 
 ## Context
 
@@ -39,8 +40,9 @@ One repository, one root. Products are delegations, not separate repositories.
 | role | signs | keys | threshold | held |
 |---|---|---|---|---|
 | `root` | the key and threshold of every role | 3 | 2 | offline |
-| `targets` | the manifests, the installer's tarballs and scripts, and the delegations | 1 | 1 | offline, not a root key |
-| `cig`, `cigo`, `cigcompile`, `cigar` (delegated from `targets`) | that product's artifact entries | 1 each | 1 | that product's release pipeline |
+| `targets` | the delegations, once (and again only when a delegation changes or the sitting comes round) | 1 | 1 | offline, not a root key |
+| `releases` (delegated from `targets`, section 1a) | the manifest, every build it names, the installer's tarballs and the bootstrap scripts | 1 | 1 | online |
+| `cig`, `cigo`, `cigcompile`, `cigar` (delegated from `targets`, later) | that product's own artifact entries, when a product's pipeline signs for itself | 1 each | 1 | that product's release pipeline |
 | `snapshot` | the version and hash of `targets` and every delegated role | 1 | 1 | online |
 | `timestamp` | the version and hash of `snapshot` | 1 | 1 | online |
 
@@ -53,19 +55,49 @@ One repository, one root. Products are delegations, not separate repositories.
   `custom` field carries the build attestation reference (`repo`, workflow, subject), and the
   installer checks it at install exactly as `Attest` does today. The spike reads it back
   (`signed_targets_carry_length_digest_and_attestation_reference`).
-- The offline `targets` role signs the manifest. A carton is therefore a human act twice over: the
-  assembly Jay reviews, and the signing only Jay can do.
+- The manifest is signed by the online `releases` role (section 1a), not by the offline `targets`
+  role as first proposed. A carton is still a human act (Jay reads the assembly and starts the
+  signing workflow), but no offline key is needed to cut one.
 - A compromised product pipeline can publish builds of that product and nothing else. It cannot
   change the manifest, so a build only installs if a carton names it; it can still publish extra
-  builds that no manifest points at, which are inert.
+  builds that no manifest points at, which are inert. (Until a product signs for itself, its
+  entries are written into `releases` from the manifest, so this applies from the day a product
+  gets its own delegation.)
+
+### 1a. The online delegation for releases
+
+The offline `targets` key signs, once, a delegation to a role named `releases`, held by an online
+key (`TUF_RELEASES_KEY`, a secret of the protected `tuf-online` environment). `releases` is
+`terminating` and may sign only these paths (`xtask::tuf::RELEASE_PATHS`):
+`manifest-*.toml`, `cig-*`, `cigo-*`, `cigcompile-*`, `cigar-*`, `ciginstaller-*`, `install.sh`,
+`install.ps1`. A release then needs only online keys: `releases` signs the new manifest and its
+build entries, `snapshot` and `timestamp` follow. A new product name is a new path, which only the
+offline key can add (`tuf sign targets` after editing the list), so widening the remit is always an
+offline act.
+
+What this gives up, said plainly. Under the first draft a stolen online key could never name a
+build; now a stolen `releases` key can publish a manifest and builds inside those paths until the
+delegation is rotated (`tuf rotate releases`, offline key, then root-signed snapshot and timestamp
+follow). It cannot touch the root, the delegation, or any path outside the list; the client
+refuses a `releases` file that names one (`a_releases_key_cannot_vouch_for_a_name_outside_its_paths`),
+and a forged `releases` role signed by anyone else is refused even when the snapshot and timestamp
+keys are also stolen (`stolen_snapshot_and_timestamp_keys_cannot_publish_a_build`). What still
+stops a stolen `releases` key from installing something new on its own: a compiled-in pin that
+disagrees with a signed digest is a refusal, not a downgrade (section 5); the manifest `sequence`
+cannot go backwards; a published name never changes its bytes (`xtask` refuses to re-sign one);
+and every build's signed attestation reference must match the manifest, and `gh attestation
+verify` runs when `gh` is present. The compromise is bounded by those and by the 30-day life of the
+`releases` metadata, and detected by anyone who compares the `tuf` release with the `manifest`
+release.
 
 ### 2. Expiries
 
 | role | expires after | re-signed |
 |---|---|---|
 | `root` | 365 days | every 180 days, key change or not |
-| `targets` | 90 days | with every carton, and by day 60 at the latest |
-| delegated roles | 365 days | with each release of that product; a warning at 30 days left |
+| `targets` | 365 days | with the root, every 180 days (it signs only the delegation now, so no carton needs it) |
+| `releases` | 30 days | with each release, and by the daily online job so it never lapses |
+| other delegated roles | 365 days | with each release of that product; a warning at 30 days left |
 | `snapshot` | 30 days | with every change to any metadata, and weekly |
 | `timestamp` | 7 days | daily, by the online job |
 
@@ -73,20 +105,31 @@ Reasons: the freeze window an attacker can hold a client in is the shortest expi
 it is the `timestamp` (7 days). It is 7 and not 1 because the online job is a scheduled workflow
 and GitHub disables scheduled workflows on a repository that has been quiet for 60 days; six missed
 runs of slack stops one outage freezing every client. The `root` is long because an expired root
-cannot be replaced by the mechanism that would replace it. The `targets` expiry equals
-`MAX_EXPIRES_AHEAD_SECS` (90 days), the ceiling the manifest already carries.
+cannot be replaced by the mechanism that would replace it. The `targets` role is long for the same reason as
+the root: the offline key is touched twice a year, at one sitting. The manifest's own `expires`
+still obeys `MAX_EXPIRES_AHEAD_SECS` (90 days).
 
 ### 3. Key custody
 
-Never in the repository, never in a workflow log, never generated by an agent. All of it is Jay's.
+Never in the repository and never in a workflow log (Jay's decision 3, 2026-11-11). The keys are
+generated on the maintainer's build machine by `cargo xtask tuf keygen`, to files outside the
+repository, which `xtask` refuses to read from inside it.
 
-- Root keys: three, made on a machine with no network, each stored on its own encrypted medium in
-  a different place. Two are needed to change the root. The ceremony is run by hand.
-- Targets key: made at the same sitting, on a fourth medium, used only to cut a carton.
-- Snapshot and timestamp keys: two keys, held as secrets of a protected GitHub environment that
-  only the signing workflow on `main` can read. Their theft yields freeze and replay up to the
-  expiries above and nothing that verifies as a build (`a_stolen_timestamp_key_alone_cannot_publish_anything`).
-- Pipeline keys: one per product, a secret of that product's release workflow, never shared.
+- Root keys: three, each exported encrypted to its own medium and then removed from the build
+  machine; Jay moves them offline and keeps them in different places. Two are needed to change the
+  root.
+- Targets key: made at the same sitting, exported the same way, used only for the delegation and the
+  twice-yearly re-signing.
+- Snapshot, timestamp and releases keys: three keys, held as secrets (`TUF_SNAPSHOT_KEY`,
+  `TUF_TIMESTAMP_KEY`, `TUF_RELEASES_KEY`, base64 of the PKCS#8 key, which `keygen --base64`
+  writes) of the protected GitHub environment `tuf-online`, which only the signing workflow on
+  `main` can read. Theft of snapshot and timestamp yields freeze and replay up to the expiries
+  above and nothing that verifies as a build (`stolen_snapshot_and_timestamp_keys_cannot_publish_a_build`);
+  theft of `releases` is bounded as section 1a says.
+- Pipeline keys (later): one per product, a secret of that product's release workflow, never shared.
+- The CigarScript package signature and the blacklist bundle (decisions 20 and 23) use the same
+  `targets` key through the same `tuf sign` commands; their file names are added to the delegation
+  paths at a sitting.
 
 ### 4. Rotation, and the rehearsal
 
@@ -189,10 +232,12 @@ error to its own `E18xx` code at the seam.
 ### 10. Migration from the checksummed manifest
 
 1. Ceremony and rehearsal (Jay), section 4.
-2. A `TufTrust` behind the `Trust` trait, with the four attack tests written against it (the
-   spike's fixture is the starting point). `DigestTrust` unchanged.
-3. `xtask manifest assemble` also emits the unsigned `targets` input; a separate `xtask tuf sign`
-   run offline by Jay signs it; the online job signs snapshot and timestamp.
+2. A `TufTrust` behind the `Trust` trait, with the attack tests written against it. `DigestTrust`
+   unchanged. (Built: `crates/cigi-source/src/trust/tuf.rs`; the compiled-in root is
+   `crates/cigi-source/tuf/root.json`, a placeholder until the ceremony; the floor is
+   `crates/cigi-source/src/tuf_floor.rs`.)
+3. `xtask manifest assemble --tuf-entries` also emits the signed-target entries; the online `tuf`
+   workflow signs them with the `releases` key and then signs snapshot and timestamp. (Built.)
 4. A carton is published with both the old checksummed manifest and the signed set. The installer
    prefers signed, and with the floor at `checksummed` still accepts the old.
 5. After one release in which every path ran on signed metadata, the floor moves to `signed`, the
@@ -271,8 +316,8 @@ workspace.
 
 ## Consequences
 
-- One new trust level, one new key hierarchy, and a monthly human duty (the `targets` re-signing)
-  that did not exist.
+- One new trust level, one new key hierarchy, and a twice-yearly human duty (the root and `targets`
+  re-signing, at one sitting) that did not exist.
 - About 5 MB of binary, one C library in the build, and a pre-1.0 dependency pinned exactly.
 - A loss of two root keys is recoverable only by a new installer release.
 - The first byte of an install is still the user's to check; TUF protects every byte after it.

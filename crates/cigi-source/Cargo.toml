@@ -22,6 +22,14 @@ rustls-native-certs = { workspace = true }
 webpki-roots = { workspace = true }
 tar = { workspace = true }
 flate2 = { workspace = true }
+tough = { workspace = true, optional = true }
+tokio = { workspace = true, optional = true }
+futures = { workspace = true, optional = true }
+
+[features]
+# The TUF client (#9). Off until the installer's size budget for it is decided: tough brings
+# aws-lc-rs and tokio (about +5 MB). xtask turns it on to sign and to run the attack tests.
+tuf = ["dep:tough", "dep:tokio", "dep:futures"]
 
 [dev-dependencies]
 cigi-testkit = { workspace = true }

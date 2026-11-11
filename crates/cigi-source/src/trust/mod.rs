@@ -6,22 +6,28 @@
 
 mod attest;
 mod digest_trust;
+#[cfg(feature = "tuf")]
+mod tuf;
 
 pub use attest::{Attest, GhAttest, NoAttest, StubAttest};
 pub use digest_trust::DigestTrust;
+#[cfg(feature = "tuf")]
+pub use tuf::{compiled_root, TufConfig, TufTrust};
 
 use crate::error::TrustError;
 use cig_compat::{Artifact, Manifest};
 use std::ops::Deref;
 use std::path::Path;
 
-/// How far a file was proven. Ordered: each level implies the ones below. Section 7.3 adds
-/// `Signed` above `Pinned`; `non_exhaustive` so adding it breaks no match.
+/// How far a file was proven. Ordered: each level implies the ones below. `Signed` sits between `Attested` and
+/// `Pinned` (decision 0004, section 5); `non_exhaustive` so adding a level breaks no match.
 #[non_exhaustive]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum TrustLevel {
     Checksummed,
     Attested,
+    /// The digest and size come from TUF metadata that verified against the compiled-in root.
+    Signed,
     Pinned,
 }
 impl TrustLevel {
@@ -29,6 +35,7 @@ impl TrustLevel {
         match self {
             TrustLevel::Checksummed => "checksummed",
             TrustLevel::Attested => "attested",
+            TrustLevel::Signed => "signed",
             TrustLevel::Pinned => "pinned",
         }
     }
@@ -37,6 +44,7 @@ impl TrustLevel {
         match s.trim() {
             "checksummed" => Some(TrustLevel::Checksummed),
             "attested" => Some(TrustLevel::Attested),
+            "signed" => Some(TrustLevel::Signed),
             "pinned" => Some(TrustLevel::Pinned),
             _ => None,
         }

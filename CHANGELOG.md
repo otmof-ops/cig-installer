@@ -54,6 +54,27 @@ Linux, with every build checked first and every change one undoable step.
   `note:` before it.
 - README: the budget table says where each row is measured.
 
+### Signed update channel (#9)
+
+- **`TufTrust`** in `cigi-source` admits the manifest only through TUF metadata: a root compiled
+  into the binary, then timestamp, snapshot, targets and the delegated `releases` role, each
+  checked for signature threshold, expiry and version rollback, plus a compiled-in version floor,
+  and the manifest's length and SHA-256 checked against its signed target. A build is admitted at
+  the new `signed` trust level against its signed entry and attestation reference; a compiled-in pin
+  that disagrees is a refusal. `--offline` waives only the timestamp, snapshot and release expiries,
+  says so, and never the root's or targets'.
+- **Releases need no offline key.** The offline `targets` key signs a delegation to an online
+  `releases` role once; a release is signed by the online releases, snapshot and timestamp keys.
+  Decision 0004 is accepted, with the delegation and its trade-off written into it.
+- **`cargo xtask tuf keygen|init|sign|rotate|floor`** writes and signs the metadata with keys read
+  from files outside the repository (a path inside it is refused), and **`manifest assemble
+  --tuf-entries`** emits the signed-target entries. The attack tests (rollback, freeze,
+  mix-and-match, a bad mirror, an expired timestamp, a threshold not met, rotations, a delegated
+  key outside its paths, stolen online keys) run in the workspace suite against `TufTrust`.
+- **A `tuf` workflow** signs the online roles daily and on request from secrets
+  (`TUF_RELEASES_KEY`, `TUF_SNAPSHOT_KEY`, `TUF_TIMESTAMP_KEY`) and publishes to the `tuf` release,
+  timestamp last. The compiled-in root is a placeholder until the key ceremony.
+
 ### Compiled programs (#30, the unblocked part)
 
 - **`ciginstaller programs [--project DIR] [--json]`** lists the compiled programs

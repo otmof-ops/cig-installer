@@ -67,6 +67,9 @@ pub enum TrustError {
     AttestationFailed { what: String, why: String },
     /// E1820: the file could not be read to check it.
     Io { what: String, why: String },
+    /// E1822: the signed metadata (TUF, decision 0004) did not verify, or does not vouch for this
+    /// file. The text is the reason in plain words; no caller branches on it.
+    Tuf { why: String },
 }
 impl TrustError {
     pub fn code(&self) -> &'static str {
@@ -74,6 +77,7 @@ impl TrustError {
             TrustError::DigestMismatch { .. } | TrustError::SizeMismatch { .. } => "E1821",
             TrustError::FloorNotMet { .. } => "E1822",
             TrustError::PlainHttp { .. } => "E1900",
+            TrustError::Tuf { .. } => "E1901",
             TrustError::Expired { .. } => "E1823",
             TrustError::SequenceBackwards { .. } => "E1824",
             TrustError::Malformed(_) => "E1825",
@@ -133,6 +137,7 @@ impl fmt::Display for TrustError {
                 write!(f, "attestation check for {what} failed: {why}")
             }
             TrustError::Io { what, why } => write!(f, "could not read {what}: {why}"),
+            TrustError::Tuf { why } => write!(f, "the signed update metadata was refused: {why}"),
         }
     }
 }
