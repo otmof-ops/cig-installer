@@ -444,6 +444,8 @@ fn a4_doctor_reads_cigcompiles_own_self_check() {
     }
 }
 
+// the guard's kernel probes read Linux's /proc and /sys (#13)
+#[cfg(target_os = "linux")]
 /// A fixture root for the kernel probes: `proc/...` and `sys/...` as the guard's features read
 /// them. `None` leaves the file out.
 fn kernel_root(
@@ -467,6 +469,8 @@ fn kernel_root(
     root
 }
 
+// the guard's kernel probes read Linux's /proc and /sys (#13)
+#[cfg(target_os = "linux")]
 /// `(exit code, data)` of `--json doctor` with the probes pointed at `root`.
 fn doctor_probing(fx: &Fixture, root: &std::path::Path) -> (i32, Value) {
     let mut c = fx.cigi();
@@ -494,6 +498,8 @@ fn one<'a>(d: &'a Value, section: &str) -> &'a Value {
     all[0]
 }
 
+// the guard's kernel probes read Linux's /proc and /sys (#13)
+#[cfg(target_os = "linux")]
 #[test]
 fn a4_doctor_guard_kernel_features_all_present() {
     let fx = setup();
@@ -510,6 +516,8 @@ fn a4_doctor_guard_kernel_features_all_present() {
     }
 }
 
+// the guard's kernel probes read Linux's /proc and /sys (#13)
+#[cfg(target_os = "linux")]
 /// Each missing feature is a finding that ends with its one fix command; none is an action, so a
 /// machine without a guard feature still has a doctor that exits 0.
 #[test]
@@ -545,6 +553,8 @@ fn a4_doctor_guard_kernel_features_missing_each_end_with_a_fix() {
     assert!(fix.ends_with("sudo update-grub"), "{fix}");
 }
 
+// the guard's kernel probes read Linux's /proc and /sys (#13)
+#[cfg(target_os = "linux")]
 #[test]
 fn a4_doctor_guard_kernel_features_unreadable_say_so_and_never_pass() {
     let fx = setup();
@@ -559,6 +569,8 @@ fn a4_doctor_guard_kernel_features_unreadable_say_so_and_never_pass() {
     assert!(one(&d, "user namespaces")["fix"].is_null());
 }
 
+// the guard's kernel probes read Linux's /proc and /sys (#13)
+#[cfg(target_os = "linux")]
 /// The seam only changes where doctor reads: nothing in the folder or the home is written, and
 /// without it the same sections come from the machine itself.
 #[test]

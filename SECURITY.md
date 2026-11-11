@@ -132,7 +132,7 @@ Around those levels:
   installer: the refusal comes before anything is asked for, and
   `allow_single_source` does not open it. Certificates are checked against the
   system's trust store, which honors `SSL_CERT_FILE` and `SSL_CERT_DIR` as
-  OpenSSL does, so an organisation's own certificate authority works as it does
+  OpenSSL does, so an organization's own certificate authority works as it does
   for curl and git. The bundled Mozilla roots are used only on a system with
   no store at all. There is no setting that skips verification.
 - **Downloads are plain and narrow.** One HTTPS client, `GET` only, with

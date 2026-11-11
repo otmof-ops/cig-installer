@@ -119,7 +119,7 @@ fn net(url: &Url, why: impl ToString) -> FetchError {
 /// Issue the request, following redirects under the policy; returns the final response.
 /// The TLS settings every HTTPS request uses (#48): certificates are checked against the system's
 /// trust store, which honors `SSL_CERT_FILE` and `SSL_CERT_DIR` as OpenSSL does, so an
-/// organisation's own certificate authority works the way it does for curl and git. The bundled
+/// organization's own certificate authority works the way it does for curl and git. The bundled
 /// Mozilla roots are used only when the system has no store at all (a bare container). There is
 /// no setting that skips verification.
 pub fn tls_config() -> std::sync::Arc<rustls::ClientConfig> {
