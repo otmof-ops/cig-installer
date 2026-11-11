@@ -288,6 +288,32 @@ a finding), 3 usage, 4 unreachable, 10 for `update --check --exit-code` when a
 newer carton exists, 70 for a bug in the installer, and 127 when a shim cannot
 start its tool. A shim otherwise passes the tool's own exit code through.
 
+## Performance budgets
+
+`ciginstaller bench` prints these on your machine, read-only, with the median
+and p95 of each. The `bench` workflow measures them on a release build (a debug
+build is slower and bigger, so its numbers are not judged) on every pull request
+and every push to `main`. A row that a platform cannot measure yet says "not
+measured" and is never counted as passing.
+
+| what | budget | measured in CI |
+|---|---|---|
+| a shim dispatching to the right version | under 2 ms | Linux, macOS, Windows: `bench --strict` and `budget_20_neutral` |
+| `ciginstaller check` (cached metadata) | under 200 ms | Linux, macOS: `bench --strict` against a fixture carton, and `budget_20`; Windows: not measured |
+| a background update check (network) | under 1 s, at most daily | Linux, macOS: `budget_20` against a loopback server (the installer's own part, not a real network); Windows: not measured |
+| installing `pack dev` | under 30 s on broadband | Linux, macOS: from a local mirror, so the installer's own part only (`bench --from`, `release_install`); Windows: not measured |
+| installing a whole `carton` | under 60 s on broadband | Linux, macOS: from a local mirror (`bench --from`, `budget_20`); Windows: not measured |
+| an atomic switch to a new carton | under 100 ms | Linux, macOS, Windows: `bench --strict` and `budget_20_neutral` |
+| disk for five cigo versions | under 1.5x one version | Linux, macOS: `budget_20` on a real store; Windows: `budget_20_neutral`, from receipts |
+| the first line of the status, and of any other command | under 50 ms, under 100 ms | Linux, macOS: `bench --strict` and `budget`; Windows: `bench --strict` |
+| `ciginstaller` binary, shim binary | under 10 MB, under 500 KB | Linux, macOS, Windows: `bench --strict`; the static musl build is also judged by `ci/size-check.sh` |
+
+The rows that run shell-script fixture products wait on the Windows install
+fixture ([#21](https://github.com/otmof-ops/cig-installer/issues/21)). The tests
+live in `crates/cigi-budgets` so that they can be built in release mode; run
+them with `cargo build --release -p ciginstaller -p cigi-shim` and then
+`cargo test --release -p cigi-budgets`.
+
 ## Limits, honestly
 
 - **Nothing installs from the network yet.** No installer release and no

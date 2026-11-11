@@ -682,10 +682,9 @@ fn stage(
 ) -> Result<Staged, InstallerError> {
     materialize_fetched(txn, &cx.home, m, &target.version, fetched)?;
     if a.no_trial {
-        cx.note("trial skipped (--no-trial)");
         return Ok(Staged {
             trial: TrialOutcome {
-                skipped: vec!["trial skipped (--no-trial)".to_string()],
+                skipped: vec!["--no-trial".to_string()],
                 ..TrialOutcome::default()
             },
         });
@@ -717,14 +716,12 @@ fn stage(
         }
     }
     if pairs.is_empty() {
-        cx.note("trial skipped: no tool with a trial changed");
         let mut t = TrialOutcome::default();
         t.skipped.push("no tool with a trial changed".to_string());
         t.skipped.extend(skipped);
         return Ok(Staged { trial: t });
     }
     let Some(ctx) = trial_project(cx, a.project.as_deref())? else {
-        cx.note("no project here, trial skipped");
         return Ok(Staged {
             trial: TrialOutcome {
                 skipped: vec!["no project here".to_string()],
@@ -902,7 +899,7 @@ fn trial_lines(t: &TrialOutcome, full: bool) -> Vec<String> {
         }
     }
     for s in &t.skipped {
-        v.push(format!("trial skipped: {s}"));
+        v.push(format!("trial: skipped ({s})"));
     }
     v
 }

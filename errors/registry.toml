@@ -1,7 +1,7 @@
 # SPDX-FileCopyrightText: 2026 Jay Taylor (https://github.com/otmof-ops/cig-installer)
 # SPDX-License-Identifier: FSL-1.1-ALv2
 #
-# The ciginstaller error-code registry (E1800-E1899, SPEC section 11.3), in the schema of
+# The ciginstaller error-code registry (E1800-E1899 and E1900-E1999, SPEC section 11.3), in the schema of
 # cig's own registry (cig-script errors/registry.toml): `[[range]]`, `[[no]]`, `[[probe]]`
 # and `[[code]]` with `[[code.cause]]`. `ciginstaller explain` embeds this file.
 #
@@ -53,6 +53,13 @@ to = "E1899"
 family = "installer"
 kind = "internal"
 meaning = "internal: a bug in the installer, or a journal it cannot recover"
+
+[[range]]
+from = "E1900"
+to = "E1999"
+family = "installer"
+kind = "usage"
+meaning = "the installer, second range: the mirror and what travels over it (E1900), the update channel's signatures (E1901), and what a shim refuses to run and why (E1902, E1903); the rest is not assigned yet"
 
 # ----- the four kinds of no (copied verbatim from cig) ------------------------------------
 
@@ -1827,3 +1834,66 @@ remedy = "`ciginstaller self update`, then `ciginstaller doctor`"
 why = "a file the journal refers to was removed"
 probe = "txn-journal"
 remedy = "`ciginstaller repair`, then `ciginstaller doctor`"
+
+[[code]]
+code = "E1900"
+title = "a mirror over plain http"
+meaning = "A mirror is a plain `http://` address that is not on this machine, or it is on this machine and the build it served is not one a pin vouches for, or a download was sent on from https to http. Plain http proves nothing about the file, so it is refused: `https://` is accepted anywhere, `http://` only to a loopback address (127.0.0.1, ::1), and then only for builds this ciginstaller holds a pin for; `allow_single_source` does not change that. Nothing was downloaded into the store."
+fix = "`ciginstaller config set mirror https://<your mirror>/`, or `ciginstaller config unset mirror` to use GitHub"
+no = "these-are-mine"
+arises = ["update", "doctor", "any"]
+tags = ["installer"]
+since = "0.1.0"
+related = ["E1820", "E1822", "E1838"]
+[[code.cause]]
+why = "the `mirror` setting (or CIGI_MIRROR) names an `http://` address that is not loopback"
+probe = "none"
+remedy = "`ciginstaller config set mirror https://<your mirror>/`, or `ciginstaller config unset mirror`; `ciginstaller doctor` lists it"
+[[code.cause]]
+why = "the mirror is plain http on this machine and the build it served is not one a pin vouches for"
+probe = "none"
+remedy = "serve the mirror over https, or use a `file://` mirror or a bundle (`ciginstaller install carton --from <bundle>`)"
+[[code.cause]]
+why = "a server answered an https request by sending it on to plain http"
+probe = "none"
+remedy = "ask the mirror's operator to serve https only; nothing here can be told to follow it"
+
+[[code]]
+code = "E1902"
+title = "a shim target is outside its home"
+meaning = "A shim was asked to run a build whose path leads out of the home the shim sits in: an index written for another home (this one was moved or restored), or an index that was edited. Nothing was run."
+fix = "`ciginstaller repair`"
+no = "cant-see-any"
+arises = ["any"]
+tags = ["installer", "ci-likely"]
+since = "0.1.0"
+related = ["E1903", "E1844"]
+[[code.cause]]
+why = "the home was copied, moved or restored from a backup and its shim-index still names the old home's builds"
+no = "cant-see-any"
+probe = "shim-index-agrees"
+remedy = "`ciginstaller repair` writes the index again for this home"
+[[code.cause]]
+why = "the shim-index was edited by hand"
+probe = "shim-index-agrees"
+remedy = "`ciginstaller repair` writes the index again from state.json"
+
+[[code]]
+code = "E1903"
+title = "a shim target is not the build its receipt recorded"
+meaning = "A shim found the file it was about to run is not the one the installer recorded for it: its device, inode, size or modification time changed. Nothing was run."
+fix = "`ciginstaller repair`"
+no = "cant-see-any"
+arises = ["any"]
+tags = ["installer", "ci-likely"]
+since = "0.1.0"
+related = ["E1902", "E1831"]
+[[code.cause]]
+why = "the home was copied or restored from a backup, which gives every file a new device and inode"
+no = "cant-see-any"
+probe = "receipt-verify"
+remedy = "`ciginstaller repair` checks each file against its receipt's hash and records it again"
+[[code.cause]]
+why = "the build was replaced in place by another file"
+probe = "receipt-verify"
+remedy = "`ciginstaller repair` puts the receipt's file back from the store"

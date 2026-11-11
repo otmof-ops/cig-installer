@@ -60,8 +60,9 @@ pub use shims::{remove_shims, shim_path, sync_shims};
 pub use state::State;
 pub use store::{ObjectId, StagedObject, Store, StoreUsage};
 pub use toolchain::{
-    installed, materialize, read_receipt, verify_toolchain, Damage, Provenance, Receipt,
-    ReceiptArtifact, ReceiptFile, ReceiptSource, ReceiptTrust, ShimRef, StagedFile,
+    identity_drift, installed, materialize, measure_identity, read_receipt, refresh_identity,
+    verify_toolchain, Damage, Provenance, Receipt, ReceiptArtifact, ReceiptFile, ReceiptSource,
+    ReceiptTrust, ShimRef, StagedFile,
 };
 pub use util::now_rfc3339;
 

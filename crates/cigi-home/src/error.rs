@@ -288,6 +288,8 @@ pub enum StateError {
     },
     /// A config key or value that is not allowed (E1870).
     Usage(String),
+    /// A plain-http mirror that is not on loopback (E1900).
+    PlainHttp(String),
     Journal(JournalError),
 }
 
@@ -297,6 +299,7 @@ impl StateError {
             StateError::Io { source, .. } => io_code(source, "E1835"),
             StateError::Unreadable { .. } => "E1830",
             StateError::Usage(_) => "E1870",
+            StateError::PlainHttp(_) => "E1900",
             StateError::Journal(e) => e.code(),
         }
     }
@@ -309,7 +312,7 @@ impl fmt::Display for StateError {
             StateError::Unreadable { path, why } => {
                 write!(f, "{} is unreadable or too new: {why}", path.display())
             }
-            StateError::Usage(m) => f.write_str(m),
+            StateError::Usage(m) | StateError::PlainHttp(m) => f.write_str(m),
             StateError::Journal(e) => e.fmt(f),
         }
     }

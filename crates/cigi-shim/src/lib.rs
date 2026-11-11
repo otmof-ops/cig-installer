@@ -71,6 +71,176 @@ fn owner_ok(_md: &fs::Metadata, _t: Trusted) -> bool {
     true
 }
 
+/// Where a shim's home comes from, in the order the shim trusts them.
+///
+/// A shim lives at `<home>/bin/<name>`, so the home is the parent of `bin` (the running file's
+/// resolved location, so a link to the shim from another folder still finds its own home).
+/// `CIGSCRIPT_HOME` overrides it; when the two name different folders the shim can say so.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct HomeChoice {
+    /// The home the shim works against.
+    pub home: PathBuf,
+    /// The home its own location implies, when it sits in a `bin` folder.
+    pub anchored: Option<PathBuf>,
+    /// `CIGSCRIPT_HOME`, when it is set and not empty.
+    pub env: Option<PathBuf>,
+}
+
+impl HomeChoice {
+    /// The two homes that disagree (`env`, `anchored`), when they do. The comparison follows
+    /// links in both, so a home reached through a symlink agrees with itself.
+    pub fn disagreement(&self) -> Option<(&Path, &Path)> {
+        let (e, a) = (self.env.as_deref()?, self.anchored.as_deref()?);
+        let same = e == a
+            || matches!((fs::canonicalize(e), fs::canonicalize(a)), (Ok(x), Ok(y)) if x == y);
+        (!same).then_some((e, a))
+    }
+}
+
+/// `<home>/bin/<name>` gives `<home>`: the parent of a folder called `bin`. A file anywhere else
+/// (a test copy, a link target) has no home of its own.
+pub fn home_of_exe(exe: &Path) -> Option<PathBuf> {
+    let bin = exe.parent()?;
+    let named_bin = bin.file_name().is_some_and(|n| {
+        if cfg!(windows) {
+            n.eq_ignore_ascii_case("bin")
+        } else {
+            n == "bin"
+        }
+    });
+    let home = bin.parent()?;
+    (named_bin && !home.as_os_str().is_empty()).then(|| home.to_path_buf())
+}
+
+/// The home a shim works against: `CIGSCRIPT_HOME`, else the home its own file sits in, else
+/// `~/.cigscript`.
+pub fn choose_home(
+    exe: Option<&Path>,
+    env: Option<PathBuf>,
+    user_home: Option<PathBuf>,
+) -> Option<HomeChoice> {
+    let anchored = exe.and_then(home_of_exe);
+    let home = env
+        .clone()
+        .or_else(|| anchored.clone())
+        .or_else(|| user_home.map(|h| h.join(".cigscript")))?;
+    Some(HomeChoice {
+        home,
+        anchored,
+        env,
+    })
+}
+
+/// Why the shim will not run what the index names.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum TargetError {
+    /// The path is not plain: it climbs (`..`), is empty, or names a drive or a root where a
+    /// path inside the home belongs.
+    NotPlain,
+    /// It resolves to somewhere outside the home.
+    Outside,
+}
+
+/// Turn an index entry into the file to run. A relative entry (the form the installer writes
+/// now) is read against `home`; an absolute one (the form older installers wrote) is accepted
+/// only when it is already inside `home`. Neither may climb with `..`. Lexical: nothing is read.
+pub fn resolve_entry(home: &Path, entry: &str) -> Result<PathBuf, TargetError> {
+    use std::path::Component;
+    let p = Path::new(entry);
+    if entry.is_empty() || p.components().any(|c| matches!(c, Component::ParentDir)) {
+        return Err(TargetError::NotPlain);
+    }
+    if p.is_absolute() {
+        return if p.starts_with(home) {
+            Ok(p.to_path_buf())
+        } else {
+            Err(TargetError::Outside)
+        };
+    }
+    if p.components()
+        .any(|c| !matches!(c, Component::Normal(_) | Component::CurDir))
+    {
+        // a drive prefix or a rooted path without a drive: not inside the home
+        return Err(TargetError::Outside);
+    }
+    Ok(home.join(p))
+}
+
+/// Does `target` (as the file system resolves it, links followed) stay inside `home`? Both are
+/// resolved, so a link anywhere along the way cannot lead out of the home unseen.
+pub fn stays_inside(home: &Path, target: &Path) -> Option<PathBuf> {
+    let h = fs::canonicalize(home).ok()?;
+    let t = fs::canonicalize(target).ok()?;
+    t.starts_with(&h).then_some(t)
+}
+
+/// What the installer records about a build's file and the shim checks before it runs it:
+/// `(dev, inode, size, mtime)`. One `stat` per run, no hashing; the receipt's hash is checked by
+/// `ciginstaller repair`, never on the hot path. Windows has no inode in std: `dev` and `ino`
+/// are 0 there and the size and the write time carry the check.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Identity {
+    pub dev: u64,
+    pub ino: u64,
+    pub size: u64,
+    /// Modification time in nanoseconds since the epoch (100 ns units on Windows).
+    pub mtime: i128,
+}
+
+impl Identity {
+    /// The identity of an already-read `stat`.
+    #[cfg(unix)]
+    pub fn of(md: &fs::Metadata) -> Identity {
+        use std::os::unix::fs::MetadataExt;
+        Identity {
+            dev: md.dev(),
+            ino: md.ino(),
+            size: md.size(),
+            mtime: i128::from(md.mtime()) * 1_000_000_000 + i128::from(md.mtime_nsec()),
+        }
+    }
+    #[cfg(windows)]
+    pub fn of(md: &fs::Metadata) -> Identity {
+        use std::os::windows::fs::MetadataExt;
+        Identity {
+            dev: 0,
+            ino: 0,
+            size: md.file_size(),
+            mtime: i128::from(md.last_write_time()),
+        }
+    }
+    #[cfg(not(any(unix, windows)))]
+    pub fn of(md: &fs::Metadata) -> Identity {
+        Identity {
+            dev: 0,
+            ino: 0,
+            size: md.len(),
+            mtime: 0,
+        }
+    }
+
+    /// Measure the file at `path` without following a link at its end.
+    pub fn measure(path: &Path) -> std::io::Result<Identity> {
+        fs::symlink_metadata(path).map(|md| Identity::of(&md))
+    }
+
+    /// `dev:ino:size:mtime`, the form the index and the receipt hold.
+    pub fn render(&self) -> String {
+        format!("{}:{}:{}:{}", self.dev, self.ino, self.size, self.mtime)
+    }
+
+    pub fn parse(s: &str) -> Option<Identity> {
+        let mut f = s.split(':');
+        let id = Identity {
+            dev: f.next()?.parse().ok()?,
+            ino: f.next()?.parse().ok()?,
+            size: f.next()?.parse().ok()?,
+            mtime: f.next()?.parse().ok()?,
+        };
+        f.next().is_none().then_some(id)
+    }
+}
+
 /// The user's home directory as the shim sees it: `$HOME`, else `$USERPROFILE`.
 pub fn user_home() -> Option<PathBuf> {
     std::env::var_os("HOME")

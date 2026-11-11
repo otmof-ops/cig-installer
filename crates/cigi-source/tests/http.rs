@@ -35,7 +35,10 @@ fn install_flow_requests_obey_the_no_telemetry_rules() {
     let (fx, srv, m) = served();
     let man = get_manifest(&m, &trust(), &fx.home, "stable", false).unwrap();
     for (t, ver) in [("cig", "1.0.0"), ("cigo", "1.0.0")] {
-        get_artifact(&m, &trust(), &man, t, &v(ver), &fx.home, &mut NoProgress).unwrap();
+        // plain http is for builds a pin vouches for (E1900)
+        let pinned = pinned_trust(&fx, &[("cig", "1.0.0"), ("cigo", "1.0.0")]);
+        get_artifact(&m, &pinned, &man, t, &v(ver), &fx.home, &mut NoProgress)
+            .unwrap_or_else(|e| panic!("{t}: {e}"));
     }
     let reqs = srv.requests();
     assert!(reqs.len() >= 7, "{reqs:?}");
@@ -139,8 +142,14 @@ fn redirect_to_another_host_is_refused() {
     ] {
         srv.rule("/manifest-stable.toml", Rule::Redirect(target.into()));
         let e = m.fetch_text(&manifest_loc(), 1 << 20).unwrap_err();
-        assert!(matches!(e, FetchError::Refused { .. }), "{target}: {e}");
-        assert_eq!(e.code(), "E1820");
+        // a name is never loopback, so plain http to `localhost` is the plain-http refusal
+        if target.starts_with("http://localhost") {
+            assert!(matches!(e, FetchError::PlainHttp { .. }), "{target}: {e}");
+            assert_eq!(e.code(), "E1900");
+        } else {
+            assert!(matches!(e, FetchError::Refused { .. }), "{target}: {e}");
+            assert_eq!(e.code(), "E1820");
+        }
     }
 }
 
@@ -170,7 +179,7 @@ fn github_policy_allows_the_release_cdn_only() {
     );
     let u = Url::parse(&format!("{}/manifest-stable.toml", srv.url())).unwrap();
     let e = http::get_text(&u, &cfg, 1000).unwrap_err();
-    assert!(matches!(e, FetchError::Refused { .. }), "{e}");
+    assert!(matches!(e, FetchError::PlainHttp { .. }), "{e}");
 }
 
 #[test]
@@ -180,9 +189,11 @@ fn truncated_body_is_a_download_failure() {
     // an asset server that claims 5000 bytes, sends 100 and hangs up
     let short = cigi_testkit::ShortBodyServer::start(vec![7u8; 100], 5000);
     let liar = MirrorSource::parse(&short.url()).unwrap();
+    // plain http on loopback takes a pinned build only (#48), so pin the one asked for
+    let pinned = pinned_trust(&fx, &[("cigo", "1.0.0")]);
     let e = get_artifact(
         &liar,
-        &trust(),
+        &pinned,
         &man,
         "cigo",
         &v("1.0.0"),
@@ -264,10 +275,47 @@ fn plain_http_is_loopback_only() {
     let m = MirrorSource {
         base: Url::parse("http://example.com/").unwrap(),
     };
-    assert!(matches!(
-        m.fetch_text(&manifest_loc(), 10).unwrap_err(),
-        FetchError::Refused { .. }
-    ));
+    let e = m.fetch_text(&manifest_loc(), 10).unwrap_err();
+    assert!(matches!(e, FetchError::PlainHttp { .. }), "{e}");
+    assert_eq!(e.code(), "E1900");
+}
+
+#[test]
+fn loopback_http_allowed_only_with_pinned_trust() {
+    let (fx, _srv, m) = served();
+    let man = get_manifest(&m, &trust(), &fx.home, "stable", false).unwrap();
+    let go = |t: &cigi_source::DigestTrust, tool: &str| {
+        get_artifact(&m, t, &man, tool, &v("1.0.0"), &fx.home, &mut NoProgress)
+    };
+    // checksummed over plain http is refused, with allow_single_source on or off
+    for t in [trust(), strict_trust()] {
+        let e = go(&t, "cig").expect_err("refused");
+        assert_eq!(e.code(), "E1900", "{e}");
+        assert!(e.to_string().contains("allow_single_source"), "{e}");
+    }
+    // pinned goes through, and only for the build the pin names
+    let pinned = pinned_trust(&fx, &[("cig", "1.0.0")]);
+    assert!(go(&pinned, "cig").is_ok());
+    assert_eq!(go(&pinned, "cigo").expect_err("refused").code(), "E1900");
+}
+
+#[test]
+fn https_to_http_redirect_refused() {
+    // no https server can run in the suite, so the rule is checked on the decision the redirect
+    // loop takes: https never goes on to http, not even to loopback
+    let from = Url::parse("https://mirror.example/m/manifest-stable.toml").unwrap();
+    for to in ["http://127.0.0.1:9/x", "http://example.com/x"] {
+        let e = http::check_redirect_scheme(&from, &Url::parse(to).unwrap()).unwrap_err();
+        assert!(matches!(e, FetchError::PlainHttp { .. }), "{to}: {e}");
+        assert_eq!(e.code(), "E1900");
+    }
+    assert!(
+        http::check_redirect_scheme(&from, &Url::parse("https://mirror.example/x").unwrap())
+            .is_ok()
+    );
+    // loopback http to loopback http is the local fixture and stays allowed
+    let lo = Url::parse("http://127.0.0.1:9/a").unwrap();
+    assert!(http::check_redirect_scheme(&lo, &Url::parse("http://127.0.0.1:9/b").unwrap()).is_ok());
 }
 
 #[test]

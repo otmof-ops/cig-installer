@@ -69,6 +69,10 @@ pub fn save_and_flip(
     state: &State,
     yanked: Vec<String>,
 ) -> Result<(), InstallerError> {
+    // the folder the home lives in is recorded once, so a moved home can say where it came from
+    let mut state = state.clone();
+    state.record_home(&home.root().to_string_lossy(), false);
+    let state = &state;
     state.save_in(txn).map_err(ie)?;
     let index = ShimIndex::from_state(home, state).with_yanked(yanked);
     index.check().map_err(ie)?;

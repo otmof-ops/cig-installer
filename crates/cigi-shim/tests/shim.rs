@@ -207,7 +207,15 @@ fn spike_s2_median_under_one_millisecond() {
         .into_iter()
         .find(|p| Path::new(p).is_file())
         .expect("a `true` program in /bin or /usr/bin");
-    let mut index = format!("cigi-index 1\nmachine\t0.1.0\ncarton\t0.1.0\tcig\t{truth}\n");
+    // the target sits inside the home, as the installer writes it: a relative entry plus the
+    // identity record the shim checks with one stat
+    let inside = h.join("toolchains/cig/1.20.0/bin/cig");
+    fs::create_dir_all(inside.parent().unwrap()).unwrap();
+    fs::copy(truth, &inside).unwrap();
+    let id = cigi_shim::Identity::measure(&inside).unwrap().render();
+    let mut index = format!(
+        "cigi-index 2\nmachine\t0.1.0\ncarton\t0.1.0\tcig\ttoolchains/cig/1.20.0/bin/cig\t{id}\n"
+    );
     for i in 0..12 {
         index.push_str(&format!(
             "carton\t0.{i}.9\tcigo\t/home/u/.cigscript/toolchains/cigo/1.{i}.0/bin/cigo\n"

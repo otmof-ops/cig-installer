@@ -135,4 +135,9 @@ pub trait Trust {
     fn allows_single_source(&self) -> bool {
         false
     }
+    /// Is there a pin compiled into this build for `art`? Asked before anything is fetched over
+    /// plain http, which only a pinned build may use (#48). A pin still has to match the bytes.
+    fn has_pin_for(&self, _art: &Artifact) -> bool {
+        false
+    }
 }

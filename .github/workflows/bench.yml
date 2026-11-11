@@ -1,0 +1,118 @@
+# The performance budgets (#20), measured on a RELEASE build on every platform: the limits in
+# bench/bench.toml apply only there, and a plain `cargo test` is a debug build. Called by ci.yml on
+# every pull request and every push to main: it takes minutes, so it is not a nightly job.
+#   Linux and macOS: `ciginstaller bench --strict` against a fixture carton (ci/bench-release.sh),
+#                    then the release-mode budget tests (cigi-budgets).
+#   Windows:         the rows that need no shell-script product (shim dispatch, binary sizes, the
+#                    atomic switch, disk for five cigo versions); every other row is printed as
+#                    NOT MEASURED and is never counted as passing.
+# Lean: read-only token, no schedule, Apple silicon only on macOS (the full test suite already runs
+# on Intel in ci.yml).
+name: bench
+
+on:
+  workflow_call:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  bench-unix:
+    name: release bench (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    env:
+      CARGO_TERM_COLOR: always
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Rust (stable)
+        run: |
+          rustup update stable --no-self-update
+          rustup default stable
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ matrix.os }}-bench-${{ hashFiles('**/Cargo.lock', '**/Cargo.toml') }}
+          restore-keys: |
+            ${{ matrix.os }}-bench-
+      - name: cargo build --release (the installer, the shim and the fixture-mirror tool)
+        run: cargo build --release --locked -p ciginstaller -p cigi-shim -p xtask
+      - name: ciginstaller bench --strict (release)
+        run: ci/bench-release.sh target/release
+      - name: the budget tests, at their real limits (release)
+        # cigi-budgets runs the budget files of ciginstaller/tests on a release build: those tests
+        # cannot be built in release from `ciginstaller` itself (its fault-injection dev feature
+        # refuses to compile there, on purpose). They find the release binaries built above.
+        run: cargo test --release --locked -p cigi-budgets -- --nocapture --test-threads=1
+
+  bench-windows:
+    name: release bench (windows-latest)
+    runs-on: windows-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        shell: pwsh
+    env:
+      CARGO_TERM_COLOR: always
+    steps:
+      - name: no line-ending conversion
+        run: git config --global core.autocrlf false
+      - uses: actions/checkout@v4
+      - name: Install Rust (stable)
+        run: |
+          rustup update stable --no-self-update
+          rustup default stable
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: windows-latest-bench-${{ hashFiles('**/Cargo.lock', '**/Cargo.toml') }}
+          restore-keys: |
+            windows-latest-bench-
+      - name: cargo build --release (the installer and the shim)
+        run: cargo build --release --locked -p ciginstaller -p cigi-shim
+      - name: ciginstaller bench --strict (release; the rows that need no shell-script product)
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $scratch = Join-Path $env:RUNNER_TEMP 'bench-home'
+          New-Item -ItemType Directory -Force "$scratch/user", "$scratch/cigscript" | Out-Null
+          $env:HOME = "$scratch/user"
+          $env:USERPROFILE = "$scratch/user"
+          $env:CIGSCRIPT_HOME = "$scratch/cigscript"
+          $env:CIGI_NO_REGISTRY_PATH = '1'
+          $env:NO_COLOR = '1'
+          $ci = (Resolve-Path target/release/ciginstaller.exe).Path
+          # the strict run is the verdict: it fails when any row is over
+          & $ci --plain bench --strict --runs 100
+          $strict = $LASTEXITCODE
+          # the same run as data: say what was measured and what was not
+          $raw = & $ci --json bench --runs 100
+          $d = ($raw | Out-String | ConvertFrom-Json).data
+          foreach ($r in $d.budgets) {
+            $state = if ($r.status -eq 'not measured') { 'NOT MEASURED' } else { $r.status }
+            "{0,-14} {1,-16} {2} (limit {3} {4})  {5}" -f $state, $r.id, $r.median, $r.limit, $r.unit, $r.note
+          }
+          if ($strict -ne 0) { throw "ciginstaller bench --strict failed (exit $strict): a budget is over" }
+          if ($d.build -ne 'release') { throw "this is a $($d.build) build; the budgets are judged on a release build" }
+          # a row that was not measured is not a pass: name every row this job must measure here
+          $bad = @()
+          foreach ($id in 'shim_dispatch', 'switch', 'installer_bytes', 'shim_bytes') {
+            $r = $d.budgets | Where-Object { $_.id -eq $id }
+            if (-not $r -or $r.status -ne 'ok') { $bad += "$id($($r.status))" }
+          }
+          if ($bad.Count -gt 0) { throw "rows not measured as ok: $($bad -join ' ')" }
+          "release bench ok on windows: shim dispatch, switch and both sizes within budget; the rows that need shell-script products are not measured here"
+      - name: the platform-neutral budget tests, at their real limits (release)
+        # shim dispatch, switch, sizes, and disk for five cigo versions; the unix-only budget files
+        # compile to nothing here. Child processes carry a hard timeout inside the tests.
+        run: cargo test --release --locked -p cigi-budgets --test budget_20_neutral -- --nocapture --test-threads=1

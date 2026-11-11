@@ -5,7 +5,7 @@
 //! reads, and the rename that switches the machine to a new one.
 
 use std::collections::{BTreeMap, BTreeSet};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use cig_compat::Version;
 
@@ -15,8 +15,11 @@ use crate::journal::{FlipIntent, Journal, Txn, MAX_INDEX_BYTES};
 use crate::state::State;
 use crate::toolchain;
 
-/// First line of the file.
-pub const INDEX_HEADER: &str = "cigi-index 1";
+/// First line of the file this build writes: paths relative to the home, each with the identity
+/// record of its target (`dev:ino:size:mtime`).
+pub const INDEX_HEADER: &str = "cigi-index 2";
+/// The first line of the older form: absolute paths, no identity. Still read.
+pub const INDEX_HEADER_V1: &str = "cigi-index 1";
 
 /// Pin files that send the shim to the slow path (the list can grow without a new shim): the
 /// per-tool pin files, from the one list in `cig_compat::PER_TOOL_PIN_FILES`.
@@ -32,10 +35,14 @@ pub fn legacy_pin_files() -> Vec<String> {
 pub struct ShimIndex {
     /// The carton used when nothing pins one.
     pub machine: Option<String>,
-    /// carton -> tool -> absolute path of the tool's real file.
+    /// carton -> tool -> path of the tool's real file, relative to the home with `/` between
+    /// parts (an index of the older form holds absolute paths until [`ShimIndex::normalized`]).
     pub cartons: BTreeMap<String, BTreeMap<String, PathBuf>>,
     /// tool -> path: the fallback when the machine carton lacks the tool.
     pub sticks: BTreeMap<String, PathBuf>,
+    /// path -> `dev:ino:size:mtime` of the target as its receipt recorded it. A path without an
+    /// entry is not identity-checked by the shim.
+    pub identities: BTreeMap<PathBuf, String>,
     pub legacy_pin_files: Vec<String>,
     /// Cartons the manifest yanks. Not rendered one by one: a yanked carton is
     /// never named by a `carton-minor`/`carton-major` line, so a pin like `0.1`
@@ -49,6 +56,7 @@ impl Default for ShimIndex {
             machine: None,
             cartons: BTreeMap::new(),
             sticks: BTreeMap::new(),
+            identities: BTreeMap::new(),
             legacy_pin_files: legacy_pin_files(),
             yanked: BTreeSet::new(),
         }
@@ -78,7 +86,8 @@ impl ShimIndex {
             machine: state.machine_carton.clone(),
             ..ShimIndex::default()
         };
-        let target = |tool: &str, version: &str| -> Option<PathBuf> {
+        let mut identities: BTreeMap<PathBuf, String> = BTreeMap::new();
+        let mut target = |tool: &str, version: &str| -> Option<PathBuf> {
             let v = ver(version)?;
             let r = toolchain::read_receipt(home, tool, &v).ok()?;
             let rel = r.shim_target(tool);
@@ -89,7 +98,20 @@ impl ShimIndex {
             for part in rel.split('/') {
                 p.push(part);
             }
-            Some(p)
+            // relative to the home, `/`-separated whatever the platform
+            let from_home = format!("toolchains/{tool}/{v}/{rel}");
+            // what the receipt recorded; a receipt from before the record existed is measured
+            // now (`ciginstaller repair` writes it into the receipt)
+            let id = r
+                .identity
+                .get(&rel)
+                .cloned()
+                .or_else(|| cigi_shim::Identity::measure(&p).ok().map(|i| i.render()));
+            let from_home = PathBuf::from(from_home);
+            if let Some(id) = id {
+                identities.insert(from_home.clone(), id);
+            }
+            Some(from_home)
         };
         for (carton, rec) in &state.cartons {
             let mut tools = BTreeMap::new();
@@ -114,7 +136,41 @@ impl ShimIndex {
                 idx.sticks.insert(s.tool.clone(), p);
             }
         }
+        idx.identities = identities;
         idx
+    }
+
+    /// The same index with every absolute path that lies inside `home` made relative to it, the
+    /// form this build writes. One that lies outside (a home that was moved or restored, or an
+    /// index somebody edited) stays absolute, so a comparison with what state.json produces
+    /// shows the difference.
+    pub fn normalized(mut self, home: &Path) -> ShimIndex {
+        let rel = |p: &PathBuf| -> PathBuf {
+            if p.is_absolute() {
+                if let Ok(r) = p.strip_prefix(home) {
+                    return PathBuf::from(
+                        r.components()
+                            .map(|c| c.as_os_str().to_string_lossy().into_owned())
+                            .collect::<Vec<_>>()
+                            .join("/"),
+                    );
+                }
+            }
+            p.clone()
+        };
+        for tools in self.cartons.values_mut() {
+            for p in tools.values_mut() {
+                *p = rel(p);
+            }
+        }
+        for p in self.sticks.values_mut() {
+            *p = rel(p);
+        }
+        self.identities = std::mem::take(&mut self.identities)
+            .into_iter()
+            .map(|(p, i)| (rel(&p), i))
+            .collect();
+        self
     }
 
     /// Set the yanked cartons (from the manifest known at write time).
@@ -137,11 +193,13 @@ impl ShimIndex {
         cartons.sort_by(|a, b| carton_order(a, b));
         for c in &cartons {
             for (tool, path) in &self.cartons[*c] {
-                out.push_str(&format!("carton\t{c}\t{tool}\t{}\n", path.display()));
+                out.push_str(&format!("carton\t{c}\t{tool}\t{}", self.field(path)));
+                out.push('\n');
             }
         }
         for (tool, path) in &self.sticks {
-            out.push_str(&format!("stick\t{tool}\t{}\n", path.display()));
+            out.push_str(&format!("stick\t{tool}\t{}", self.field(path)));
+            out.push('\n');
         }
         let mut minors: BTreeMap<(u64, u64), &String> = BTreeMap::new();
         let mut majors: BTreeMap<u64, &String> = BTreeMap::new();
@@ -170,10 +228,21 @@ impl ShimIndex {
         out
     }
 
-    /// Parse a rendered index. `None` when the header is not `cigi-index 1`.
+    /// A path as the file holds it: `path`, then `\t` and its identity record when there is one.
+    fn field(&self, path: &Path) -> String {
+        let p = path.display().to_string().replace('\\', "/");
+        match self.identities.get(path) {
+            Some(i) => format!("{p}\t{i}"),
+            None => p,
+        }
+    }
+
+    /// Parse a rendered index, either form. `None` when the header is neither `cigi-index 2` nor
+    /// the older `cigi-index 1`.
     pub fn parse(text: &str) -> Option<ShimIndex> {
         let mut lines = text.lines();
-        if lines.next()? != INDEX_HEADER {
+        let head = lines.next()?;
+        if head != INDEX_HEADER && head != INDEX_HEADER_V1 {
             return None;
         }
         let mut idx = ShimIndex {
@@ -184,14 +253,20 @@ impl ShimIndex {
             let f: Vec<&str> = l.split('\t').collect();
             match f.as_slice() {
                 ["machine", m] => idx.machine = Some(m.to_string()),
-                ["carton", c, t, p] => {
+                ["carton", c, t, p, rest @ ..] if rest.len() <= 1 => {
                     idx.cartons
                         .entry(c.to_string())
                         .or_default()
                         .insert(t.to_string(), PathBuf::from(p));
+                    if let Some(i) = rest.first() {
+                        idx.identities.insert(PathBuf::from(p), i.to_string());
+                    }
                 }
-                ["stick", t, p] => {
+                ["stick", t, p, rest @ ..] if rest.len() <= 1 => {
                     idx.sticks.insert(t.to_string(), PathBuf::from(p));
+                    if let Some(i) = rest.first() {
+                        idx.identities.insert(PathBuf::from(p), i.to_string());
+                    }
                 }
                 ["legacy-pin-files", rest @ ..] => {
                     idx.legacy_pin_files = rest.iter().map(|s| s.to_string()).collect();
@@ -283,6 +358,11 @@ impl ShimIndex {
                     .iter()
                     .flat_map(|(n, p)| [n.clone(), p.display().to_string()]),
             )
+            .chain(
+                self.identities
+                    .iter()
+                    .flat_map(|(p, i)| [p.display().to_string(), i.clone()]),
+            )
             .chain(self.legacy_pin_files.iter().cloned());
         for f in fields {
             if bad(&f) {
@@ -311,7 +391,7 @@ impl ShimIndex {
     pub fn load(home: &Home) -> Result<Option<ShimIndex>, StateError> {
         let p = home.shim_index_path();
         match std::fs::read_to_string(&p) {
-            Ok(t) => Ok(ShimIndex::parse(&t)),
+            Ok(t) => Ok(ShimIndex::parse(&t).map(|i| i.normalized(&home.root()))),
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
             Err(source) => Err(StateError::Io { path: p, source }),
         }
@@ -327,7 +407,7 @@ mod tests {
             machine: Some("0.1.0".into()),
             ..ShimIndex::default()
         };
-        let p = |s: &str| PathBuf::from(format!("/h/.cigscript/toolchains/{s}"));
+        let p = |s: &str| PathBuf::from(format!("toolchains/{s}"));
         i.cartons.insert(
             "0.1.0".into(),
             BTreeMap::from([
@@ -348,17 +428,21 @@ mod tests {
             BTreeMap::from([("cig".to_string(), p("cig/1.22.0/bin/cig"))]),
         );
         i.sticks.insert("cigo".into(), p("cigo/1.16.0/bin/cigo"));
+        i.identities.insert(
+            p("cig/1.20.0/bin/cig"),
+            "64769:1311:9000:1700000000000000001".into(),
+        );
         i
     }
 
-    const GOLDEN: &str = "cigi-index 1
+    const GOLDEN: &str = "cigi-index 2
 machine\t0.1.0
-carton\t0.1.0\tcig\t/h/.cigscript/toolchains/cig/1.20.0/bin/cig
-carton\t0.1.0\tcigo\t/h/.cigscript/toolchains/cigo/1.17.0/bin/cigo
-carton\t0.1.1\tcig\t/h/.cigscript/toolchains/cig/1.20.1/bin/cig
-carton\t0.2.0\tcig\t/h/.cigscript/toolchains/cig/1.21.0/bin/cig
-carton\t0.3.0-beta.1\tcig\t/h/.cigscript/toolchains/cig/1.22.0/bin/cig
-stick\tcigo\t/h/.cigscript/toolchains/cigo/1.16.0/bin/cigo
+carton\t0.1.0\tcig\ttoolchains/cig/1.20.0/bin/cig\t64769:1311:9000:1700000000000000001
+carton\t0.1.0\tcigo\ttoolchains/cigo/1.17.0/bin/cigo
+carton\t0.1.1\tcig\ttoolchains/cig/1.20.1/bin/cig
+carton\t0.2.0\tcig\ttoolchains/cig/1.21.0/bin/cig
+carton\t0.3.0-beta.1\tcig\ttoolchains/cig/1.22.0/bin/cig
+stick\tcigo\ttoolchains/cigo/1.16.0/bin/cigo
 carton-minor\t0.1\t0.1.1
 carton-minor\t0.2\t0.2.0
 carton-major\t0\t0.2.0
@@ -385,7 +469,32 @@ legacy-pin-files\t.cig-version\t.cigar-version\t.cigo-version
         let i = sample();
         let back = ShimIndex::parse(&i.render()).unwrap();
         assert_eq!(back, i);
-        assert_eq!(ShimIndex::parse("cigi-index 2\n"), None);
+        assert_eq!(ShimIndex::parse("cigi-index 3\n"), None);
+    }
+
+    #[test]
+    fn the_older_absolute_form_is_still_read_and_made_relative_to_its_home() {
+        let old = "cigi-index 1\nmachine\t0.1.0\n\
+                   carton\t0.1.0\tcig\t/h/.cigscript/toolchains/cig/1.20.0/bin/cig\n\
+                   carton\t0.1.0\tcigo\t/elsewhere/toolchains/cigo/1.17.0/bin/cigo\n\
+                   stick\tcigo\t/h/.cigscript/toolchains/cigo/1.16.0/bin/cigo\n";
+        let i = ShimIndex::parse(old).unwrap();
+        assert_eq!(
+            i.cartons["0.1.0"]["cig"],
+            PathBuf::from("/h/.cigscript/toolchains/cig/1.20.0/bin/cig")
+        );
+        let n = i.normalized(Path::new("/h/.cigscript"));
+        assert_eq!(
+            n.cartons["0.1.0"]["cig"],
+            PathBuf::from("toolchains/cig/1.20.0/bin/cig")
+        );
+        assert_eq!(
+            n.sticks["cigo"],
+            PathBuf::from("toolchains/cigo/1.16.0/bin/cigo")
+        );
+        // outside the home stays absolute: it is the difference a comparison must show
+        assert!(n.cartons["0.1.0"]["cigo"].is_absolute());
+        assert!(n.render().starts_with("cigi-index 2\n"));
     }
 
     #[test]

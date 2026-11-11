@@ -15,6 +15,7 @@ A code never changes meaning. A retired code is never reused. A code marked *pla
 | `E1840`–`E1879` | installer | `usage` | the installer: shims, pins, updates, rollbacks, repair, uninstall, and the command line |
 | `E1880`–`E1889` | installer | `runtime` | reserved for CIG.OS work not built yet: Secure Boot (#23) takes E1880-E1883, the courier (#24) E1884-E1888 |
 | `E1890`–`E1899` | installer | `internal` | internal: a bug in the installer, or a journal it cannot recover |
+| `E1900`–`E1999` | installer | `usage` | the installer, second range: the mirror and what travels over it (E1900), the update channel's signatures (E1901), and what a shim refuses to run and why (E1902, E1903); the rest is not assigned yet |
 
 ## The four kinds of no
 
@@ -1526,3 +1527,66 @@ An interrupted change left a journal the installer cannot read or replay. The jo
 2. a file the journal refers to was removed (probe `txn-journal`). **Remedy:** `ciginstaller repair`, then `ciginstaller doctor`
 
 Related: [`E1832`](#e1832-an-interrupted-change-was-recovered), [`E1833`](#e1833-rollback-incomplete).
+
+
+## installer (`E1900`–`E1999`)
+
+the installer, second range: the mirror and what travels over it (E1900), the update channel's signatures (E1901), and what a shim refuses to run and why (E1902, E1903); the rest is not assigned yet.
+
+| code | title | kind of no | what to type next |
+|---|---|---|---|
+| [`E1900`](#e1900-a-mirror-over-plain-http) | a mirror over plain http | these are MY ciggies | `ciginstaller config set mirror https://<your mirror>/`, or `ciginstaller config unset mirror` to use GitHub |
+| [`E1902`](#e1902-a-shim-target-is-outside-its-home) | a shim target is outside its home | can't see any ciggies bro | `ciginstaller repair` |
+| [`E1903`](#e1903-a-shim-target-is-not-the-build-its-receipt-recorded) | a shim target is not the build its receipt recorded | can't see any ciggies bro | `ciginstaller repair` |
+
+### E1900 a mirror over plain http
+
+*usage · since 0.1.0 · arises in update, doctor, any*
+
+**Kind of no:** these are MY ciggies (the door: it knows you and said no; 403 Forbidden; permission denied; a lock; a refusal by policy).
+
+A mirror is a plain `http://` address that is not on this machine, or it is on this machine and the build it served is not one a pin vouches for, or a download was sent on from https to http. Plain http proves nothing about the file, so it is refused: `https://` is accepted anywhere, `http://` only to a loopback address (127.0.0.1, ::1), and then only for builds this ciginstaller holds a pin for; `allow_single_source` does not change that. Nothing was downloaded into the store.
+
+**What to type next:** `ciginstaller config set mirror https://<your mirror>/`, or `ciginstaller config unset mirror` to use GitHub
+
+**Known causes**, ranked; the doctor checks them in this order:
+
+1. the `mirror` setting (or CIGI_MIRROR) names an `http://` address that is not loopback (no probe; a suggestion, not a finding). **Remedy:** `ciginstaller config set mirror https://<your mirror>/`, or `ciginstaller config unset mirror`; `ciginstaller doctor` lists it
+2. the mirror is plain http on this machine and the build it served is not one a pin vouches for (no probe; a suggestion, not a finding). **Remedy:** serve the mirror over https, or use a `file://` mirror or a bundle (`ciginstaller install carton --from <bundle>`)
+3. a server answered an https request by sending it on to plain http (no probe; a suggestion, not a finding). **Remedy:** ask the mirror's operator to serve https only; nothing here can be told to follow it
+
+Related: [`E1820`](#e1820-download-failed), [`E1822`](#e1822-trust-floor-not-met), [`E1838`](#e1838-mirror-directory-refused).
+
+### E1902 a shim target is outside its home
+
+*usage · since 0.1.0 · arises in any*
+
+**Kind of no:** can't see any ciggies bro (yours: you're pointed at the wrong place; wrong address: a path, a name, a directory not on PATH; ENOENT).
+
+A shim was asked to run a build whose path leads out of the home the shim sits in: an index written for another home (this one was moved or restored), or an index that was edited. Nothing was run.
+
+**What to type next:** `ciginstaller repair`
+
+**Known causes**, ranked; the doctor checks them in this order:
+
+1. the home was copied, moved or restored from a backup and its shim-index still names the old home's builds (probe `shim-index-agrees`). **Remedy:** `ciginstaller repair` writes the index again for this home
+2. the shim-index was edited by hand (probe `shim-index-agrees`). **Remedy:** `ciginstaller repair` writes the index again from state.json
+
+Related: [`E1903`](#e1903-a-shim-target-is-not-the-build-its-receipt-recorded), [`E1844`](#e1844-shim-misnamed-or-shadowed).
+
+### E1903 a shim target is not the build its receipt recorded
+
+*usage · since 0.1.0 · arises in any*
+
+**Kind of no:** can't see any ciggies bro (yours: you're pointed at the wrong place; wrong address: a path, a name, a directory not on PATH; ENOENT).
+
+A shim found the file it was about to run is not the one the installer recorded for it: its device, inode, size or modification time changed. Nothing was run.
+
+**What to type next:** `ciginstaller repair`
+
+**Known causes**, ranked; the doctor checks them in this order:
+
+1. the home was copied or restored from a backup, which gives every file a new device and inode (probe `receipt-verify`). **Remedy:** `ciginstaller repair` checks each file against its receipt's hash and records it again
+2. the build was replaced in place by another file (probe `receipt-verify`). **Remedy:** `ciginstaller repair` puts the receipt's file back from the store
+
+Related: [`E1902`](#e1902-a-shim-target-is-outside-its-home), [`E1831`](#e1831-installed-file-differs-from-its-receipt).

@@ -161,7 +161,7 @@ pub fn suggest_part(code: Option<&str>, operation: bool, cig_run: bool) -> Optio
     {
         return Some(match n {
             1000..=1099 => "cigcompile",
-            1800..=1899 => "installer",
+            1800..=1999 => "installer",
             870..=899 => "cigo",
             _ => "cig",
         });

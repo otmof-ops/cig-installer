@@ -242,10 +242,10 @@ fn a2r_stick_after_full_install_is_reachable() {
 fn a2r_pin_fetch_policy_before_network() {
     let mut fx = fixture();
     two_cartons(&mut fx);
-    let server = fx.serve();
+    let server = fx.serve_tls();
     let run = |args: &[&str]| {
         let o = fx
-            .cigi_with_mirror(&server.url())
+            .cigi_with_server(&server)
             .env("CIGI_ALLOW_SINGLE_SOURCE", "true")
             .arg("--yes")
             .args(args)
@@ -256,7 +256,17 @@ fn a2r_pin_fetch_policy_before_network() {
     run(&["install", "carton", "--carton", "0.1.0"]);
     let proj = pinned(&fx, "pf", "0.2");
     let mirror = server.url();
-    let env = |policy: &'static str| [("CIGI_MIRROR", mirror.as_str()), ("CIGI_PIN_FETCH", policy)];
+    let ca = server
+        .ca_file()
+        .map(|p| p.display().to_string())
+        .unwrap_or_default();
+    let env = |policy: &'static str| {
+        [
+            ("CIGI_MIRROR", mirror.as_str()),
+            ("CIGI_PIN_FETCH", policy),
+            ("SSL_CERT_FILE", ca.as_str()),
+        ]
+    };
     for policy in ["never", "ask"] {
         server.clear();
         let o = shim(&fx, "cigo", &proj, &env(policy));

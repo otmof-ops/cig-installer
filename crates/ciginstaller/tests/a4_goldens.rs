@@ -146,11 +146,35 @@ fn normalize(fx: &Fixture, s: &str) -> String {
     sizes(&times(&ids(&s, &txn_ids(fx)))).replace('\x1b', "␛")
 }
 
+/// The kernel files doctor's guard probes read, fixed, so no golden depends on the machine it was
+/// made on (`CIGI_DOCTOR_PROBE_ROOT` only changes where doctor reads from).
+fn probe_root(fx: &Fixture) -> PathBuf {
+    let root = fx.tmp.path().join("probe-root");
+    for (rel, body) in [
+        ("proc/sys/kernel/osrelease", "6.8.0-1-generic\n"),
+        ("proc/sys/user/max_user_namespaces", "31000\n"),
+        (
+            "sys/kernel/security/lsm",
+            "lockdown,capability,yama,apparmor\n",
+        ),
+    ] {
+        let p = root.join(rel);
+        std::fs::create_dir_all(p.parent().unwrap()).unwrap();
+        std::fs::write(p, body).unwrap();
+    }
+    root
+}
+
 fn run(fx: &Fixture, variant: &str, args: &[&str]) -> String {
+    run_on(fx, variant, args, "file:///mirror")
+}
+
+fn run_on(fx: &Fixture, variant: &str, args: &[&str], mirror: &str) -> String {
     let mut c = fx.cigi();
+    c.env("CIGI_DOCTOR_PROBE_ROOT", probe_root(fx));
     // a fixed mirror, so no fixture path (and no cut-short one) reaches a golden
     c.env("CIGI_ALLOW_SINGLE_SOURCE", "true")
-        .env("CIGI_MIRROR", "file:///mirror")
+        .env("CIGI_MIRROR", mirror)
         .arg(variant)
         .args(args);
     let o = loop {
@@ -215,4 +239,24 @@ fn a4_golden_doctor_with_a_deleted_shim() {
     let fx = machine();
     std::fs::remove_file(fx.cigscript().join("bin/cig")).unwrap();
     check(&fx, "real-doctor-deleted-shim", &["doctor"]);
+}
+
+#[test]
+fn a4_golden_update_no_trial() {
+    // `update --no-trial` says it once: `trial: skipped (--no-trial)`, never "trial skipped: trial skipped"
+    // the update changes the machine, so each form runs on its own fresh one (0.1.2 waiting)
+    let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/golden");
+    for (variant, flag) in VARIANTS {
+        let fx = machine();
+        let got = run_on(&fx, flag, &["update", "--no-trial"], &fx.mirror_file_url());
+        assert!(!got.contains("trial skipped"), "{got}");
+        let path = dir.join(format!("real-update-no-trial.{variant}.txt"));
+        if std::env::var_os("UPDATE_GOLDEN").is_some() {
+            std::fs::write(&path, &got).unwrap();
+            continue;
+        }
+        let want = std::fs::read_to_string(&path)
+            .unwrap_or_else(|_| panic!("missing golden {}", path.display()));
+        assert_eq!(got, want, "golden mismatch: real-update-no-trial.{variant}");
+    }
 }

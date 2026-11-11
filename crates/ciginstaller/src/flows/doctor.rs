@@ -4,11 +4,18 @@
 //! writes nothing, and it asks the network only under `--network`. Every finding says what was
 //! found, what was checked to find it, and the one command that fixes it.
 //!
-//! Not in this build, so said to be absent rather than faked: the guard's checks, the ashtray's
-//! queue and consent, the guard's kernel features. The tools' own checks run only under
-//! `--tools`: each installed product is asked `<tool> __doctor --json` (never `<tool> doctor`,
-//! which for cig and cigo is a stub that comes back here), and the findings it answers with are
-//! shown as the installer's own, under the tool's heading (docs/decisions/0003).
+//! Not in this build, so said to be absent rather than faked: the guard's checks and the ashtray's
+//! queue and consent. The guard's kernel features (user namespaces, BPF LSM, the kernel's version)
+//! are read from `/proc` and `/sys`, and the tin's disk use from `<home>/tin`. The tools' own
+//! checks run by default: each installed product is asked `<tool> __doctor --json` (never
+//! `<tool> doctor`, which for cig and cigo is a stub that comes back here), and the findings it
+//! answers with are shown as the installer's own, under the tool's heading (docs/decisions/0003).
+//! `--tools` shows those and nothing else.
+//!
+//! The one test seam: `CIGI_DOCTOR_PROBE_ROOT=<dir>` makes the kernel probes read `<dir>/proc/...`
+//! and `<dir>/sys/...` instead of the host's. It changes where doctor reads from and nothing else:
+//! doctor writes nothing, so there is nothing for it to redirect, and it never makes a finding
+//! pass that the folder's files do not say.
 
 use std::collections::BTreeSet;
 use std::io::Read;
@@ -36,7 +43,8 @@ use crate::cx::{now_override, Cx};
 pub struct DoctorArgs {
     /// Fetch the manifest now (the only thing that touches the network).
     pub network: bool,
-    /// Run each installed tool's own `__doctor --json` and show its findings under its heading.
+    /// Show only the installed tools' own `__doctor --json` findings, each under its heading.
+    /// Without it, doctor shows the installer's findings and then the tools' as well.
     pub tools: bool,
 }
 
@@ -150,20 +158,53 @@ pub fn findings(cx: &mut Cx, a: &DoctorArgs) -> Vec<Item> {
     toolchains(cx, &mut v);
     index(cx, &mut v);
     shims(cx, &mut v);
+    moved_home(cx, &mut v);
+    home_anchor(cx, &mut v);
     path_order(cx, &mut v);
     path_block_item(cx, &mut v);
     matrix(cx, a, &mut v);
     programs_item(cx, &mut v);
     freshness(cx, &mut v);
     disk(cx, &mut v);
+    tin_disk(cx, &mut v);
     humidor_item(cx, &mut v);
     reports_items(cx, &mut v);
+    mirror_items(cx, &mut v);
+    guard_kernel_features(&mut v);
     v.push(note(
         "not in this build",
-        "the guard's checks and the guard's kernel features are not checked",
-        "this build of ciginstaller has neither, so there is nothing to look at",
+        "the guard's own checks are not checked",
+        "this build of ciginstaller has no guard checks of its own, so there is nothing to look at",
     ));
     v
+}
+
+/// A mirror reached over plain http (#48): off loopback it is refused outright, on loopback it
+/// works for builds a pin vouches for and no others. Reads the setting only.
+fn mirror_items(cx: &Cx, v: &mut Vec<Item>) {
+    use cigi_home::config::{loopback_host, plain_http_host};
+    let mirror = cx.cfg.get("mirror");
+    let Some(host) = plain_http_host(&mirror) else {
+        return;
+    };
+    let because = "the `mirror` setting (or CIGI_MIRROR)";
+    if loopback_host(&host) {
+        v.push(note(
+            "mirror",
+            format!("{mirror} is plain http on this machine: only builds a pin vouches for are accepted from it"),
+            because,
+        ));
+    } else {
+        v.push(
+            act(
+                "mirror",
+                format!("{mirror} is plain http, which every fetch refuses"),
+                because,
+            )
+            .fix("ciginstaller config unset mirror")
+            .code("E1900"),
+        );
+    }
 }
 
 /// The ashtray's queue, the consent setting and each report route's last success and last
@@ -920,6 +961,224 @@ fn disk(cx: &Cx, v: &mut Vec<Item>) {
     }
 }
 
+// ---- the tin's disk use (#13) ----
+
+/// A tin this big is worth a note: `cig tin gc` is how it shrinks.
+const TIN_NOTE_BYTES: u64 = 1 << 30;
+
+/// Files and bytes under a folder, never following a link. Bounded, so a runaway tin cannot hold
+/// the doctor up: past the bound the count says "at least".
+fn tree_size(root: &Path) -> (u64, u64, bool) {
+    const MAX_ENTRIES: u64 = 500_000;
+    let (mut files, mut bytes, mut seen) = (0u64, 0u64, 0u64);
+    let mut stack = vec![root.to_path_buf()];
+    while let Some(dir) = stack.pop() {
+        let Ok(rd) = std::fs::read_dir(&dir) else {
+            continue;
+        };
+        for e in rd.flatten() {
+            seen += 1;
+            if seen > MAX_ENTRIES {
+                return (files, bytes, true);
+            }
+            let Ok(m) = std::fs::symlink_metadata(e.path()) else {
+                continue;
+            };
+            if m.is_dir() {
+                stack.push(e.path());
+            } else if m.is_file() {
+                files += 1;
+                bytes += m.len();
+            }
+        }
+    }
+    (files, bytes, false)
+}
+
+/// `<home>/tin` beside the store: cig's own content-addressed store of what its runs kept. The
+/// installer reads it and never writes it; `cig tin gc` is the fix, run by the person.
+fn tin_disk(cx: &Cx, v: &mut Vec<Item>) {
+    let tin = cx.home.root().join("tin");
+    if !tin.is_dir() {
+        v.push(ok(
+            "tin",
+            "there is no tin yet",
+            format!("{} does not exist", tin.display()),
+        ));
+        return;
+    }
+    let (files, bytes, cut) = tree_size(&tin);
+    let store = cx.home.object_store().du();
+    let at_least = if cut { "at least " } else { "" };
+    let found = format!(
+        "the tin holds {at_least}{} in {at_least}{files} file(s), beside the store's {}",
+        size_text(bytes),
+        size_text(store.bytes)
+    );
+    let because = format!("the sizes of the files under {}", tin.display());
+    if bytes == 0 {
+        v.push(ok("tin", found, because));
+    } else if bytes >= TIN_NOTE_BYTES {
+        v.push(note("tin", found, because).fix("cig tin gc"));
+    } else {
+        v.push(ok("tin", found, because).fix("cig tin gc"));
+    }
+}
+
+// ---- the guard's kernel features (#13) ----
+
+/// The oldest kernel the guard works on: cig's contained box needs 5.12 (cig-orchestrator
+/// docs/commands.md, "a kernel before 5.12"), and the BPF LSM hooks need 5.7, so 5.12.
+const GUARD_MIN_KERNEL: [u64; 2] = [5, 12];
+
+/// Where doctor reads a kernel file from: the host's own path, or the same path under
+/// `CIGI_DOCTOR_PROBE_ROOT` when a test sets it (see the module's header). Read-only either way.
+fn probe_path(abs: &str) -> PathBuf {
+    match std::env::var_os("CIGI_DOCTOR_PROBE_ROOT").filter(|r| !r.is_empty()) {
+        Some(root) => PathBuf::from(root).join(abs.trim_start_matches('/')),
+        None => PathBuf::from(abs),
+    }
+}
+
+fn probe(abs: &str) -> Option<String> {
+    std::fs::read_to_string(probe_path(abs))
+        .ok()
+        .map(|s| s.trim().to_string())
+}
+
+fn leading_numbers(text: &str) -> Vec<u64> {
+    text.split(|c: char| !c.is_ascii_digit())
+        .take_while(|p| !p.is_empty())
+        .filter_map(|p| p.parse().ok())
+        .collect()
+}
+
+/// `numbers` (a kernel's `5.15.0-91`, as `[5, 15, 0, 91]`) is at or above `min` (`[5, 12]`).
+fn kernel_at_least(numbers: &[u64], min: [u64; 2]) -> bool {
+    let n = |i: usize| numbers.get(i).copied().unwrap_or(0);
+    (n(0), n(1)) >= (min[0], min[1])
+}
+
+/// A command that brings the kernel up to date, for the package manager this machine has.
+fn kernel_update_command() -> Option<&'static str> {
+    [
+        (
+            "/usr/bin/apt-get",
+            "sudo apt-get update && sudo apt-get full-upgrade",
+        ),
+        ("/usr/bin/dnf", "sudo dnf upgrade --refresh"),
+        ("/usr/bin/pacman", "sudo pacman -Syu"),
+    ]
+    .into_iter()
+    .find(|(p, _)| Path::new(p).exists())
+    .map(|(_, c)| c)
+}
+
+/// Read-only probes of the three things the guard's higher levels stand on: the kernel's version,
+/// user namespaces, and BPF among the active Linux security modules. Each finding that is not
+/// "ok" ends with the one command that fixes it.
+fn guard_kernel_features(v: &mut Vec<Item>) {
+    if !cfg!(target_os = "linux") && std::env::var_os("CIGI_DOCTOR_PROBE_ROOT").is_none() {
+        v.push(note(
+            "guard kernel",
+            "the guard's kernel features are Linux's, and this is not Linux",
+            "the operating system this build runs on",
+        ));
+        return;
+    }
+    // a note, never an action: most machines have no BPF LSM, and the guard says so itself when a level needs it
+    let sev = Sev::Note;
+    let item = |section: &'static str, found: String, because: String, fix: Option<String>| {
+        let mut i = Item::new(section, sev, found, because);
+        if let Some(f) = fix {
+            i = i.fix(f);
+        }
+        i
+    };
+
+    // the kernel against the guard's minimum
+    match probe("/proc/sys/kernel/osrelease") {
+        None => v.push(note(
+            "kernel",
+            "I cannot read the kernel's version",
+            "/proc/sys/kernel/osrelease",
+        )),
+        Some(rel) => {
+            let min = GUARD_MIN_KERNEL.map(|n| n.to_string()).join(".");
+            if kernel_at_least(&leading_numbers(&rel), GUARD_MIN_KERNEL) {
+                v.push(ok(
+                    "kernel",
+                    format!("kernel {rel} is at or above the guard's minimum, {min}"),
+                    "/proc/sys/kernel/osrelease",
+                ));
+            } else {
+                v.push(item(
+                    "kernel",
+                    format!("kernel {rel} is older than the guard's minimum, {min}"),
+                    "/proc/sys/kernel/osrelease".to_string(),
+                    kernel_update_command().map(str::to_string),
+                ));
+            }
+        }
+    }
+
+    // user namespaces: the box's isolation
+    match probe("/proc/sys/user/max_user_namespaces").map(|t| t.parse::<u64>()) {
+        Some(Ok(0)) => v.push(item(
+            "user namespaces",
+            "user namespaces are switched off (max_user_namespaces is 0)".to_string(),
+            "/proc/sys/user/max_user_namespaces".to_string(),
+            Some("sudo sysctl -w user.max_user_namespaces=15000".to_string()),
+        )),
+        Some(Ok(n)) => v.push(ok(
+            "user namespaces",
+            format!("user namespaces are on (up to {n})"),
+            "/proc/sys/user/max_user_namespaces",
+        )),
+        Some(Err(_)) => v.push(note(
+            "user namespaces",
+            "max_user_namespaces holds something that is not a number",
+            "/proc/sys/user/max_user_namespaces",
+        )),
+        // a kernel built without them has no such file, and no command adds it
+        None => v.push(item(
+            "user namespaces",
+            "this kernel has no user namespaces (no max_user_namespaces file)".to_string(),
+            "/proc/sys/user/max_user_namespaces does not exist".to_string(),
+            None,
+        )),
+    }
+
+    // BPF LSM: the guard's enforcement from the kernel
+    match probe("/sys/kernel/security/lsm") {
+        None => v.push(note(
+            "BPF LSM",
+            "I cannot read the list of active security modules",
+            "/sys/kernel/security/lsm (securityfs is not mounted, or it is not readable)",
+        )),
+        Some(list) if list.split(',').any(|m| m.trim() == "bpf") => v.push(ok(
+            "BPF LSM",
+            "bpf is among the active security modules",
+            "/sys/kernel/security/lsm",
+        )),
+        Some(list) => {
+            let with = if list.is_empty() {
+                "bpf".to_string()
+            } else {
+                format!("{list},bpf")
+            };
+            v.push(item(
+                "BPF LSM",
+                format!("bpf is not among the active security modules ({list}); the change takes effect after a reboot"),
+                "/sys/kernel/security/lsm".to_string(),
+                Some(format!(
+                    "sudo sed -i 's/^GRUB_CMDLINE_LINUX=\"/GRUB_CMDLINE_LINUX=\"lsm={with} /' /etc/default/grub && sudo update-grub"
+                )),
+            ));
+        }
+    }
+}
+
 fn humidor_item(cx: &Cx, v: &mut Vec<Item>) {
     let bad: Vec<String> = humidor_bad(&cx.home)
         .into_iter()
@@ -1182,7 +1441,9 @@ fn tool_doctors(cx: &Cx) -> Vec<(String, Version, SelfCheck)> {
 }
 
 pub fn run(cx: &mut Cx, a: &DoctorArgs) -> Result<Report, InstallerError> {
-    let items = findings(cx, a);
+    // `--tools` is the tools' own doctors and nothing else; by default the installer's findings
+    // come first and the tools' follow
+    let items = if a.tools { Vec::new() } else { findings(cx, a) };
     let mut actions = items.iter().filter(|i| i.sev == Sev::Action).count();
     let mut notes = items.iter().filter(|i| i.sev == Sev::Note).count();
     let mut first_fix = items
@@ -1206,7 +1467,7 @@ pub fn run(cx: &mut Cx, a: &DoctorArgs) -> Result<Report, InstallerError> {
         cx.ui.say(&r);
     }
     let mut tools_json = Vec::new();
-    if a.tools {
+    {
         for (tool, ver, check) in tool_doctors(cx) {
             let name = format!("{tool} {ver}");
             cx.ui
@@ -1284,11 +1545,6 @@ pub fn run(cx: &mut Cx, a: &DoctorArgs) -> Result<Report, InstallerError> {
                 "code": code,
             }));
         }
-    } else {
-        cx.ui.say(&Report::new(
-            Icon::Note,
-            "the tools' own doctors were not run (add --tools to print them)",
-        ));
     }
     let data = json!({
         "needs_action": actions,
@@ -1379,4 +1635,116 @@ mod tests {
             assert!(!scrubbed(n), "{n}");
         }
     }
+}
+
+/// #47: a home that was moved or restored, or whose builds are not the files their receipts
+/// recorded. The shims refuse such a build (E1903, or E1902 when the index leads out of the home);
+/// `ciginstaller repair` re-derives the record. Names the cause when it can.
+fn moved_home(cx: &Cx, v: &mut Vec<Item>) {
+    let home = &cx.home;
+    let now = home.root();
+    let canon = |p: &std::path::Path| std::fs::canonicalize(p).unwrap_or_else(|_| p.to_path_buf());
+    let came_from = cx
+        .state
+        .recorded_home()
+        .map(std::path::PathBuf::from)
+        .filter(|old| canon(old) != canon(&now));
+    // entries of the index that still lead out of this home (the older absolute form)
+    let outside: Vec<std::path::PathBuf> = cigi_home::ShimIndex::load(home)
+        .ok()
+        .flatten()
+        .map(|ix| {
+            ix.cartons
+                .values()
+                .flat_map(|t| t.values())
+                .chain(ix.sticks.values())
+                .filter(|p| p.is_absolute())
+                .cloned()
+                .collect()
+        })
+        .unwrap_or_default();
+    let drifted: Vec<String> = installed(home)
+        .into_iter()
+        .filter(|(t, ver)| !cigi_home::identity_drift(home, t, ver).is_empty())
+        .map(|(t, ver)| format!("{t} {ver}"))
+        .collect();
+    if came_from.is_none() && outside.is_empty() && drifted.is_empty() {
+        return;
+    }
+    let old = came_from.map(|p| p.display().to_string()).or_else(|| {
+        // an index written for another home names it in every absolute path
+        outside.first().and_then(|p| {
+            let s = p.display().to_string();
+            s.find("/toolchains/").map(|i| s[..i].to_string())
+        })
+    });
+    let (found, code) = match (&old, outside.is_empty()) {
+        (Some(o), _) => (
+            format!(
+                "this home was moved from {o}: the shims refuse its builds until the record is made again"
+            ),
+            if outside.is_empty() { "E1903" } else { "E1902" },
+        ),
+        (None, true) => (
+            "a build in this home is not the file its receipt recorded (the home was restored, or the file was replaced)".to_string(),
+            "E1903",
+        ),
+        (None, false) => (
+            "the shim-index leads outside this home".to_string(),
+            "E1902",
+        ),
+    };
+    let because = if drifted.is_empty() {
+        "state.json's recorded home and the shim-index against this home".to_string()
+    } else {
+        format!(
+            "device, inode, size and time of each build's file against its receipt: {}",
+            drifted.join(", ")
+        )
+    };
+    v.push(
+        act("moved home", found, because)
+            .fix("ciginstaller repair")
+            .code(code),
+    );
+}
+
+/// #46: the home this ciginstaller sits in against the home it works on. A shim in `<home>/bin`
+/// works on that home unless `CIGSCRIPT_HOME` says otherwise; when the two differ the finding names
+/// both.
+fn home_anchor(cx: &Cx, v: &mut Vec<Item>) {
+    let Some(own) = std::env::current_exe()
+        .ok()
+        .and_then(|e| cigi_shim::home_of_exe(&e))
+    else {
+        return;
+    };
+    let canon = |p: &std::path::Path| std::fs::canonicalize(p).unwrap_or_else(|_| p.to_path_buf());
+    let working = cx.home.root();
+    if canon(&own) == canon(&working) {
+        return;
+    }
+    let env = std::env::var_os("CIGSCRIPT_HOME")
+        .filter(|e| !e.is_empty())
+        .map(std::path::PathBuf::from);
+    let who = match &env {
+        Some(e) => format!("CIGSCRIPT_HOME is {}", e.display()),
+        None => format!("--home is {}", working.display()),
+    };
+    v.push(
+        note(
+            "home",
+            format!(
+                "the shims in {} belong to {}, but this run works on {} ({who}, and it wins)",
+                own.join("bin").display(),
+                own.display(),
+                working.display()
+            ),
+            "where this ciginstaller sits against the home it was told to use",
+        )
+        .fix(format!(
+            "unset CIGSCRIPT_HOME, or set it to {}",
+            own.display()
+        )),
+    );
 }

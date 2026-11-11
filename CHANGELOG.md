@@ -6,10 +6,53 @@ All notable changes to cig-installer. The format follows Keep a Changelog; the
 project follows semantic versioning. Nothing is released yet, so everything
 below is under Unreleased, and the first version will take it as its section.
 
+### Shims know their home, and a moved home never runs the old one (#46, #47)
+
+- A shim finds its home from where it sits (`<home>/bin/<name>`); `CIGSCRIPT_HOME` still overrides, and `CIGI_SHIM_VERBOSE=1` and `doctor` name both when they differ. The shim passes the home it found to the installer and the tool, so `export PATH=<home>/bin:$PATH` is the whole of the advice and cigo finds cig through the same home. `ciginstaller` run from `<home>/bin` works on that home too.
+- E1840 names the home it searched and the shim's own folder, and no longer says "missing" when `ciginstaller` is beside the shim.
+- The shim index is `cigi-index 2`: paths relative to the home, each with the `(dev, inode, size, mtime)` its receipt recorded. The older absolute form is still read.
+- New E1902: the shim refuses a target that resolves outside its home. New E1903: it refuses a target that no longer matches its receipt (one `stat` per run, no hashing). `ciginstaller repair` checks the files against their receipts, records them again and rewrites the index; `doctor` names "moved from <old home>".
+
 ## Unreleased
 
 Installing, pinning, switching, updating and rolling back the family, on
 Linux, with every build checked first and every change one undoable step.
+
+### Quick closes (#49, #11, #48)
+
+- `update --no-trial` says `trial: skipped (--no-trial)` once, in the voice, plain and `--json` forms (#49).
+- A report another tool queued (cig, cigo, cigcompile, cigar) carries the installer's version block when it is shown or sent, marked as taken at send time; `crash show` and `crash send` make the same object (#11).
+- Plain `http://` mirrors are refused (E1900, the installer's second range, E1900-E1999) unless they are on a loopback address, and over loopback only builds a pin vouches for are accepted, whatever `allow_single_source` says. `config set mirror` refuses a non-loopback `http://`, and `doctor` reports one already set (#48).
+- Certificates are checked against the system's trust store, which honors `SSL_CERT_FILE` and `SSL_CERT_DIR`, and the bundled Mozilla roots only on a system with none; an unpinned build over loopback http is refused before anything is asked for. Tests run their mirror over HTTPS with a throwaway certificate, and `https_to_http_redirect_refused` now redirects for real (#48).
+
+### One doctor for the whole family (#13, all but the TUF root line)
+
+- **`ciginstaller doctor`** now includes each installed tool's own doctor (`<tool> __doctor --json`,
+  60 s limit each, cigcompile included); **`--tools`** shows only those.
+- **The guard's kernel features:** the kernel against the guard's minimum (5.12, which cig's contained box needs), user namespaces
+  (`max_user_namespaces`) and `bpf` among the active security modules, each read-only and each
+  ending with its one fix command. They are notes, never actions. `CIGI_DOCTOR_PROBE_ROOT` points
+  the probes at a folder for tests and changes nothing but where doctor reads from.
+- **The tin's disk use** beside the store, with `cig tin gc` as the fix (a note above 1 GiB).
+
+### Performance budgets on a release build, on every platform (#20)
+
+- **The `bench` workflow** (called by `ci.yml` on pull requests and on `main`) builds
+  release and runs `ciginstaller bench --strict` against a fixture carton on Linux and
+  macOS (`ci/bench-release.sh`), then the budget tests at their real limits. A row the
+  job must measure that was not measured fails it; nothing "not measured" counts as
+  passing.
+- **Windows** runs the rows that need no shell-script product (shim dispatch, binary
+  sizes, the atomic switch, disk for five cigo versions); every other row is printed as
+  not measured.
+- **`crates/cigi-budgets`** runs the budget tests (`budget_20`, `budget`, `a3_shim_perf`,
+  a new `release_install`, and `budget_20_neutral`, which has no unix-only fixtures) on a
+  release build. They could not be built in release from `ciginstaller`, whose
+  fault-injection test feature refuses to compile there on purpose. `a3_shim_perf` now
+  asserts the 2 ms budget itself on a release build (5 ms headroom on a debug build).
+- `bench` names the line that says what failed when an install it times fails, not the
+  `note:` before it.
+- README: the budget table says where each row is measured.
 
 ### Compiled programs (#30, the unblocked part)
 

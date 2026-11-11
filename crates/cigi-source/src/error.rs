@@ -47,6 +47,8 @@ pub enum TrustError {
         reached: &'static str,
         why: String,
     },
+    /// E1900: a build came over plain http (loopback only) without a pin to vouch for it.
+    PlainHttp { why: String },
     /// E1823
     Expired { expires: String },
     /// E1824
@@ -71,6 +73,7 @@ impl TrustError {
         match self {
             TrustError::DigestMismatch { .. } | TrustError::SizeMismatch { .. } => "E1821",
             TrustError::FloorNotMet { .. } => "E1822",
+            TrustError::PlainHttp { .. } => "E1900",
             TrustError::Expired { .. } => "E1823",
             TrustError::SequenceBackwards { .. } => "E1824",
             TrustError::Malformed(_) => "E1825",
@@ -107,6 +110,7 @@ impl fmt::Display for TrustError {
                     "trust is set to \"{floor}\" but this file only reached \"{reached}\": {why}"
                 )
             }
+            TrustError::PlainHttp { why } => f.write_str(why),
             TrustError::Expired { expires } => write!(f, "the manifest expired on {expires}"),
             TrustError::SequenceBackwards { seen, got } => {
                 write!(
@@ -191,6 +195,11 @@ pub enum FetchError {
         url: String,
         why: String,
     },
+    /// E1900: plain http to a host that is not loopback, or an https request sent on to http.
+    PlainHttp {
+        url: String,
+        why: String,
+    },
     /// E1820: more bytes than the limit.
     TooLarge {
         url: String,
@@ -221,6 +230,7 @@ pub enum FetchError {
 impl FetchError {
     pub fn code(&self) -> &'static str {
         match self {
+            FetchError::PlainHttp { .. } => "E1900",
             FetchError::Network { .. }
             | FetchError::NotFound { .. }
             | FetchError::Refused { .. }
@@ -243,7 +253,9 @@ impl fmt::Display for FetchError {
         match self {
             FetchError::Network { url, why } => write!(f, "download of {url} failed: {why}"),
             FetchError::NotFound { url } => write!(f, "{url} does not exist (404)"),
-            FetchError::Refused { url, why } => write!(f, "refused to fetch {url}: {why}"),
+            FetchError::Refused { url, why } | FetchError::PlainHttp { url, why } => {
+                write!(f, "refused to fetch {url}: {why}")
+            }
             FetchError::TooLarge { url, limit } => {
                 write!(f, "{url} is larger than the {limit}-byte limit")
             }

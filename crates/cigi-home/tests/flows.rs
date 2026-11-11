@@ -8,6 +8,7 @@ mod common;
 
 use std::collections::HashSet;
 use std::fs;
+use std::path::PathBuf;
 
 use cigi_home::*;
 use common::*;
@@ -896,8 +897,14 @@ fn state_to_index_through_receipts_and_flip() {
     let idx = ShimIndex::from_state(&fx.home, &s);
     // cig 9.9.9 has no toolchain, so it has no line
     assert_eq!(idx.cartons["0.1.0"].len(), 1);
-    let expect = fx.home.toolchain("cigo", &v("1.17.0")).join("bin/cigo");
+    // relative to the home, with the identity its receipt recorded at install
+    let expect = PathBuf::from("toolchains/cigo/1.17.0/bin/cigo");
     assert_eq!(idx.cartons["0.1.0"]["cigo"], expect);
+    let real = fx.home.toolchain("cigo", &v("1.17.0")).join("bin/cigo");
+    assert_eq!(
+        idx.identities[&expect],
+        cigi_shim::Identity::measure(&real).unwrap().render()
+    );
     assert!(idx.sticks["cigo"].ends_with("toolchains/cigo/1.16.0/bin/cigo"));
 
     let mut t = fx.txn("switch");
@@ -906,7 +913,9 @@ fn state_to_index_through_receipts_and_flip() {
     t.commit().unwrap();
     assert_eq!(ShimIndex::load(&fx.home).unwrap().unwrap(), idx);
     let text = fs::read_to_string(fx.home.shim_index_path()).unwrap();
-    assert!(text.starts_with("cigi-index 1\nmachine\t0.1.0\ncarton\t0.1.0\tcigo\t"));
+    assert!(text.starts_with(
+        "cigi-index 2\nmachine\t0.1.0\ncarton\t0.1.0\tcigo\ttoolchains/cigo/1.17.0/bin/cigo\t"
+    ));
 }
 
 #[test]

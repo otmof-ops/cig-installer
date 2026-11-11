@@ -194,6 +194,20 @@ pub fn run(cx: &mut Cx, a: &RepairArgs) -> Result<Report, InstallerError> {
     let index_wrong = !scoped
         && state.machine_carton.is_some()
         && index_state(&home, &state, cached_yanked(cx)) != IndexState::Agrees;
+    // #47: a moved or restored home has new device and inode numbers, so the record of each build's
+    // file no longer matches; the hashes below say the files are the right ones, and the record is
+    // written again from them
+    let identity_stale: Vec<(String, Version)> = installed(&home)
+        .into_iter()
+        .filter(|(t, _)| a.tool.as_ref().is_none_or(|x| x == t))
+        .filter(|(t, v)| !cigi_home::identity_drift(&home, t, v).is_empty())
+        .collect();
+    let home_moved = !scoped
+        && state.recorded_home().is_some_and(|old| {
+            let canon =
+                |p: &std::path::Path| std::fs::canonicalize(p).unwrap_or_else(|_| p.to_path_buf());
+            canon(std::path::Path::new(old)) != canon(&home.root())
+        });
     let humidor = if scoped {
         Vec::new()
     } else {
@@ -238,6 +252,8 @@ pub fn run(cx: &mut Cx, a: &RepairArgs) -> Result<Report, InstallerError> {
         && rebuild.is_empty()
         && shims_missing.is_empty()
         && !index_wrong
+        && identity_stale.is_empty()
+        && !home_moved
         && humidor.is_empty()
         && !path_missing
     {
@@ -301,6 +317,14 @@ pub fn run(cx: &mut Cx, a: &RepairArgs) -> Result<Report, InstallerError> {
         }
         if index_wrong {
             r = r.detail("would regenerate the shim-index");
+        }
+        for (t, v) in &identity_stale {
+            r = r.detail(format!(
+                "would record {t} {v}'s files again (their device and inode changed)"
+            ));
+        }
+        if let Some(old) = state.recorded_home().filter(|_| home_moved) {
+            r = r.detail(format!("would record this home as moved from {old}"));
         }
         for v in &mirror {
             r = r.detail(format!("would mirror cig {v} into the humidor again"));
@@ -470,6 +494,24 @@ pub fn run(cx: &mut Cx, a: &RepairArgs) -> Result<Report, InstallerError> {
             if add_path_block(&mut txn, *s, &home).map_err(ie)? == PathChange::Added {
                 report_lines.push(format!("put the PATH block back in {}", profile.display()));
             }
+        }
+        // the files are the receipts' (hashes checked and restored above): write each build's
+        // identity record from them, then the home's own place
+        for (t, v) in installed(&home) {
+            if a.tool.as_ref().is_some_and(|x| *x != t) {
+                continue;
+            }
+            if cigi_home::refresh_identity(&mut txn, &home, &t, &v).map_err(ie)? {
+                report_lines.push(format!("recorded {t} {v}'s files again for the shims"));
+            }
+        }
+        if !scoped {
+            if let Some(old) = state.recorded_home().filter(|_| home_moved) {
+                report_lines.push(format!(
+                    "this home was moved from {old}; recorded where it is"
+                ));
+            }
+            new_state.record_home(&home.root().to_string_lossy(), true);
         }
         if index_wrong {
             report_lines.push("regenerated the shim-index from state.json".to_string());

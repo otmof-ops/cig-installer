@@ -217,7 +217,7 @@ pub fn area(code: &str) -> &'static str {
         Some(1830..=1836) => "store",
         Some(1837 | 1839) => "bundle",
         Some(1838) => "mirror",
-        Some(1840..=1841 | 1844..=1845) => "shim",
+        Some(1840..=1841 | 1844..=1845 | 1902..=1903) => "shim",
         Some(1842..=1843 | 1846..=1848) => "pin",
         Some(1849..=1856) => "update",
         Some(1857) => "crash",
@@ -233,6 +233,7 @@ pub fn area(code: &str) -> &'static str {
         Some(1875) => "config",
         Some(1876..=1878) => "license",
         Some(1890..=1899) => "internal",
+        Some(1900) => "mirror",
         _ => "installer",
     }
 }

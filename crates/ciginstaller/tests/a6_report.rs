@@ -642,3 +642,108 @@ fn a_broken_state_still_gives_a_block_that_says_so() {
     ok(&run(&fx, &[], &["report", "--out", out.to_str().unwrap()]));
     assert!(out.is_file());
 }
+
+// ---- the block on a report another tool queued (#11) ---------------------------------------
+
+/// A report as cig or cigo writes it to the ashtray: it knows its own version and nothing of
+/// the carton.
+fn queued_by(fx: &Fixture, origin: &str, version: &str, id: &str) {
+    let dir = fx.cigscript().join("ashtray");
+    std::fs::create_dir_all(&dir).unwrap();
+    let r = json!({
+        "id": id, "fingerprint": "abc12345", "version": version, "os": "linux", "arch": "x86_64",
+        "timestamp": "2026-11-09T10:15:00Z", "command": [origin, "run", "<script>"], "cwd": "~/d1",
+        "panic_message": "index out of range", "panic_location": "src/run.rs:1:1", "backtrace": [],
+        "kind": "crash", "origin": origin
+    });
+    std::fs::write(dir.join(format!("{id}.json")), r.to_string()).unwrap();
+}
+
+/// `crash show` and `crash send --via file` of one report: the object each makes.
+fn shown_and_sent(fx: &Fixture, id: &str) -> (Value, Value) {
+    let shown = data(fx, &["crash", "show", id])["report"].clone();
+    let out = fx.user_home.join(format!("{id}.export.json"));
+    let o = run(
+        fx,
+        &[],
+        &[
+            "--json",
+            "crash",
+            "send",
+            id,
+            "--via",
+            "file",
+            "--out",
+            out.to_str().unwrap(),
+        ],
+    );
+    assert_eq!(o.status.code(), Some(0), "{}", text(&o));
+    let sent: Value = serde_json::from_str(&std::fs::read_to_string(&out).unwrap()).unwrap();
+    (shown, sent["report"].clone())
+}
+
+#[test]
+fn a_report_each_tool_queued_carries_the_version_block_when_it_is_sent() {
+    let fx = installed_one(fixture());
+    let block = data(&fx, &["report", "--block"]);
+    queued_by(&fx, "cig", "1.20.0", "20261109T101500-cig001");
+    queued_by(&fx, "cigo", "1.17.0", "20261109T101600-cigo01");
+    for (id, origin) in [
+        ("20261109T101500-cig001", "cig"),
+        ("20261109T101600-cigo01", "cigo"),
+    ] {
+        let (shown, sent) = shown_and_sent(&fx, id);
+        assert_eq!(shown, sent, "show and send are the same object ({origin})");
+        assert_eq!(shown["origin"], origin);
+        let got = &shown["details"]["version_matrix"];
+        assert_eq!(got["taken"], "at send time", "{origin}: {shown:#}");
+        let mut plain = got.clone();
+        plain.as_object_mut().unwrap().remove("taken");
+        assert_eq!(plain, block, "the block `report --block` prints ({origin})");
+        assert_eq!(tool(got, "cig")["version"], "1.20.0");
+        assert_eq!(tool(got, "cigo")["version"], "1.17.0");
+        // nothing identifying the person or the machine rides in it
+        let all = shown.to_string();
+        assert!(!all.contains(USER) && !all.contains(HOST), "{all}");
+    }
+    // the saved report is untouched: the block is taken at send time, never stored
+    let saved = std::fs::read_to_string(fx.cigscript().join("ashtray/20261109T101500-cig001.json"))
+        .unwrap();
+    assert!(!saved.contains("version_matrix"), "{saved}");
+}
+
+#[test]
+fn a_mismatched_carton_is_flagged_in_the_block_on_a_tools_report() {
+    let fx = installed_one(fixture());
+    ok(&cigi(&fx, &["update", "--no-trial"]));
+    ok(&cigi(&fx, &["rollback", "cig"]));
+    queued_by(&fx, "cigo", "1.18.0", "20261109T101600-cigo02");
+    let (shown, sent) = shown_and_sent(&fx, "20261109T101600-cigo02");
+    assert_eq!(shown, sent);
+    let m = mismatches(&shown["details"]["version_matrix"]);
+    assert!(
+        m.contains(&"cigo 1.18.0 with cig 1.20.0: not from the same carton".to_string()),
+        "{m:?}"
+    );
+    assert_eq!(
+        shown["details"]["version_matrix"]["guarantee"]["inside"],
+        false
+    );
+}
+
+#[test]
+fn a_block_the_report_already_carries_is_left_alone() {
+    let fx = installed_one(fixture());
+    let dir = fx.cigscript().join("ashtray");
+    std::fs::create_dir_all(&dir).unwrap();
+    let r = json!({
+        "id": "20261109T101700-own001", "fingerprint": "abc12345", "version": "1.20.0", "os": "linux",
+        "arch": "x86_64", "timestamp": "2026-11-09T10:17:00Z", "command": [], "cwd": "", "panic_message": "x",
+        "panic_location": "", "backtrace": [], "kind": "crash", "origin": "cig",
+        "details": {"version_matrix": {"cig": "1.20.0"}}
+    });
+    std::fs::write(dir.join("20261109T101700-own001.json"), r.to_string()).unwrap();
+    let (shown, sent) = shown_and_sent(&fx, "20261109T101700-own001");
+    assert_eq!(shown, sent);
+    assert_eq!(shown["details"]["version_matrix"], json!({"cig": "1.20.0"}));
+}

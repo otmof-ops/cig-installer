@@ -18,7 +18,10 @@ mod installer;
 #[cfg(test)]
 mod tests;
 
-use cigi_shim::{find, read_script_header, script_arg, trusted_for, Found, MAX_FILE, TOOLS};
+use cigi_shim::{
+    choose_home, find, read_script_header, resolve_entry, script_arg, stays_inside, trusted_for,
+    Found, HomeChoice, Identity, TargetError, MAX_FILE, TOOLS,
+};
 
 /// What the walk up from the working directory found.
 #[derive(Debug, PartialEq)]
@@ -36,7 +39,11 @@ enum Pin {
 enum Pick {
     Run {
         carton: Option<String>,
+        /// The index's entry: relative to the home, or (older indexes) absolute inside it.
         path: String,
+        /// What the receipt recorded about the file, `dev:ino:size:mtime`; absent in an index
+        /// written before the record existed.
+        identity: Option<String>,
     },
     Slow,
 }
@@ -88,7 +95,8 @@ fn find_pin(start: &Path, legacy: &[&str], t: cigi_shim::Trusted, stop: Option<&
 
 /// Look the pin up in the index. `>=` and anything unusual goes to the slow path.
 fn pick(index: &str, tool: &str, forced: Option<&str>, pin: &Pin) -> Pick {
-    if index.lines().next() != Some("cigi-index 1") {
+    // `1`: absolute paths; `2`: paths relative to the home, with the receipt's identity record
+    if !matches!(index.lines().next(), Some("cigi-index 1" | "cigi-index 2")) {
         return Pick::Slow;
     }
     let rows = || index.lines().map(|l| l.split('\t').collect::<Vec<_>>());
@@ -97,12 +105,17 @@ fn pick(index: &str, tool: &str, forced: Option<&str>, pin: &Pin) -> Pick {
             .find(|f| f.len() >= 3 && f[0] == kind && f[1] == key)
             .map(|f| f[2].to_string())
     };
+    // (path, identity) of a carton's tool
     let carton_path = |c: &str| {
         rows()
             .find(|f| f.len() >= 4 && f[0] == "carton" && f[1] == c && f[2] == tool)
-            .map(|f| f[3].to_string())
+            .map(|f| (f[3].to_string(), f.get(4).map(|i| i.to_string())))
     };
-    let run = |carton: Option<String>, path: String| Pick::Run { carton, path };
+    let run = |carton: Option<String>, (path, identity): (String, Option<String>)| Pick::Run {
+        carton,
+        path,
+        identity,
+    };
     let chosen = match (forced, pin) {
         (Some(c), _) => Some(c.to_string()),
         (None, Pin::Slow | Pin::Unreadable(_)) => return Pick::Slow,
@@ -137,20 +150,26 @@ fn pick(index: &str, tool: &str, forced: Option<&str>, pin: &Pin) -> Pick {
             return run(Some(c), path);
         }
     }
-    find("stick", tool).map_or(Pick::Slow, |path| run(None, path))
+    rows()
+        .find(|f| f.len() >= 3 && f[0] == "stick" && f[1] == tool)
+        .map_or(Pick::Slow, |f| {
+            run(None, (f[2].to_string(), f.get(3).map(|i| i.to_string())))
+        })
 }
 
-fn home() -> Option<PathBuf> {
+/// The home this shim works against: `CIGSCRIPT_HOME`, else the home its own file sits in
+/// (`<home>/bin/<name>`), else `~/.cigscript`.
+fn home_choice(exe: Option<&Path>) -> Option<HomeChoice> {
     let var = |k: &str| {
         std::env::var_os(k)
             .filter(|v| !v.is_empty())
             .map(PathBuf::from)
     };
-    var("CIGSCRIPT_HOME").or_else(|| {
-        var("HOME")
-            .or_else(|| var("USERPROFILE"))
-            .map(|h| h.join(".cigscript"))
-    })
+    choose_home(
+        exe,
+        var("CIGSCRIPT_HOME"),
+        var("HOME").or_else(|| var("USERPROFILE")),
+    )
 }
 
 #[cfg(unix)]
@@ -166,6 +185,63 @@ fn launch(mut cmd: Command, _argv0: &str) -> std::io::Error {
     match cmd.status() {
         Ok(s) => exit(s.code().unwrap_or(1)),
         Err(e) => e,
+    }
+}
+
+/// E1902: the index leads out of this home (a home that was moved or restored, or an index
+/// somebody edited). Nothing is run.
+fn outside(name: &str, entry: &str, home: &Path) -> ! {
+    die(
+        "E1902",
+        &format!(
+            "the index points `{name}` outside this home ({}): `{entry}`",
+            home.display()
+        ),
+        "ciginstaller repair",
+    )
+}
+
+/// E1840 when the home the shim chose has no `ciginstaller` in its `bin`. The message names the
+/// home that was searched and the shim's own folder, and never says "missing" when a
+/// `ciginstaller` sits right beside the shim.
+fn no_installer(name: &str, home: &Path, choice: &HomeChoice, exe: Option<&Path>) -> ! {
+    let ci = if cfg!(windows) {
+        "ciginstaller.exe"
+    } else {
+        "ciginstaller"
+    };
+    let dir = exe.and_then(Path::parent);
+    let beside = dir.filter(|d| d.join(ci).is_file());
+    let shim_dir = dir.map_or(String::new(), |d| {
+        format!("; this shim is in {}", d.display())
+    });
+    match (beside, &choice.anchored) {
+        (Some(d), anchored) => {
+            let own = anchored.clone().unwrap_or_else(|| d.to_path_buf());
+            die(
+                "E1840",
+                &format!(
+                    "nothing installed for `{name}` in {}{shim_dir}, which has its own \
+                     ciginstaller (home {})",
+                    home.display(),
+                    own.display()
+                ),
+                &format!(
+                    "unset CIGSCRIPT_HOME, or set CIGSCRIPT_HOME={}",
+                    own.display()
+                ),
+            )
+        }
+        (None, _) => die(
+            "E1840",
+            &format!(
+                "nothing installed for `{name}` in {}{shim_dir}, and there is no ciginstaller \
+                 in {}",
+                home.display(),
+                home.join("bin").display()
+            ),
+            "reinstall ciginstaller from https://github.com/otmof-ops/cig-installer",
+        ),
     }
 }
 
@@ -192,20 +268,37 @@ fn main() {
             "ciginstaller shims sync",
         );
     }
-    let Some(home) = home() else {
+    let exe = std::env::current_exe().ok();
+    let Some(choice) = home_choice(exe.as_deref()) else {
         die(
             "E1835",
             "cannot find the home directory",
             "set CIGSCRIPT_HOME to a directory you own",
         );
     };
+    let home = choice.home.clone();
+    if std::env::var_os("CIGI_SHIM_VERBOSE").is_some_and(|v| v == "1") {
+        match choice.disagreement() {
+            Some((env, own)) => eprintln!(
+                "note: CIGSCRIPT_HOME is {} but this shim is in {}, which belongs to {}; \
+                 CIGSCRIPT_HOME wins",
+                env.display(),
+                own.join("bin").display(),
+                own.display()
+            ),
+            None => eprintln!("note: home is {}", home.display()),
+        }
+    }
     let rest: Vec<OsString> = args.collect();
     if is_installer {
         match installer::run(&home, &rest) {
             Ok(code) => exit(code),
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => die(
                 "E1840",
-                "ciginstaller is missing",
+                &format!(
+                    "cannot start ciginstaller from {}: nothing is there",
+                    home.join("bin").display()
+                ),
                 "reinstall ciginstaller from https://github.com/otmof-ops/cig-installer",
             ),
             Err(e) => die(
@@ -248,19 +341,20 @@ fn main() {
     // A tool runs under its own name; the installer, on the slow path, under its own, so its
     // misnamed-binary guard (E1844) holds.
     let (mut cmd, carton, run_as) = match pick(&index, &name, forced.as_deref(), &pin) {
-        Pick::Run { carton, path } => {
-            let target = Path::new(&path);
-            if !target.is_absolute()
-                || target
-                    .components()
-                    .any(|c| matches!(c, std::path::Component::ParentDir))
-            {
-                die(
+        Pick::Run {
+            carton,
+            path,
+            identity,
+        } => {
+            let target = match resolve_entry(&home, &path) {
+                Ok(t) => t,
+                Err(TargetError::NotPlain) => die(
                     "E1844",
-                    &format!("the index gives `{name}` a path that is not absolute and plain"),
+                    &format!("the index gives `{name}` a path that is not plain: `{path}`"),
                     "ciginstaller shims sync",
-                );
-            }
+                ),
+                Err(TargetError::Outside) => outside(&name, &path, &home),
+            };
             if target.starts_with(home.join("bin")) {
                 die(
                     "E1844",
@@ -268,7 +362,35 @@ fn main() {
                     "ciginstaller shims sync",
                 );
             }
-            let mut c = Command::new(path);
+            // Resolve the target once, links followed, and run what that resolved to: the check
+            // and the exec then name the same file.
+            let target = match stays_inside(&home, &target) {
+                Some(t) => t,
+                None if target.symlink_metadata().is_ok() => outside(&name, &path, &home),
+                None => die(
+                    "E1840",
+                    &format!(
+                        "the build for `{name}` is missing on disk: {}",
+                        target.display()
+                    ),
+                    "ciginstaller repair",
+                ),
+            };
+            if let Some(want) = identity.as_deref().and_then(Identity::parse) {
+                // one stat, no hashing: the receipt's hash is `ciginstaller repair`'s to check
+                if Identity::measure(&target).map_or(true, |got| got != want) {
+                    die(
+                        "E1903",
+                        &format!(
+                            "the build for `{name}` at {} is not the file its receipt recorded \
+                             (a moved or restored home, or the file was replaced)",
+                            target.display()
+                        ),
+                        "ciginstaller repair",
+                    );
+                }
+            }
+            let mut c = Command::new(target);
             c.args(&rest);
             (c, carton, name.as_str())
         }
@@ -279,11 +401,7 @@ fn main() {
                 "ciginstaller"
             });
             if !installer.is_file() {
-                die(
-                    "E1840",
-                    &format!("nothing installed for `{name}`, and ciginstaller is missing"),
-                    "reinstall ciginstaller from https://github.com/otmof-ops/cig-installer",
-                );
+                no_installer(&name, &home, &choice, exe.as_deref());
             }
             let cwd = std::env::current_dir().unwrap_or_default();
             let mut c = Command::new(installer);
@@ -295,6 +413,11 @@ fn main() {
         }
     };
     cmd.env("CIGI_MANAGED", "1");
+    // A home found from where the shim sits is passed on, so the installer's slow path and the
+    // tool (cigo looking for cig) work against the same home without anyone exporting it.
+    if choice.env.is_none() && choice.anchored.is_some() {
+        cmd.env("CIGSCRIPT_HOME", &home);
+    }
     if let Some(c) = &carton {
         cmd.env("CIGI_CARTON", c);
     }

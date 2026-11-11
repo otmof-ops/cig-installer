@@ -284,7 +284,7 @@ fn a3_no_project_or_no_trial_skips_the_trial() {
     let o = cigi(&fx, &["update"]);
     ok(&o);
     assert!(
-        text(&o).contains("no project here, trial skipped"),
+        text(&o).contains("trial: skipped (no project here)"),
         "{}",
         text(&o)
     );
@@ -292,17 +292,27 @@ fn a3_no_project_or_no_trial_skips_the_trial() {
     scripts(&fx, 1);
     let o = cigi(&fx, &["update", "--no-trial"]);
     ok(&o);
-    assert!(text(&o).contains("trial skipped"), "{}", text(&o));
+    assert!(
+        text(&o).contains("trial: skipped (--no-trial)"),
+        "{}",
+        text(&o)
+    );
+    assert_eq!(
+        text(&o).matches("trial: skipped").count(),
+        1,
+        "said once: {}",
+        text(&o)
+    );
 }
 
 #[test]
 fn a3_update_only_changed() {
     let mut fx = fixture();
     two(&mut fx, "plan: 1 op");
-    let server = fx.serve();
+    let server = fx.serve_tls();
     let run = |args: &[&str]| {
         let o = fx
-            .cigi_with_mirror(&server.url())
+            .cigi_with_server(&server)
             .env("CIGI_ALLOW_SINGLE_SOURCE", "true")
             .arg("--yes")
             .args(args)

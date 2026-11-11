@@ -17,6 +17,9 @@ url = { workspace = true }
 serde_json = { workspace = true }
 time = { workspace = true }
 ureq = { workspace = true }
+rustls = { workspace = true }
+rustls-native-certs = { workspace = true }
+webpki-roots = { workspace = true }
 tar = { workspace = true }
 flate2 = { workspace = true }
 

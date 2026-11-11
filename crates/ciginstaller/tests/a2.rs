@@ -444,10 +444,10 @@ fn a2_path_block() {
 fn a2_no_telemetry() {
     let mut fx = fixture();
     two_cartons(&mut fx);
-    let server = fx.serve();
+    let server = fx.serve_tls();
     let run = |args: &[&str]| {
         let o = fx
-            .cigi_with_mirror(&server.url())
+            .cigi_with_server(&server)
             .env("CIGI_ALLOW_SINGLE_SOURCE", "true")
             .arg("--yes")
             .args(args)
@@ -529,10 +529,10 @@ fn a2_no_telemetry() {
         ],
     );
     fx.publish("stable");
-    let server = fx.serve();
+    let server = fx.serve_tls();
     let run = |args: &[&str]| {
         let o = fx
-            .cigi_with_mirror(&server.url())
+            .cigi_with_server(&server)
             .env("CIGI_ALLOW_SINGLE_SOURCE", "true")
             .arg("--yes")
             .args(args)

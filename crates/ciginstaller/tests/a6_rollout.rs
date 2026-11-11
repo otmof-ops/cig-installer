@@ -289,7 +289,7 @@ fn files_under(dir: &Path, out: &mut Vec<std::path::PathBuf>) {
 fn a6_no_output_report_file_or_request_carries_the_id_or_the_bucket() {
     let mut fx = fixture();
     two(&mut fx);
-    let server = fx.serve();
+    let server = fx.serve_tls();
     let id = "tessa-rollout-canary-7f3a9c1e2b8d4605";
     let secret = [
         id.to_string(),
@@ -299,7 +299,7 @@ fn a6_no_output_report_file_or_request_carries_the_id_or_the_bucket() {
     let mut outputs: Vec<String> = Vec::new();
     let mut go = |rollout: &str, args: &[&str]| {
         let o = fx
-            .cigi_with_mirror(&server.url())
+            .cigi_with_server(&server)
             .env("CIGI_ALLOW_SINGLE_SOURCE", "true")
             .env(ID_SEAM, id)
             .env("CIGI_ROLLOUT", rollout)

@@ -29,13 +29,25 @@
   because I checked state.json's history
 [ok] disk: the store holds 8 object(s), <size>, shared by 4 toolchain(s) as hard links; `gc` has nothing to free
   because I checked the sizes in store/objects and what `gc --dry-run` plans
+[ok] tin: there is no tin yet
+  because I checked ~/.cigscript/tin does not exist
 [ok] humidor: the humidor mirror agrees with the installed cig(s)
   because I checked humidor/index.json and each humidor/<version>/cig against the toolchain's binary
 [ok] reports: 0 report(s) queued, 0 with a failed attempt; reports = ask
   because I checked the ashtray's reports and the `reports` setting
-[-] not in this build: the guard's checks and the guard's kernel features are not checked
-  because I checked this build of ciginstaller has neither, so there is nothing to look at
-[-] the tools' own doctors were not run (add --tools to print them)
+[ok] kernel: kernel 6.8.0-1-generic is at or above the guard's minimum, 5.12
+  because I checked /proc/sys/kernel/osrelease
+[ok] user namespaces: user namespaces are on (up to 31000)
+  because I checked /proc/sys/user/max_user_namespaces
+[-] BPF LSM: bpf is not among the active security modules (lockdown,capability,yama,apparmor); the change takes effect after a reboot
+  because I checked /sys/kernel/security/lsm
+  -> sudo sed -i 's/^GRUB_CMDLINE_LINUX="/GRUB_CMDLINE_LINUX="lsm=lockdown,capability,yama,apparmor,bpf /' /etc/default/grub && sudo update-grub
+[-] not in this build: the guard's own checks are not checked
+  because I checked this build of ciginstaller has no guard checks of its own, so there is nothing to look at
+[-] cig 1.20.1: its own checks
+[-] this cig build has no self-check; it needs a newer build
+[-] cigo 1.17.0: its own checks
+[-] this cigo build has no self-check; it needs a newer build
 [x] 1 thing(s) need action
   -> ciginstaller repair
 --- stderr ---

@@ -131,9 +131,9 @@ fn a4_repair_refetches_when_the_store_object_is_damaged_too() {
         b"# changed in place\n",
     );
     write_in_place(&tc(&fx, "cig/1.20.0/bin/cig"), b"#!/bin/sh\necho broken\n");
-    let srv = fx.serve();
+    let srv = fx.serve_tls();
     let o = fx
-        .cigi_with_mirror(&srv.url())
+        .cigi_with_server(&srv)
         .env("CIGI_ALLOW_SINGLE_SOURCE", "true")
         .args(["--yes", "--json", "repair"])
         .output()
@@ -154,7 +154,17 @@ fn a4_repair_refetches_when_the_store_object_is_damaged_too() {
         "{paths:?}"
     );
     assert!(paths.iter().any(|p| p.contains("cig-v1.20.0")), "{paths:?}");
-    view(&fx).assert_same(&whole);
+    // the store object came back as a new file, so the receipt's record of its device and inode
+    // (#47) and the index's copy of it are written again: those two files and nothing else
+    let d = view(&fx).diff(&whole);
+    assert_eq!(
+        d,
+        vec![
+            "changed: installer/shim-index".to_string(),
+            "changed: toolchains/cig/1.20.0/.cigi-receipt.json".to_string()
+        ],
+        "{d:?}"
+    );
     // the humidor link is the repaired binary again
     let a = std::fs::read(fx.cigscript().join("humidor/1.20.0/cig")).unwrap();
     let b = std::fs::read(tc(&fx, "cig/1.20.0/bin/cig")).unwrap();

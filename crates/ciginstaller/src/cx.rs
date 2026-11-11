@@ -81,7 +81,18 @@ impl Cx {
                     return Some(h.clone());
                 }
             }
-            std::env::var_os(k)
+            let v = std::env::var_os(k).filter(|v| !v.is_empty());
+            // Run from `<home>/bin` with no `--home` and no CIGSCRIPT_HOME, ciginstaller works on
+            // the home it sits in, as the shims do (an install made with `--home <dir>` followed
+            // by `export PATH=<dir>/bin:$PATH` then needs nothing else).
+            if k == "CIGSCRIPT_HOME" && v.is_none() {
+                return std::env::current_exe()
+                    .ok()
+                    .and_then(|e| cigi_shim::home_of_exe(&e))
+                    .filter(|h| h.join("installer").is_dir())
+                    .map(PathBuf::into_os_string);
+            }
+            v
         })
         .map_err(ie)?;
         let cfg = Config::load(&home).map_err(ie)?;

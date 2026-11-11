@@ -80,7 +80,7 @@ pub fn product_of_code(n: u32) -> Option<Product> {
     match n {
         870..=899 => Some(Product::Cigo),
         1000..=1099 => Some(Product::CigCompile),
-        1800..=1899 => Some(Product::Installer),
+        1800..=1999 => Some(Product::Installer),
         100..=869 | 900..=999 => Some(Product::Cig),
         _ => None,
     }

@@ -1,6 +1,6 @@
 // SPDX-FileCopyrightText: 2026 Jay Taylor (https://github.com/otmof-ops/cig-installer)
 // SPDX-License-Identifier: FSL-1.1-ALv2
-//! The installer's side of the family contract (docs/decisions/0003): `doctor --tools` asks each
+//! The installer's side of the family contract (docs/decisions/0003): `doctor` asks each
 //! product for `__doctor --json`, cigo's guard comes down before cigo goes,
 //! `cig crash announce-fixed` runs after an
 //! update that changed cig, and uninstall clears the products' caches.
@@ -132,11 +132,16 @@ fn an_answer_that_is_not_the_findings_shape_is_e1879() {
     assert_eq!(c["ok"], false);
 }
 
+/// The tools' doctors are in the default report; `--tools` is them and nothing else.
 #[test]
-fn doctor_without_tools_runs_no_tool() {
+fn doctor_runs_the_tools_by_default_and_tools_alone_skips_the_installers_findings() {
     let fx = setup();
-    let d = data(&run(&fx, &[], &["--json", "doctor"]));
-    assert!(d["tools"].as_array().unwrap().is_empty());
+    let both = data(&run(&fx, &[], &["--json", "doctor"]));
+    assert_eq!(tool(&both, "cig 1.20.0")["self_check"], true);
+    assert!(!both["findings"].as_array().unwrap().is_empty());
+    let only = data(&run(&fx, &[], &["--json", "doctor", "--tools"]));
+    assert!(only["findings"].as_array().unwrap().is_empty());
+    assert_eq!(only["tools"], both["tools"]);
 }
 
 // ------------------------------------------------------------------ the guard

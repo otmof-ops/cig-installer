@@ -110,6 +110,10 @@ fn in_place(cx: &Cx, art: &cig_compat::Artifact, asset: &Path, side: &Path) -> b
     let Ok(v) = offline_trust.admit_artifact(art, side_text.as_deref(), asset) else {
         return false;
     };
+    // plain http (a loopback mirror) is accepted for a pinned build only (E1900)
+    if cx.source.plain_http() && v.level != TrustLevel::Pinned {
+        return false;
+    }
     // the rule `get_artifact_for` applies to a source that is not independent
     if !cx.source.independent()
         && v.level == TrustLevel::Checksummed

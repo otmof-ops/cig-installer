@@ -1,0 +1,24 @@
+[package]
+name = "cigi-budgets"
+description = "Dev-only: the performance budgets (#20) run on a RELEASE build, at their real limits."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+# Why this is its own package. `ciginstaller`'s tests turn on `cigi-home/fault-injection` (a dev
+# dependency), and that feature refuses to compile in a release build on purpose, so
+# `cargo test --release -p ciginstaller` can never build. The budgets only mean something on a release
+# build, so the tests that judge them live here, with no such dependency, and the guard stays whole.
+# The tests include the budget files of `ciginstaller/tests` as they are; they find the release
+# `ciginstaller` and `cigi-shim` next to themselves, so build those first:
+#   cargo build --release --locked -p ciginstaller -p cigi-shim
+#   cargo test --release --locked -p cigi-budgets
+
+[dev-dependencies]
+cigi-testkit = { workspace = true }
+cigi-ui = { path = "../cigi-ui" }
+tempfile = { workspace = true }
+serde_json = { workspace = true }

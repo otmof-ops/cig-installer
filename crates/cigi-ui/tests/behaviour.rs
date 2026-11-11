@@ -702,7 +702,7 @@ fn results_go_to_stdout_and_chatter_to_stderr() {
 
 // ---- the registry -----------------------------------------------------------------------
 
-const SPEC_CODES: [(u32, &str); 82] = [
+const SPEC_CODES: [(u32, &str); 85] = [
     (1800, "combination refused"),
     (1801, "a product needs another"),
     (1802, "a stick does not fit its carton"),
@@ -800,6 +800,9 @@ const SPEC_CODES: [(u32, &str); 82] = [
     ),
     (1890, "a bug in the installer"),
     (1891, "a journal could not be recovered"),
+    (1900, "a mirror over plain http"),
+    (1902, "a shim target is outside its home"),
+    (1903, "a shim target is not the build its receipt recorded"),
 ];
 
 #[test]
@@ -813,7 +816,11 @@ fn the_registry_parses_and_has_every_spec_code() {
     }
     for c in &reg.codes {
         let n = number(&c.code).unwrap_or(0);
-        assert!((1800..=1899).contains(&n), "{} outside E1800-E1899", c.code);
+        assert!(
+            (1800..=1899).contains(&n) || (1900..=1999).contains(&n),
+            "{} outside E1800-E1899 and E1900-E1999",
+            c.code
+        );
     }
 }
 

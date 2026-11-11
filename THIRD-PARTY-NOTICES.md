@@ -25,6 +25,8 @@ ciginstaller and cigi-shim link the Rust crates below, pulled from crates.io as 
 | crate | version | holder | source |
 |---|---|---|---|
 | rustls | 0.23.46 | unrecorded | https://github.com/rustls/rustls |
+| rustls-native-certs | 0.7.3 | unrecorded | https://github.com/rustls/rustls-native-certs |
+| rustls-pemfile | 2.2.0 | unrecorded | https://github.com/rustls/pemfile |
 
 ## Apache-2.0 OR MIT
 
@@ -156,6 +158,7 @@ ciginstaller and cigi-shim link the Rust crates below, pulled from crates.io as 
 | crate | version | holder | source |
 |---|---|---|---|
 | filetime | 0.2.29 | Alex Crichton <alex@alexcrichton.com> | https://github.com/alexcrichton/filetime |
+| openssl-probe | 0.1.6 | Alex Crichton <alex@alexcrichton.com> | https://github.com/alexcrichton/openssl-probe |
 | version_check | 0.9.5 | Sergio Benitez <sb@sergio.bz> | https://github.com/SergioBenitez/version_check |
 
 ## Unicode-3.0

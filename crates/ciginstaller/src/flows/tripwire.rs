@@ -14,7 +14,7 @@
 //! `ciginstaller crash list` shows it beside every other product's. A tripwire on rollback is
 //! marked high: it means the undo may be wrong.
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use cig_compat::Version;
 use cigi_home::journal::fault_planted;
@@ -159,7 +159,9 @@ fn shims_and_index(home: &Home, state: &State) -> Vec<String> {
         Ok(t) => t,
         Err(e) => return vec![format!("shim-index cannot be read back: {e}")],
     };
-    let Some(idx) = ShimIndex::parse(&text) else {
+    // either form: an entry of the older absolute form that lies inside this home is read as
+    // the relative one; one outside it stays absolute and shows up below as a difference
+    let Some(idx) = ShimIndex::parse(&text).map(|i| i.normalized(&home.root())) else {
         return vec!["shim-index is not an index this build reads".to_string()];
     };
     let want = ShimIndex::from_state(home, state);
@@ -174,7 +176,13 @@ fn shims_and_index(home: &Home, state: &State) -> Vec<String> {
     for (c, tools) in &want.cartons {
         for (t, p) in tools {
             match idx.cartons.get(c).and_then(|x| x.get(t)) {
-                Some(got) if got == p => {}
+                Some(got) if got == p => {
+                    if idx.identities.get(p) != want.identities.get(p) {
+                        diffs.push(format!(
+                            "shim-index's identity record for {t} of carton {c} differs from the receipt"
+                        ));
+                    }
+                }
                 Some(got) => diffs.push(format!(
                     "shim-index runs {t} of carton {c} from {}, the receipt says {}",
                     rel(home, got),
@@ -224,7 +232,15 @@ fn shims_and_index(home: &Home, state: &State) -> Vec<String> {
             let Some(exe) = tool_exe(home, tool, &build.1) else {
                 continue; // no receipt: the toolchain check says so
             };
-            match idx.pick(None, tool) {
+            // the index holds paths from the home; the build's path here is absolute
+            let from_home = |p: PathBuf| {
+                if p.is_absolute() {
+                    p
+                } else {
+                    home.root().join(p)
+                }
+            };
+            match idx.pick(None, tool).map(|(c, p)| (c, from_home(p))) {
                 Some((_, got)) if got == exe && exe.is_file() => {}
                 Some((_, got)) => out.push(format!(
                     "the {tool} shim resolves to {}, the carton's build is {tool} {} ({})",
@@ -255,6 +271,11 @@ fn toolchains(home: &Home, state: &State) -> Vec<String> {
         let Ok(ver) = Version::parse(&v) else {
             continue;
         };
+        if !cigi_home::identity_drift(home, &t, &ver).is_empty() {
+            out.push(format!(
+                "{t} {v}: the file is not the one its receipt recorded (E1903: the home was moved or restored)"
+            ));
+        }
         for d in verify_toolchain(home, &t, &ver) {
             out.push(match d {
                 Damage::NoReceipt => format!("{t} {v} has no readable receipt"),
