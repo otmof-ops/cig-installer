@@ -32,6 +32,12 @@ below is under Unreleased, and the first version will take it as its section.
 Installing, pinning, switching, updating and rolling back the family, on
 Linux, with every build checked first and every change one undoable step.
 
+### A cigar pin picks the compiler (cig-compile #15)
+
+- `cigar = "1.0"` at the top of `cigar.toml` is read as a pin on cigar, like `.cigar-version`, by the shim (which sends the project to the resolver) and by the installer. A `carton` key in the same file still wins, and a `cigar` key inside a table pins nothing.
+- cigcompile comes with the carton that holds the pinned cigar, so a project pinned to 1.0 builds with cigcompile 1.0 after 1.1 is installed. When no installed carton fits, the whole carton is fetched under `pin_fetch` (not a stick of cigar beside the machine's cigcompile), and a refusal names `ciginstaller install carton --carton <c>`.
+- The installer stays the only place that picks: cigcompile never reads pins. `cigcompile trial <new>` asks it where the new version is.
+
 ### One update flow, finished (#7)
 
 - The update trial covers `cigo` and `cigcompile`. cigo's runs `cigo check` and `cigo --dry-run run` of the `ci` chain and of each task in the project's `cig-tasks.json`; CigCompile's runs `cigcompile test` on the project's `.cig` programs, built in a scratch folder. Each runs with the old and the new build, each with the cig of its own carton first on `PATH`, and the differences are shown before the switch.
