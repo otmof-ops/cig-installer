@@ -98,6 +98,11 @@ impl Releases for Gh {
             published,
             prerelease: v.get("prerelease").and_then(|p| p.as_bool()) == Some(true),
             assets,
+            notes: v
+                .get("body")
+                .and_then(|b| b.as_str())
+                .unwrap_or_default()
+                .to_string(),
         })
     }
 

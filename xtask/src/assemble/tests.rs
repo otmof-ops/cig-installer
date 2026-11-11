@@ -52,6 +52,7 @@ impl Fake {
                 published: "2026-11-09".into(),
                 prerelease,
                 assets: BTreeMap::new(),
+                notes: String::new(),
             },
         );
         self
@@ -722,4 +723,61 @@ fn the_stable_channel_takes_no_candidate_number() {
     let mut b = req("1.2.0-beta.1", &[("cig", "1.20.0")]);
     b.channel = "beta".into();
     assert!(assemble(&b, &f).is_ok());
+}
+
+#[test]
+fn fixed_refs_reads_githubs_closing_keywords() {
+    let notes =
+        "## Fixed\n- Fixes #12: rollback skipped a file.\n- **Closes** otmof-ops/cig-script#7, \
+                 and resolved: #3)\n- see #99 (not a fix) and fixes nothing#x\n- fixes #12 again";
+    assert_eq!(
+        fixed_refs(notes, "otmof-ops/cig-orchestrator"),
+        vec![
+            ("otmof-ops/cig-orchestrator".to_string(), 12),
+            ("otmof-ops/cig-script".to_string(), 7),
+            ("otmof-ops/cig-orchestrator".to_string(), 3),
+        ]
+    );
+    assert!(fixed_refs("no references here", "o/r").is_empty());
+}
+
+#[test]
+fn a_new_builds_release_notes_record_its_fixes_for_their_reporters() {
+    let (mut f, _) = fake();
+    f.releases
+        .get_mut(&("otmof-ops/cig-orchestrator".into(), "v1.17.0".into()))
+        .unwrap()
+        .notes = "Fixes #12, and closes otmof-ops/cig-script#7.".into();
+    let a = assemble(&req("0.1.0", &[("cig", "1.20.0"), ("cigo", "1.17.0")]), &f).unwrap();
+    let ids: Vec<(&str, String, usize)> = a
+        .manifest
+        .advisories
+        .iter()
+        .map(|x| {
+            (
+                x.id.as_str(),
+                x.fixed_in
+                    .as_ref()
+                    .map(|v| v.to_string())
+                    .unwrap_or_default(),
+                x.affects.len(),
+            )
+        })
+        .collect();
+    assert_eq!(
+        ids,
+        vec![
+            ("otmof-ops/cig-orchestrator#12", "1.17.0".to_string(), 0),
+            ("otmof-ops/cig-script#7", "1.17.0".to_string(), 0),
+        ]
+    );
+    assert!(a
+        .report
+        .iter()
+        .any(|l| l.contains("fixes otmof-ops/cig-orchestrator#12")));
+    // the next carton carries them forward and adds none twice
+    let mut next = req("0.2.0", &[("cig", "1.21.0"), ("cigo", "1.17.0")]);
+    next.previous = Some(a.text.clone());
+    let b = assemble(&next, &f).unwrap();
+    assert_eq!(b.manifest.advisories.len(), 2);
 }

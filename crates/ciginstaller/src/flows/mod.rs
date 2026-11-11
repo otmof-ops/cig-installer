@@ -23,6 +23,7 @@ pub mod use_carton;
 // ---- health: doctor, repair, uninstall ----
 pub mod doctor;
 pub mod family;
+pub mod fixed;
 pub mod health;
 pub mod repair;
 pub mod report;

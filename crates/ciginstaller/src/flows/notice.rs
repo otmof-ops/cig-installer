@@ -114,9 +114,13 @@ pub fn maybe_notify(cx: &Cx) {
             .map(|a| a.get().clone())
             .or_else(|| cx.peek_manifest())
     };
-    let Some(newest) = manifest.and_then(|m| m.latest(false).map(|c| c.version.clone())) else {
+    let Some(m) = manifest else {
         return;
     };
+    let Some(latest) = m.latest(false) else {
+        return;
+    };
+    let newest = latest.version.clone();
     if newest <= machine {
         return;
     }
@@ -132,6 +136,12 @@ pub fn maybe_notify(cx: &Cx) {
             standing.share_text()
         ));
     }
+    // a bug this machine reported, which the new carton fixes (#12): told once
+    let fixed = super::fixed::fixes(&cx.home.root(), &m, latest);
+    for f in &fixed {
+        cx.ui.notice(&super::fixed::line(f, false));
+    }
+    super::fixed::mark(&cx.home.root(), &fixed);
     n.noticed = Some(day);
     n.carton = Some(newest.to_string());
     write(cx, &n);
