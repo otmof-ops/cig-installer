@@ -8,6 +8,7 @@ use std::collections::BTreeMap;
 use crate::error::StateError;
 use crate::home::Home;
 use crate::journal::Txn;
+use crate::machine::{self, MachineLayer, MachineSource};
 
 /// One known key: allowed values (`None` = integer) and the default.
 #[derive(Debug, Clone, Copy)]
@@ -17,12 +18,17 @@ pub struct KeySpec {
     pub default: &'static str,
 }
 
-/// The keys of 5.2, with their defaults. `mirror` and `preset` default to unset.
+/// The keys of 5.2, with their defaults. `carton`, `mirror` and `preset` default to unset.
 pub const KEYS: &[KeySpec] = &[
     KeySpec {
         key: "channel",
         values: Some(&["stable", "beta", "nightly"]),
         default: "stable",
+    },
+    KeySpec {
+        key: "carton",
+        values: None,
+        default: "",
     },
     KeySpec {
         key: "auto_update",
@@ -97,11 +103,16 @@ fn spec(key: &str) -> Option<&'static KeySpec> {
 
 /// The installer's own settings. The file text is kept, so comments and
 /// unknown keys survive a `set`.
+///
+/// A value comes from, in order of strength: a key the machine layer locks (#17), the
+/// environment and a flag for this run, the person's file, the machine layer's unlocked value,
+/// and the built-in default.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Config {
     text: String,
     values: BTreeMap<String, String>,
     env: BTreeMap<String, String>,
+    machine: Option<MachineLayer>,
 }
 
 /// The host of a `mirror` value that starts with `http://` (any case), else `None`.
@@ -128,29 +139,54 @@ pub fn loopback_host(host: &str) -> bool {
 }
 
 impl Config {
-    /// Read `installer/config` (absent is fine) and the `CIGI_<KEY>` environment.
+    /// Read `installer/config` (absent is fine), the `CIGI_<KEY>` environment and this system's
+    /// machine layer. A machine layer that is there and cannot be read is an error naming it.
     pub fn load(home: &Home) -> Result<Config, StateError> {
-        let p = home.config_path();
-        let text = match std::fs::read_to_string(&p) {
-            Ok(t) => t,
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => String::new(),
-            Err(source) => return Err(StateError::Io { path: p, source }),
-        };
-        Ok(Config::from_text(&text, &|k| std::env::var(k).ok()))
+        Config::load_with(home, machine::system().as_ref())
     }
 
-    /// Read the file again, keeping this run's overrides (`set_for_run`) and the environment.
-    /// For a writer that now holds the lock: the text it edits must be the file as it is now,
-    /// not as it was when the command started.
+    /// [`Config::load`] with an explicit machine layer (tests, and anything that already read it).
+    pub fn load_with(home: &Home, source: &dyn MachineSource) -> Result<Config, StateError> {
+        let layer = source.read()?;
+        let text = Config::read_file_text(home)?;
+        Ok(Config::from_parts(&text, &|k| std::env::var(k).ok(), layer))
+    }
+
+    fn read_file_text(home: &Home) -> Result<String, StateError> {
+        let p = home.config_path();
+        match std::fs::read_to_string(&p) {
+            Ok(t) => Ok(t),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(String::new()),
+            Err(source) => Err(StateError::Io { path: p, source }),
+        }
+    }
+
+    /// Read the file again, keeping this run's overrides (`set_for_run`), the environment and the
+    /// machine layer. For a writer that now holds the lock: the text it edits must be the file as
+    /// it is now, not as it was when the command started.
     pub fn reread(&mut self, home: &Home) -> Result<(), StateError> {
-        let fresh = Config::load(home)?;
+        let fresh = Config::from_text(&Config::read_file_text(home)?, &|_| None);
         self.text = fresh.text;
         self.values = fresh.values;
         Ok(())
     }
 
-    /// Parse config text with an explicit environment (tests).
+    /// Is this a setting `ciginstaller` knows?
+    pub fn is_key(key: &str) -> bool {
+        spec(key).is_some()
+    }
+
+    /// Parse config text with an explicit environment and no machine layer (tests).
     pub fn from_text(text: &str, env: &dyn Fn(&str) -> Option<String>) -> Config {
+        Config::from_parts(text, env, None)
+    }
+
+    /// Parse config text with an explicit environment and machine layer (tests).
+    pub fn from_parts(
+        text: &str,
+        env: &dyn Fn(&str) -> Option<String>,
+        machine: Option<MachineLayer>,
+    ) -> Config {
         let mut values = BTreeMap::new();
         for line in text.lines() {
             if let Some((k, v)) = parse_line(line) {
@@ -168,19 +204,48 @@ impl Config {
             text: text.to_string(),
             values,
             env: envs,
+            machine,
         }
     }
 
-    /// The effective value: environment, then the file, then the default.
-    /// Unknown keys give an empty string.
+    /// The effective value: a machine value that is locked, then the environment, then the file,
+    /// then the machine's unlocked value, then the default. Unknown keys give an empty string.
     pub fn get(&self, key: &str) -> String {
+        let default = || spec(key).map(|s| s.default.to_string()).unwrap_or_default();
+        if let Some(m) = self.machine.as_ref().filter(|m| m.is_locked(key)) {
+            // locked with no value: locked at the default
+            return m.value(key).map(str::to_string).unwrap_or_else(default);
+        }
         if let Some(v) = self.env.get(key) {
             return v.clone();
         }
         if let Some(v) = self.values.get(key) {
             return v.clone();
         }
-        spec(key).map(|s| s.default.to_string()).unwrap_or_default()
+        if let Some(v) = self.machine.as_ref().and_then(|m| m.value(key)) {
+            return v.to_string();
+        }
+        default()
+    }
+
+    /// The store that locks `key`, as people read it (`/etc/cigscript/config.toml`), or `None`
+    /// when nothing locks it.
+    pub fn locked_by(&self, key: &str) -> Option<&str> {
+        self.machine
+            .as_ref()
+            .filter(|m| m.is_locked(key))
+            .map(MachineLayer::source)
+    }
+
+    /// The machine layer, when the machine has one.
+    pub fn machine(&self) -> Option<&MachineLayer> {
+        self.machine.as_ref()
+    }
+
+    /// The value the machine layer sets for `key` (locked or not), and the store it is in.
+    pub fn machine_value(&self, key: &str) -> Option<(&str, &str)> {
+        let m = self.machine.as_ref()?;
+        m.value(key).map(|v| (v, m.source()))
     }
 
     /// A command-line flag for this run only (`install --channel beta`): validated like a
@@ -201,14 +266,31 @@ impl Config {
         self.env.contains_key(key)
     }
 
-    /// Where the effective value of `key` comes from: `environment`, `file` or `default`.
+    /// Where the effective value of `key` comes from: `locked` (the machine layer, which nothing
+    /// outranks), `environment`, `file`, `machine` (the machine layer's unlocked value) or
+    /// `default`. [`Config::locked_by`] and [`Config::machine_value`] name the store.
     pub fn source(&self, key: &str) -> &'static str {
-        if self.env.contains_key(key) {
+        if self.locked_by(key).is_some() {
+            "locked"
+        } else if self.env.contains_key(key) {
             "environment"
         } else if self.values.contains_key(key) {
             "file"
+        } else if self.machine_value(key).is_some() {
+            "machine"
         } else {
             "default"
+        }
+    }
+
+    /// The refusal for a `set` or `unset` of a key the machine layer locks (E1904), else `Ok`.
+    pub fn check_unlocked(&self, key: &str) -> Result<(), StateError> {
+        match self.locked_by(key) {
+            Some(source) => Err(StateError::Locked {
+                key: key.to_string(),
+                source: source.to_string(),
+            }),
+            None => Ok(()),
         }
     }
 
@@ -218,6 +300,7 @@ impl Config {
         if spec(key).is_none() {
             return Err(StateError::Usage(format!("unknown setting `{key}`")));
         }
+        self.check_unlocked(key)?;
         let mut out = String::new();
         let mut found = false;
         for line in self.text.lines() {
@@ -275,6 +358,15 @@ impl Config {
                 ))),
                 _ => Ok(()),
             },
+            None if key == "carton" => {
+                if value.is_empty() || cig_compat::Pin::parse(value).is_ok() {
+                    Ok(())
+                } else {
+                    Err(StateError::Usage(format!(
+                        "`carton` is a carton pin like 1.1, 1 or 1.1.4 (the line a `.cig-carton` holds); got `{value}`"
+                    )))
+                }
+            }
             None if key == "rollout" => {
                 if crate::rollout::parse_percent(value).is_some() {
                     Ok(())
@@ -301,6 +393,7 @@ impl Config {
     /// comments are untouched.
     pub fn set_in(&mut self, txn: &mut Txn, key: &str, value: &str) -> Result<(), StateError> {
         Config::validate(key, value)?;
+        self.check_unlocked(key)?;
         let new_line = format!("{key} = {value}");
         let mut out = String::new();
         let mut done = false;
@@ -411,7 +504,7 @@ mod tests {
     fn every_numeric_key_has_a_range() {
         // keys with no list of words are numeric, except the text ones named here
         for k in KEYS.iter().filter(|k| k.values.is_none()) {
-            if k.key == "mirror" {
+            if k.key == "mirror" || k.key == "carton" {
                 continue;
             }
             assert!(
@@ -473,5 +566,108 @@ mod tests {
         assert_eq!(Config::from_text("", &no_env).get("rollout"), "100");
         assert!(Config::validate("bogus", "1").is_err());
         assert!(Config::validate("mirror", "https://x").is_ok());
+    }
+
+    const FIVE: [(&str, &str, &str, &str, &str); 5] = [
+        // key, locked value, the person's file value, the environment, the flag
+        ("carton", "1.1", "2.0", "3.0", "4.0"),
+        ("auto_update", "off", "all", "security", "notify"),
+        ("reports", "never", "always", "ask", "always"),
+        (
+            "mirror",
+            "https://org.example.com/m",
+            "file:///mine",
+            "file:///env",
+            "file:///flag",
+        ),
+        ("preset", "strict", "chill", "balanced", "paranoid"),
+    ];
+
+    fn layer(locked: bool) -> MachineLayer {
+        let mut t = String::new();
+        for (k, v, ..) in FIVE {
+            t.push_str(&format!("{k} = \"{v}\"\n"));
+        }
+        if locked {
+            t.push_str(
+                "locked = [\"carton\", \"auto_update\", \"reports\", \"mirror\", \"preset\"]\n",
+            );
+        }
+        crate::machine::parse_toml("/etc/cigscript/config.toml", &t).expect("layer")
+    }
+
+    #[test]
+    fn a_locked_value_beats_the_environment_the_file_and_a_flag_for_each_of_the_five_keys() {
+        for (k, locked, file, env, flag) in FIVE {
+            let var = format!("CIGI_{}", k.to_ascii_uppercase());
+            let mut c = Config::from_parts(
+                &format!("{k} = {file}\n"),
+                &|n| (n == var).then(|| env.to_string()),
+                Some(layer(true)),
+            );
+            assert_eq!(
+                c.get(k),
+                locked,
+                "{k}: the lock beats the file and the environment"
+            );
+            c.set_for_run(k, flag).expect("a flag validates");
+            assert_eq!(c.get(k), locked, "{k}: the lock beats a flag");
+            assert_eq!(c.source(k), "locked");
+            assert_eq!(c.locked_by(k), Some("/etc/cigscript/config.toml"));
+            // the person's own file still says what it said
+            assert_eq!(c.get_file(k).as_deref(), Some(file));
+            let e = c.check_unlocked(k).unwrap_err();
+            assert_eq!(e.code(), "E1904");
+            assert!(
+                e.to_string().contains(k) && e.to_string().contains("/etc/cigscript/config.toml"),
+                "{e}"
+            );
+        }
+    }
+
+    #[test]
+    fn an_unlocked_machine_value_sits_below_the_file_and_above_the_default() {
+        for (k, machine, file, env, _) in FIVE {
+            let var = format!("CIGI_{}", k.to_ascii_uppercase());
+            let none = |_: &str| None;
+            let only = Config::from_parts("", &none, Some(layer(false)));
+            assert_eq!(only.get(k), machine, "{k}: above the default");
+            assert_eq!(only.source(k), "machine");
+            assert_eq!(only.locked_by(k), None);
+            let with_file =
+                Config::from_parts(&format!("{k} = {file}\n"), &none, Some(layer(false)));
+            assert_eq!(with_file.get(k), file, "{k}: below the person's file");
+            let with_env = Config::from_parts(
+                "",
+                &|n| (n == var).then(|| env.to_string()),
+                Some(layer(false)),
+            );
+            assert_eq!(with_env.get(k), env);
+            assert!(with_env.check_unlocked(k).is_ok());
+        }
+    }
+
+    #[test]
+    fn a_lock_with_no_value_holds_the_default() {
+        let l = crate::machine::parse_toml("m", "locked = [\"mirror\", \"keep_days\"]\n").unwrap();
+        let c = Config::from_parts("mirror = file:///mine\nkeep_days = 5\n", &|_| None, Some(l));
+        assert_eq!(c.get("mirror"), "");
+        assert_eq!(c.get("keep_days"), "90");
+        assert_eq!(c.locked_by("mirror"), Some("m"));
+    }
+
+    #[test]
+    fn carton_takes_a_pin_and_nothing_else() {
+        for good in ["1", "1.1", "1.1.4", "v1.1", ""] {
+            assert!(Config::validate("carton", good).is_ok(), "{good}");
+        }
+        for bad in ["latest", "1.x", "1..1", "one"] {
+            assert_eq!(
+                Config::validate("carton", bad).unwrap_err().code(),
+                "E1870",
+                "{bad}"
+            );
+        }
+        assert_eq!(Config::from_text("", &no_env).get("carton"), "");
     }
 }

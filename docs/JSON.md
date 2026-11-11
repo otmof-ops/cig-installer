@@ -30,7 +30,7 @@ Keys are stable once released; new keys may be added. Versions are strings; path
 
 | command | `data` |
 |---|---|
-| (none), status | `{"carton":"0.1.0","channel":"stable","tools":{"cig":"1.20.0"},"trust":{"pinned":1,"checksummed":2},"waiting":{"update":"0.1.1"\|null,"advisories":[],"yanked":[],"programs":[{"name","path","cig","advisories":["<id>"]}]},"cartons":["0.1.0"],"rollout":{"percent":100,"in_share":true,"reason":null\|"no-machine-id"\|"invalid-setting"}}`; `cartons` are the installed cartons, `waiting.programs` is there only when a program on `PATH` or in this project is built on a cig an advisory covers, and `rollout` is this machine's standing for `rollout = N%` (never the machine id or its hash). It makes no request |
+| (none), status | `{"carton":"0.1.0","channel":"stable","tools":{"cig":"1.20.0"},"trust":{"pinned":1,"checksummed":2},"waiting":{"update":"0.1.1"\|null,"advisories":[],"yanked":[],"programs":[{"name","path","cig","advisories":["<id>"]}]},"cartons":["0.1.0"],"rollout":{"percent":100,"in_share":true,"reason":null\|"no-machine-id"\|"invalid-setting"},"locks":{"source":"/etc/cigscript/config.toml"\|null,"locked":[{"key":"carton","value":"1.1","locked_by":"/etc/cigscript/config.toml"}]}}`; `locks` is the machine layer: its store (`null` with none) and each setting it locks with the value in force; `cartons` are the installed cartons, `waiting.programs` is there only when a program on `PATH` or in this project is built on a cig an advisory covers, and `rollout` is this machine's standing for `rollout = N%` (never the machine id or its hash). It makes no request |
 | `bundle` | `{"out":"/abs/carton-0.1.0.tar","carton":"0.1.0","channel":"stable","sequence":3,"targets":["linux-x86_64"],"builds":2,"files":[{"name":"manifest-stable.toml","size":1234,"sha256":"..."}],"bytes":123456,"signed":false}` |
 | `mirror` | `{"dir":"/abs/mirror","channel":"stable","sequence":3,"cartons":["0.1.0"],"targets":["linux-x86_64"],"added":["cig-v1.20.0-linux-x86_64"],"kept":0,"bytes_added":123,"manifest_written":true,"left_out_yanked":[]}`; a re-run has `"added":[]` and `"manifest_written":false` |
 | `install` | `{"carton":"0.1.0","tools":{"cig":"1.20.0"},"trust":{"pinned":1,"attested":0,"checksummed":2},"path_block":"added"\|"present"\|"skipped","txn":"<id>","dry_run":false,"source":"github"\|"dir:/path"\|"mirror:https://..."\|"bundle:file.tar"}` |
@@ -74,9 +74,9 @@ Keys are stable once released; new keys may be added. Versions are strings; path
 | `gc` | `{"removed":["<path>"],"freed_bytes":0,"dry_run":false}` |
 | `shims sync` | `{"shims":["cig","cigo"],"relinked":[],"removed":[],"index_rewritten":false}` |
 | `shims list` | `{"shims":[{"name":"cig","target":"..."\|null,"error":null,"present":true,"first_on_path":true}]}` |
-| `config list` | `{"config":{"channel":"stable"},"settings":[{"key":"channel","value":"stable","source":"environment"\|"file"\|"default","default":"stable","allowed":["stable","beta","nightly"]}]}` |
-| `config get <key>` | `{"config":{"channel":"stable"},"key":"channel","value":"stable","source":"file","default":"stable"}` |
-| `config set <key> <value>` | `{"config":{"channel":"beta"},"key":"channel","value":"beta","previous":"stable","changed":true}` |
+| `config list` | `{"config":{"channel":"stable"},"settings":[{"key":"channel","value":"stable","source":"locked"\|"environment"\|"file"\|"machine"\|"default","locked":false,"locked_by":null\|"<store>","default":"stable","allowed":["stable","beta","nightly"]}]}`; `locked` and `locked_by` name the machine layer's store when it locks the key, and `machine` is its unlocked value |
+| `config get <key>` | `{"config":{"channel":"stable"},"key":"channel","value":"stable","source":"file","locked":false,"locked_by":null,"default":"stable"}` |
+| `config set <key> <value>` | `{"config":{"channel":"beta"},"key":"channel","value":"beta","previous":"stable","changed":true}`; a key the machine layer locks is E1904 with exit 2, naming the store |
 | `config unset <key>` | `{"config":{"channel":"stable"},"key":"channel","value":"stable","previous":"beta","source":"default"}` |
 | `history` | `{"entries":[{"id":"<id>","at":"...","what":"update","from":"0.1.0","to":"0.1.1","ok":true,"txn":"<id>"}]}`, newest first |
 | `explain` | the registry node: `{"code","title","meaning","fix","no","arises","tags","since","related","causes":[...]}` |

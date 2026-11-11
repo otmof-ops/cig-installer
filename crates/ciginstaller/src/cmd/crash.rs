@@ -170,6 +170,7 @@ fn list(env: &Env) -> Result<Report, InstallerError> {
         match source {
             Source::CigReports => "CIG_REPORTS",
             Source::Setting => "set",
+            Source::Locked => "locked by the machine",
             Source::Ci => "CI default",
             Source::Default => "default",
         }
@@ -274,6 +275,22 @@ fn show(env: &Env, id: &str) -> Result<Report, InstallerError> {
 // ----- send -------------------------------------------------------------------------------
 
 pub fn never_error(env: &Env, r: Option<&Saved>) -> InstallerError {
+    if let Some(store) = env.cfg.locked_by("reports") {
+        let kept = r.map_or_else(String::new, |r| {
+            format!(
+                "; the report stays at {}",
+                crash::path_of(&env.root, r).display()
+            )
+        });
+        return InstallerError::new(
+            "E1857",
+            format!(
+                "reports is locked to \"never\" by {store}, so nothing leaves this machine{kept}"
+            ),
+        )
+        .with_fix("ciginstaller config get reports")
+        .with_exit(cigi_ui::EXIT_REFUSED);
+    }
     let fix = if std::env::var_os("CIG_REPORTS").is_some() {
         "unset CIG_REPORTS (or set it to ask), then `ciginstaller crash send` again"
     } else {

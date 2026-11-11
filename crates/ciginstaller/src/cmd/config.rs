@@ -1,9 +1,10 @@
 // SPDX-FileCopyrightText: 2026 Jay Taylor (https://github.com/otmof-ops/cig-installer)
 // SPDX-License-Identifier: FSL-1.1-ALv2
 //! `config`, `config get <key>`, `config set <key> <value>`, `config unset <key>` (SPEC 5.2, 10).
-//! The value in force is the environment, then the file, then the default. `set` and `unset`
-//! go through the journal; a key or value outside 5.2 is `E1870`, and `unset` of a key the file
-//! does not hold is `E1875`.
+//! The value in force is a machine value that is locked, then the environment, then the file, then
+//! the machine's unlocked value, then the default (#17). `set` and `unset` go through the
+//! journal; a key or value outside 5.2 is `E1870`, `unset` of a key the file does not hold is
+//! `E1875`, and either on a key the machine locks is `E1904`, which names the store.
 
 use cigi_home::{Config, KeySpec, KEYS};
 use cigi_ui::{Align, Cell, InstallerError, Report, Table};
@@ -50,11 +51,41 @@ fn env_name(key: &str) -> String {
     format!("CIGI_{}", key.to_ascii_uppercase())
 }
 
+/// `locked by /etc/cigscript/config.toml`, or `None` when nothing locks the key.
+pub fn locked_text(cfg: &Config, key: &str) -> Option<String> {
+    cfg.locked_by(key).map(|s| format!("locked by {s}"))
+}
+
+/// Where a value comes from, in words: the lock, the environment variable, the file, the machine
+/// layer's unlocked value, the default.
+fn from_text(cfg: &Config, key: &str) -> String {
+    match cfg.source(key) {
+        "locked" => locked_text(cfg, key).unwrap_or_default(),
+        "environment" => format!("environment ({})", env_name(key)),
+        "machine" => format!(
+            "machine ({})",
+            cfg.machine_value(key).map(|(_, s)| s).unwrap_or_default()
+        ),
+        s => s.to_string(),
+    }
+}
+
+/// The refusal for a key the machine locks.
+fn refuse_locked(cfg: &Config, key: &str) -> Result<(), InstallerError> {
+    cfg.check_unlocked(key).map_err(|e| {
+        ie(e)
+            .with_fix(format!("ciginstaller config get {key}"))
+            .with_exit(cigi_ui::EXIT_REFUSED)
+    })
+}
+
 fn setting(cfg: &Config, k: &KeySpec) -> Value {
     json!({
         "key": k.key,
         "value": cfg.get(k.key),
         "source": cfg.source(k.key),
+        "locked": cfg.locked_by(k.key).is_some(),
+        "locked_by": cfg.locked_by(k.key),
         "default": k.default,
         "allowed": k.values,
         "range": Config::numeric_range(k.key),
@@ -80,10 +111,7 @@ fn list(cx: &mut Cx) -> Result<Outcome, InstallerError> {
             moved += 1;
             Cell::changed(shown(&value))
         };
-        let from = match source {
-            "environment" => format!("environment ({})", env_name(k.key)),
-            s => s.to_string(),
-        };
+        let from = from_text(&cx.cfg, k.key);
         // the value goes last: a long one (a mirror URL) is the column that may be cut short
         table = table.row(vec![Cell::new(k.key), Cell::new(from), cell]);
         config.insert(k.key.to_string(), Value::String(value));
@@ -108,8 +136,19 @@ fn get(cx: &mut Cx, key: &str) -> Result<Outcome, InstallerError> {
     let source = cx.cfg.source(key);
     let mut r = Report::done(format!("{key} = {}", shown(&value)));
     r = r.detail(match source {
+        "locked" => format!(
+            "{}; nothing on this machine can change it",
+            locked_text(&cx.cfg, key).unwrap_or_default()
+        ),
         "environment" => format!("from the environment ({})", env_name(key)),
         "file" => "from the config file".to_string(),
+        "machine" => format!(
+            "from the machine layer ({}); your own config file outranks it",
+            cx.cfg
+                .machine_value(key)
+                .map(|(_, s)| s)
+                .unwrap_or_default()
+        ),
         _ => "the default; nothing sets it".to_string(),
     });
     if key == "preset" {
@@ -120,6 +159,8 @@ fn get(cx: &mut Cx, key: &str) -> Result<Outcome, InstallerError> {
         "key": key,
         "value": value,
         "source": source,
+        "locked": cx.cfg.locked_by(key).is_some(),
+        "locked_by": cx.cfg.locked_by(key),
         "default": k.default,
     }))
     .into())
@@ -128,6 +169,7 @@ fn get(cx: &mut Cx, key: &str) -> Result<Outcome, InstallerError> {
 fn set(cx: &mut Cx, key: &str, value: &str) -> Result<Outcome, InstallerError> {
     known(key)?;
     Config::validate(key, value).map_err(ie)?;
+    refuse_locked(&cx.cfg, key)?;
     // the layout and the lock first; the file is read again under the lock so a concurrent
     // edit is not overwritten with an older copy
     cx.lock_and_recover()?;
@@ -167,6 +209,7 @@ fn set(cx: &mut Cx, key: &str, value: &str) -> Result<Outcome, InstallerError> {
 
 fn unset(cx: &mut Cx, key: &str) -> Result<Outcome, InstallerError> {
     known(key)?;
+    refuse_locked(&cx.cfg, key)?;
     cx.lock_and_recover()?;
     cx.cfg = Config::load(&cx.home).map_err(ie)?;
     let Some(previous) = cx.cfg.get_file(key) else {

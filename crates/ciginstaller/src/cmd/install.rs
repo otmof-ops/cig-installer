@@ -369,6 +369,7 @@ fn stand(cx: &Cx, id: &str, given: &BTreeMap<String, String>) -> Stand {
         return Stand::Closed;
     }
     let set = match id {
+        _ if cx.cfg.locked_by(id).is_some() => true,
         "preset" => !cx.cfg.get("preset").is_empty(),
         _ => cx.cfg.get_file(id).is_some() || cx.cfg.env_has(id),
     };
@@ -445,6 +446,10 @@ fn list_questions(cx: &Cx, c: &InstallCmd, given: &BTreeMap<String, String>) -> 
 pub fn run(cx: &mut Cx, c: &InstallCmd) -> Result<Outcome, InstallerError> {
     // every answer handed in is checked here, before the lock, the manifest or any write
     let given = gather(c)?;
+    // an answer for a setting the machine locks cannot be taken: say so, change nothing
+    for id in given.keys() {
+        cx.cfg.check_unlocked(id).map_err(ie)?;
+    }
     if let (Some(InstallWhat::Carton { version: Some(v) }), Some(f)) = (&c.what, &c.carton) {
         return Err(usage(
             format!("the carton is given twice: `{v}` and `--carton {f}`"),

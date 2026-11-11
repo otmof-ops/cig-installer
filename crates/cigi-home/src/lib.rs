@@ -25,6 +25,7 @@ pub mod humidor;
 pub mod index;
 pub mod journal;
 pub mod lock;
+pub mod machine;
 pub mod migrate;
 pub mod path;
 pub mod platform;

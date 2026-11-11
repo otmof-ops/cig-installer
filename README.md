@@ -288,7 +288,7 @@ lists them all.
 | `uninstall <tool>`, `uninstall --all`, `remove <carton>` | remove a tool, everything the installer added, or one carton; your data stays |
 | `gc` | remove cartons unused for `keep_days` and the store objects nothing uses |
 | `shims sync`, `shims list` | rewrite the shims from the installer's state, and list them |
-| `config list\|get\|set\|unset` | the installer's settings and where each value comes from, such as `channel`, `trust`, `update_check`, `keep_days`, `bench_after_update`, `rollout`, `theme` and `voice` |
+| `config list\|get\|set\|unset` | the installer's settings and where each value comes from, such as `channel`, `carton`, `trust`, `update_check`, `keep_days`, `bench_after_update`, `rollout`, `theme` and `voice`; a value the machine locks says `locked by <store>` ([organizations](docs/ORGANIZATIONS.md)) |
 | `licences [tool] [--text]` | the license of the installer and of each build here (an SPDX id, or "not stated"), where its text is, and what was acknowledged at the first install; `--text` prints one license file; the field is the code license (docs are CC-BY-4.0); read-only, nothing is sent anywhere |
 | `history` | the last installs, updates and rollbacks |
 | `crash list\|show\|send\|delete` | every tool's crash reports, in one queue: `show` prints exactly what `send` sends, nothing leaves without `send`, and `reports = never` refuses |
@@ -385,13 +385,17 @@ them with `cargo build --release -p ciginstaller -p cigi-shim` and then
   ([#9](https://github.com/otmof-ops/cig-installer/issues/9)). A program with no
   script on this machine is listed with its advisory so its author can be told,
   and cannot be rebuilt here.
-- **Organization policy is half built
+- **Organization policy is built; one enforcer is not
   ([#17](https://github.com/otmof-ops/cig-installer/issues/17)).**
   `rollout = N%` stages a new carton to a share of machines, chosen by a hash
   of the machine id that never leaves the machine, and `status --json` is the
   inventory an organization's own tools collect. With no automatic install yet,
   the stage gates the update notice; your own `ciginstaller update` always
-  takes the carton. System-wide locked settings wait for
+  takes the carton. A machine layer (`/etc/cigscript/config.toml`, a macOS
+  configuration profile or the Windows registry) sets and locks a pinned
+  carton, `auto_update`, `reports`, a mirror and the guard preset, as
+  [docs/ORGANIZATIONS.md](docs/ORGANIZATIONS.md) describes. The guard preset is
+  recorded and locked here; what it switches on is cigo's, and waits for
   [cig-orchestrator#66](https://github.com/otmof-ops/cig-orchestrator/issues/66).
 - **Not built:** the window
   ([#18](https://github.com/otmof-ops/cig-installer/issues/18)).
