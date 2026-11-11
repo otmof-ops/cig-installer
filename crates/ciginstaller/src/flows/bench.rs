@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: 2026 Jay Taylor (https://github.com/otmof-ops/cig-installer)
 // SPDX-License-Identifier: FSL-1.1-ALv2
 //! `bench` (#35, as far as it can be built today): the installer's own budgets (#20, #32)
-//! measured on this machine, locally, and compared with `bench/bench.toml`.
+//! measured on this machine, locally, and compared with `bench/budgets.toml`.
 //!
 //! Nothing here touches the real home beyond reading it. The shim and the switch are measured
 //! in a scratch home made for the run and removed after it; the marry-up check reads the cached
@@ -21,7 +21,7 @@ use serde_json::{json, Value};
 use crate::cx::{Cx, Globals};
 
 /// The budgets, embedded.
-pub const BUDGETS_TOML: &str = include_str!("../../../../bench/bench.toml");
+pub const BUDGETS_TOML: &str = include_str!("../../../../bench/budgets.toml");
 
 /// A budget a measurement is compared with.
 #[derive(Debug, Clone)]
@@ -34,7 +34,7 @@ pub struct Budget {
     pub source: String,
 }
 
-/// The budgets of `bench/bench.toml`. A malformed file reads as none (a build defect the
+/// The budgets of `bench/budgets.toml`. A malformed file reads as none (a build defect the
 /// tests catch, never a panic for the person running the command).
 pub fn budgets() -> Vec<Budget> {
     let Ok(doc) = BUDGETS_TOML.parse::<toml_edit::DocumentMut>() else {
@@ -480,7 +480,7 @@ fn install_samples(scratch: &Scratch, mirror: &Path, what: &[&str]) -> Result<f6
     }
 }
 
-/// Every measurement, in the order of `bench/bench.toml`.
+/// Every measurement, in the order of `bench/budgets.toml`.
 pub fn run_all(cx: &Cx, opts: &Options) -> Vec<Row> {
     let all = budgets();
     let mut rows = Vec::new();

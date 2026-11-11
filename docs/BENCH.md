@@ -1,0 +1,54 @@
+<!-- SPDX-FileCopyrightText: 2026 Jay Taylor (https://github.com/otmof-ops/cig-installer) -->
+<!-- SPDX-License-Identifier: CC-BY-4.0 -->
+# Measuring the installer
+
+Two things are called a benchmark here, and they are different files.
+
+| file | read by | what it holds |
+|---|---|---|
+| `bench/budgets.toml` | `ciginstaller bench`, which embeds it | the budgets of #20 and #32 (a shim dispatch in 2 ms, `check` in 200 ms, an atomic switch in 100 ms, the binaries' sizes) and what a run is compared with |
+| `bench/bench.toml` | `cig bench` (otmof-ops/cig-script#179) | the installer's suite in the family tool's format, so `cig bench --family` reads it next to cig's, cigo's and cigcompile's |
+
+## `cig bench` on the installer
+
+```sh
+cargo build --release -p ciginstaller && cig bench
+cig bench --timings          where each case's time went
+```
+
+The suite is the start-up group of #32: `--version`, `status` and `list` on a home with nothing
+installed. Each case runs in a scratch home, so the cartons, pins and settings of whoever runs it are
+not read, and each is checked against its expected output before it gets a time. `bench/bench.toml`
+names what it does not hold yet, because each needs an installed carton, a mirror or another
+product's build that a scratch home does not have: cigo's hook on each cig of a carton, a compiled
+program against `cig run`, `update --check` and `which --why`, an update's trial on a 50-script
+project, the window's timings, and a carton's install from a local mirror.
+
+## The installer's phases
+
+With `CIG_TIMINGS_FD` set (`cig bench --timings` sets it), the installer writes its phases to that
+descriptor as timings lines (format 1, `docs/BENCH.md` in cig-script), and only then:
+
+| phase | what |
+|---|---|
+| `start` | the first line of `main` to the parsed command line, the crash hook included |
+| `home` | reading the installer's state |
+| `command` | the command itself |
+| `output` | printing the answer |
+
+What is left of the wall time (exec and exit) is `other` in the report. `--version` and `--help`
+leave before the first phase ends, so they write none. The variable is removed from the installer's
+own environment once read, so a tool it runs does not write the same phases again. A value that is
+not a descriptor of 3 or more, or one that is not open, is ignored. The code is `crates/ciginstaller/src/timings.rs`.
+
+## What `ciginstaller bench` does with the family flags
+
+`--watch`, `--carton`, `--with`, `--matrix`, `--product` and `--only` still say E1867: wrapping
+`cig bench --family` for them, a Bench view in the window and the opt-in check after an update wait
+on a released `cig bench --family` and on the carton resolver (#30). `cig bench --family --product
+ciginstaller=.` does the family view today.
+
+## CI
+
+`.github/workflows/bench-nightly.yml` calls cig-script's reusable `bench.yml` on a schedule and appends
+each run to `history/ciginstaller.jsonl` on the `bench-history` branch.

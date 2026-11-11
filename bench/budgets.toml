@@ -1,0 +1,105 @@
+# SPDX-FileCopyrightText: 2026 Jay Taylor (https://github.com/otmof-ops/cig-installer)
+# SPDX-License-Identifier: FSL-1.1-ALv2
+#
+# The performance budgets (#20, #32) `ciginstaller bench` compares a measurement with. The file
+# is embedded in the binary, so the budgets a build reports are the ones it was built with.
+#
+# how = "bench"  `ciginstaller bench` measures it on this machine
+# how = "test"   a test measures it against a local fixture (crates/ciginstaller/tests/budget_20.rs):
+#                the number depends on a network or a mirror that bench does not touch, or on a
+#                size that only a release build has (ci/size-check.sh)
+#
+# Cross-product cases (cigo's hook on each cig, a compiled program against `cig run`, an
+# update's trial on a 50-script project, the window's timings) join this file when the tools
+# they measure exist (otmof-ops/cig-script#179, #33). `ciginstaller explain E1867` says which.
+
+format = 1
+
+[[budget]]
+id = "shim_dispatch"
+what = "a shim dispatching to the right version"
+limit = 2.0
+unit = "ms"
+how = "bench"
+source = "#20"
+
+[[budget]]
+id = "check"
+what = "ciginstaller check (cached metadata)"
+limit = 200.0
+unit = "ms"
+how = "bench"
+source = "#20"
+
+[[budget]]
+id = "switch"
+what = "an atomic switch to a new carton"
+limit = 100.0
+unit = "ms"
+how = "bench"
+source = "#20"
+
+[[budget]]
+id = "disk_five_cigo"
+what = "disk for five cigo versions, against one"
+limit = 1.5
+unit = "x"
+how = "bench"
+source = "#20"
+
+[[budget]]
+id = "installer_bytes"
+what = "the ciginstaller binary"
+limit = 10000000.0
+unit = "bytes"
+how = "bench"
+source = "#20"
+
+[[budget]]
+id = "shim_bytes"
+what = "the shim binary"
+limit = 500000.0
+unit = "bytes"
+how = "bench"
+source = "SPEC 14.4"
+
+[[budget]]
+id = "first_line_status"
+what = "ciginstaller (the status): first line"
+limit = 50.0
+unit = "ms"
+how = "bench"
+source = "#32"
+
+[[budget]]
+id = "first_line_list"
+what = "ciginstaller list: first line"
+limit = 100.0
+unit = "ms"
+how = "bench"
+source = "#32"
+
+[[budget]]
+id = "install_pack_dev"
+what = "installing pack dev"
+limit = 30000.0
+unit = "ms"
+how = "bench"
+source = "#20"
+# measured from a local mirror only (`bench --from <dir>`); the broadband figure needs the network
+
+[[budget]]
+id = "install_carton"
+what = "installing a whole carton"
+limit = 60000.0
+unit = "ms"
+how = "bench"
+source = "#20"
+
+[[budget]]
+id = "update_check"
+what = "a background update check (network)"
+limit = 1000.0
+unit = "ms"
+how = "test"
+source = "#20"

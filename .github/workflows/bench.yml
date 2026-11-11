@@ -1,5 +1,5 @@
 # The performance budgets (#20), measured on a RELEASE build on every platform: the limits in
-# bench/bench.toml apply only there, and a plain `cargo test` is a debug build. Called by ci.yml on
+# bench/budgets.toml apply only there, and a plain `cargo test` is a debug build. Called by ci.yml on
 # every pull request and every push to main: it takes minutes, so it is not a nightly job.
 #   Linux and macOS: `ciginstaller bench --strict` against a fixture carton (ci/bench-release.sh),
 #                    then the release-mode budget tests (cigi-budgets).

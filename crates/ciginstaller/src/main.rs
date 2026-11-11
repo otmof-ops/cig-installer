@@ -21,6 +21,7 @@ mod errors;
 mod flows;
 mod project;
 mod resolve;
+mod timings;
 
 use std::path::Path;
 
@@ -43,6 +44,7 @@ fn our_name(argv0: &str) -> bool {
 }
 
 fn main() {
+    timings::begin();
     // a crash in the installer is written to the family ashtray from here on (#10, #28)
     crash::hook::install();
     let argv0 = std::env::args().next().unwrap_or_default();
@@ -64,6 +66,7 @@ fn main() {
             std::process::exit(code);
         }
     };
+    timings::mark("start");
     let flags = flags_of(&cli);
     crash::hook::set_context(cli.home.clone(), cli.json, command_name(&cli.command));
     // the crash path's own test: a debug build only, never a release (see `crash::hook`)
@@ -79,7 +82,10 @@ fn main() {
     } else {
         ui
     };
-    std::process::exit(dispatch(cli, ui));
+    let code = dispatch(cli, ui);
+    timings::mark("output");
+    timings::finish();
+    std::process::exit(code);
 }
 
 fn dispatch(cli: Cli, ui: Ui) -> i32 {
@@ -155,6 +161,7 @@ fn dispatch(cli: Cli, ui: Ui) -> i32 {
     }
     let result = (|| -> Result<Outcome, InstallerError> {
         let mut cx = Cx::new(ui.duplicate(), globals, cwd)?;
+        timings::mark("home");
         let result = match &cli.command {
             Some(Command::Install(c)) => cmd::install::run(&mut cx, c),
             Some(Command::Carton(c)) => cmd::carton::run(&mut cx, c),
@@ -260,6 +267,7 @@ fn dispatch(cli: Cli, ui: Ui) -> i32 {
             Some(Command::Programs(c)) => cmd::programs::run(&mut cx, c),
             _ => Ok(Outcome::Report(Report::done("nothing to do"))),
         };
+        timings::mark("command");
         // the first good command of a freshly installed build says it is healthy (SPEC 12.4)
         if result.is_ok()
             && !matches!(

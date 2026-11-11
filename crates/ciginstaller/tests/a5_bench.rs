@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: 2026 Jay Taylor (https://github.com/otmof-ops/cig-installer)
 // SPDX-License-Identifier: FSL-1.1-ALv2
 //! `a5_bench` (#35): `ciginstaller bench` measures the installer's own budgets here, locally and
-//! read-only, compares them with `bench/bench.toml`, and says which views are not built. The
+//! read-only, compares them with `bench/budgets.toml`, and says which views are not built. The
 //! timings are asserted with headroom: these run on the debug build a test gets, so the numbers
 //! are checked for being there and sane, and the strict budgets are the release build's.
 #![cfg(unix)]

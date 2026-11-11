@@ -1,7 +1,7 @@
 #!/bin/sh
 # SPDX-FileCopyrightText: 2026 Jay Taylor (https://github.com/otmof-ops/cig-installer)
 # SPDX-License-Identifier: FSL-1.1-ALv2
-# The performance budgets of #20, measured on a RELEASE build (the limits in bench/bench.toml apply
+# The performance budgets of #20, measured on a RELEASE build (the limits in bench/budgets.toml apply
 # only there), by the `bench` workflow on Linux and macOS. It installs the fixture carton into a
 # scratch home so `check` has cached metadata to read, then runs `ciginstaller bench --strict` and
 # fails loudly if any row is over, if any row this job must measure was not measured, or if the
