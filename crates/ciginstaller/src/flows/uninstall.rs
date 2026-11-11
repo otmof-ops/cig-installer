@@ -452,6 +452,11 @@ fn all(cx: &mut Cx, a: &UninstallArgs) -> Result<Report, InstallerError> {
         plan.push(format!("{} ({})", c.path.display(), c.what));
     }
     let guard = guard_pending(&home, &cx.state);
+    if let Some((_, files)) = super::schedule::recorded(&cx.state) {
+        for f in files {
+            plan.push(format!("{} (the daily update schedule)", f.display()));
+        }
+    }
     if let Ok(es) = cigi_home::humidor::entries(&home) {
         for e in es.iter().filter(|e| e.source == cigi_home::humidor::SOURCE) {
             plan.push(home.humidor().join(&e.version).display().to_string());
@@ -526,11 +531,14 @@ fn all(cx: &mut Cx, a: &UninstallArgs) -> Result<Report, InstallerError> {
     // cigo takes its own guard down before anything is removed; a failure stops here, with the
     // home exactly as it was
     let guard_line = guard_uninstall(&home, &cx.state)?;
+    // the daily update schedule (#7) is turned off in the system first, and its files go in the
+    // transaction below
+    let (schedule_files, schedule_notes) = super::schedule::take_down(&home, &cx.state);
     cx.lock_and_recover()?;
     let entries = snapshot_entries(&home);
     let mut txn = cx.begin("uninstall --all")?;
     let id = txn.id().to_string();
-    let mut notes: Vec<String> = Vec::new();
+    let mut notes: Vec<String> = schedule_notes;
     if let Some(l) = &guard_line {
         notes.push(l.clone());
     }
@@ -548,6 +556,7 @@ fn all(cx: &mut Cx, a: &UninstallArgs) -> Result<Report, InstallerError> {
             Some(0o600),
         )
         .map_err(ie)?;
+        super::schedule::delete_recorded(&mut txn, &home, &schedule_files)?;
         remove_family(&mut txn, &home, &mut notes)?;
         delete_caches(&mut txn, &home, &caches, &mut notes);
         move_installer_aside(&mut txn, &home).map_err(ie)

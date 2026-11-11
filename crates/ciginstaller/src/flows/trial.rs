@@ -39,6 +39,9 @@ pub struct Resolved {
     pub carton: String,
     pub version: Version,
     pub path: PathBuf,
+    /// The cig of the same carton, when the tool needs one beside it: cigo finds it first on
+    /// `PATH`, cigcompile is handed it as `--runtime`.
+    pub cig: Option<PathBuf>,
 }
 
 /// One script that plans differently.
@@ -81,12 +84,12 @@ pub trait Trial {
     ) -> TrialOutcome;
 }
 
-/// The trials of this build: cig's, and stubs for the tools that have no entry point yet.
+/// The trials of this build: cig's, cigo's and CigCompile's.
 pub fn registered(trust: Trusted) -> Vec<Box<dyn Trial>> {
     vec![
         Box::new(CigTrial { trust }),
-        Box::new(CigoTrial),
-        Box::new(CigcompileTrial),
+        Box::new(CigoTrial { trust }),
+        Box::new(CigcompileTrial { trust }),
     ]
 }
 
@@ -108,29 +111,232 @@ pub fn run_all(
     total
 }
 
-pub struct CigoTrial;
-impl Trial for CigoTrial {
-    fn tool(&self) -> &str {
-        "cigo"
-    }
-    fn run(&self, _: &Resolved, _: &Resolved, _: &ProjectCtx, _: Duration) -> TrialOutcome {
-        TrialOutcome {
-            skipped: vec!["cigo: no machine-readable trial entry yet".to_string()],
-            ..TrialOutcome::default()
+/// One thing a trial runs on both builds: the same arguments, in `dir`.
+struct Probe {
+    label: String,
+    args: Vec<String>,
+    dir: PathBuf,
+}
+
+/// Run each probe with the old and then the new build and record what differs. Stops, and says
+/// so, when the budget runs out. A probe whose run cannot start or finishes late is skipped with
+/// the reason; it never fails the trial.
+fn run_probes(
+    tool: &str,
+    probes: &[Probe],
+    old: &Resolved,
+    new: &Resolved,
+    scratch: &Scratch,
+    budget: Duration,
+    out: &mut TrialOutcome,
+) {
+    let start = Instant::now();
+    for (i, p) in probes.iter().enumerate() {
+        let left = budget.saturating_sub(start.elapsed());
+        if left.is_zero() {
+            out.skipped.push(format!(
+                "{tool}: {} run(s) not made: the trial budget of {}s ran out",
+                probes.len() - i,
+                budget.as_secs()
+            ));
+            break;
+        }
+        let limit = RUN_LIMIT.min(left);
+        let a = exec(old, &p.args, &p.dir, &scratch.0, limit);
+        let b = exec(new, &p.args, &p.dir, &scratch.0, limit);
+        let (a, b) = match (a, b) {
+            (Ok(a), Ok(b)) => (a, b),
+            (Err(e), _) => {
+                out.skipped.push(format!(
+                    "{tool}: {}: the old {tool} {}: {e}",
+                    p.label, old.version
+                ));
+                continue;
+            }
+            (_, Err(e)) => {
+                out.skipped.push(format!(
+                    "{tool}: {}: the new {tool} {}: {e}",
+                    p.label, new.version
+                ));
+                continue;
+            }
+        };
+        out.compared += 1;
+        match difference(&p.label, tool, old, new, &a, &b, &scratch.0) {
+            None => out.same += 1,
+            Some(d) => out.different.push(d),
         }
     }
 }
 
-pub struct CigcompileTrial;
+/// Task names a project's `cig-tasks.json` declares at the top level, for the chains the cigo
+/// trial plans. Only plain names are used (`[A-Za-z0-9_.:-]`, not starting with `-`).
+fn declared_tasks(manifest: &Path) -> Vec<String> {
+    let Ok(md) = std::fs::metadata(manifest) else {
+        return Vec::new();
+    };
+    if md.len() > MAX_SCRIPT_BYTES {
+        return Vec::new();
+    }
+    let Ok(text) = std::fs::read_to_string(manifest) else {
+        return Vec::new();
+    };
+    let Ok(v) = serde_json::from_str::<serde_json::Value>(&text) else {
+        return Vec::new();
+    };
+    v.get("tasks")
+        .and_then(|t| t.as_object())
+        .map(|o| {
+            o.keys()
+                .filter(|k| {
+                    !k.is_empty()
+                        && !k.starts_with('-')
+                        && k.chars()
+                            .all(|c| c.is_ascii_alphanumeric() || "_.:-".contains(c))
+                })
+                .take(MAX_CHAINS)
+                .cloned()
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+/// Chains the cigo trial plans besides `ci`, the whole pipeline.
+pub const MAX_CHAINS: usize = 6;
+
+/// cigo's trial: `cigo check` on the project's `cig-tasks.json`, then a dry run of the `ci` chain
+/// and of each task the manifest declares (`cigo --dry-run run <chain>`: every task planned, none
+/// executed), old build and new build, compared as cig's are. A project without a
+/// `cig-tasks.json` has nothing for cigo to read and is skipped.
+pub struct CigoTrial {
+    pub trust: Trusted,
+}
+
+impl Trial for CigoTrial {
+    fn tool(&self) -> &str {
+        "cigo"
+    }
+    fn run(
+        &self,
+        old: &Resolved,
+        new: &Resolved,
+        project: &ProjectCtx,
+        budget: Duration,
+    ) -> TrialOutcome {
+        let mut out = TrialOutcome::default();
+        let manifest = project.root.join("cig-tasks.json");
+        if !trusted_entry(&manifest, self.trust, false) {
+            out.skipped
+                .push("cigo: no cig-tasks.json in the project".to_string());
+            return out;
+        }
+        let mut probes = vec![Probe {
+            label: "cigo check".to_string(),
+            args: vec!["check".to_string()],
+            dir: project.root.clone(),
+        }];
+        let mut chains = vec!["ci".to_string()];
+        chains.extend(declared_tasks(&manifest).into_iter().filter(|t| t != "ci"));
+        for c in chains {
+            probes.push(Probe {
+                label: format!("cigo --dry-run run {c}"),
+                args: ["--dry-run", "--plain", "--no-color", "--no-doctor", "run"]
+                    .iter()
+                    .map(|s| s.to_string())
+                    .chain([c])
+                    .collect(),
+                dir: project.root.clone(),
+            });
+        }
+        let scratch = match Scratch::new() {
+            Ok(s) => s,
+            Err(e) => {
+                out.skipped
+                    .push(format!("cigo: cannot make a scratch directory: {e}"));
+                return out;
+            }
+        };
+        run_probes("cigo", &probes, old, new, &scratch, budget, &mut out);
+        out
+    }
+}
+
+/// Scripts the CigCompile trial builds and tests; building is heavier than a dry run.
+pub const MAX_COMPILED: usize = 10;
+
+/// CigCompile's trial: `cigcompile test` on the person's own `.cig` programs with each build
+/// (it compiles the script, then compares the script's dry run with the program's: same plan,
+/// output and exit). The programs go to the trial's scratch folder, never into the project.
+/// The two builds' answers are compared, and a script that tests differently on the new one is
+/// shown first.
+pub struct CigcompileTrial {
+    pub trust: Trusted,
+}
+
 impl Trial for CigcompileTrial {
     fn tool(&self) -> &str {
         "cigcompile"
     }
-    fn run(&self, _: &Resolved, _: &Resolved, _: &ProjectCtx, _: Duration) -> TrialOutcome {
-        TrialOutcome {
-            skipped: vec!["cigcompile: no machine-readable trial entry yet".to_string()],
-            ..TrialOutcome::default()
+    fn run(
+        &self,
+        old: &Resolved,
+        new: &Resolved,
+        project: &ProjectCtx,
+        budget: Duration,
+    ) -> TrialOutcome {
+        let mut out = TrialOutcome::default();
+        let (mut scripts, truncated) = find_scripts(&project.root, self.trust);
+        if truncated {
+            out.skipped.push(format!(
+                "cigcompile: the project has more than {MAX_VISITED} entries; only what the search reached was sampled"
+            ));
         }
+        if scripts.is_empty() {
+            out.skipped
+                .push("cigcompile: no .cig programs found in the project".to_string());
+            return out;
+        }
+        if scripts.len() > MAX_COMPILED {
+            out.skipped.push(format!(
+                "cigcompile: {} program(s) not tested: the trial tests the newest {MAX_COMPILED}",
+                scripts.len() - MAX_COMPILED
+            ));
+            scripts.truncate(MAX_COMPILED);
+        }
+        let scratch = match Scratch::new() {
+            Ok(s) => s,
+            Err(e) => {
+                out.skipped
+                    .push(format!("cigcompile: cannot make a scratch directory: {e}"));
+                return out;
+            }
+        };
+        // the same output path for both builds, so a line that names it cannot differ; the old
+        // build runs first and the new one overwrites
+        let probes: Vec<Probe> = scripts
+            .iter()
+            .enumerate()
+            .map(|(i, script)| {
+                let name = script
+                    .file_name()
+                    .map(|n| n.to_string_lossy().to_string())
+                    .unwrap_or_default();
+                let target = scratch.0.join("tmp").join(format!("program-{i}"));
+                let mut args = vec![
+                    "test".to_string(),
+                    "--out".to_string(),
+                    target.to_string_lossy().to_string(),
+                ];
+                args.push(format!("./{name}"));
+                Probe {
+                    label: format!("{} (cigcompile test)", rel_label(&project.root, script)),
+                    args,
+                    dir: script.parent().unwrap_or(Path::new(".")).to_path_buf(),
+                }
+            })
+            .collect();
+        run_probes("cigcompile", &probes, old, new, &scratch, budget, &mut out);
+        out
     }
 }
 
@@ -203,64 +409,84 @@ impl Trial for CigTrial {
                 }
             };
             out.compared += 1;
-            let strip = [old.version.to_string(), new.version.to_string()];
-            let scratch_s = scratch.0.to_string_lossy().to_string();
-            let (ao, bo) = (
-                normalize(&a.stdout, &strip, &scratch_s),
-                normalize(&b.stdout, &strip, &scratch_s),
-            );
-            let (ae, be) = (
-                normalize(&a.stderr, &strip, &scratch_s),
-                normalize(&b.stderr, &strip, &scratch_s),
-            );
-            if a.exit == b.exit && ao == bo && ae == be {
-                out.same += 1;
-                continue;
+            match difference(&rel, "cig", old, new, &a, &b, &scratch.0) {
+                None => out.same += 1,
+                Some(d) => out.different.push(d),
             }
-            let mut what = Vec::new();
-            if a.exit != b.exit {
-                what.push(format!("exit {} -> {}", code(a.exit), code(b.exit)));
-            }
-            if ao != bo {
-                what.push("stdout".to_string());
-            }
-            if ae != be {
-                what.push("plan and diagnostics (stderr)".to_string());
-            }
-            let ol = format!("cig {}", old.version);
-            let nl = format!("cig {}", new.version);
-            let mut diff = String::new();
-            if ao != bo {
-                diff.push_str(&unified_diff(
-                    &format!("{ol} stdout"),
-                    &format!("{nl} stdout"),
-                    &ao,
-                    &bo,
-                ));
-            }
-            if ae != be {
-                diff.push_str(&unified_diff(
-                    &format!("{ol} stderr"),
-                    &format!("{nl} stderr"),
-                    &ae,
-                    &be,
-                ));
-            }
-            if a.exit != b.exit {
-                diff.push_str(&format!(
-                    "exit code: {} -> {}\n",
-                    code(a.exit),
-                    code(b.exit)
-                ));
-            }
-            out.different.push(Difference {
-                script: rel,
-                what: what.join(", "),
-                diff,
-            });
         }
         out
     }
+}
+
+/// Compare two runs of one probe. `None` when exit code and both normalized streams are equal;
+/// else the difference, with what differs in one line and the unified diffs.
+fn difference(
+    label: &str,
+    tool: &str,
+    old: &Resolved,
+    new: &Resolved,
+    a: &RunOutput,
+    b: &RunOutput,
+    scratch: &Path,
+) -> Option<Difference> {
+    let strip = [old.version.to_string(), new.version.to_string()];
+    let scratch_s = scratch.to_string_lossy().to_string();
+    let (ao, bo) = (
+        normalize(&a.stdout, &strip, &scratch_s),
+        normalize(&b.stdout, &strip, &scratch_s),
+    );
+    let (ae, be) = (
+        normalize(&a.stderr, &strip, &scratch_s),
+        normalize(&b.stderr, &strip, &scratch_s),
+    );
+    if a.exit == b.exit && ao == bo && ae == be {
+        return None;
+    }
+    let mut what = Vec::new();
+    if a.exit != b.exit {
+        what.push(format!("exit {} -> {}", code(a.exit), code(b.exit)));
+    }
+    if ao != bo {
+        what.push("stdout".to_string());
+    }
+    if ae != be {
+        what.push(if tool == "cig" {
+            "plan and diagnostics (stderr)".to_string()
+        } else {
+            "stderr".to_string()
+        });
+    }
+    let ol = format!("{tool} {}", old.version);
+    let nl = format!("{tool} {}", new.version);
+    let mut diff = String::new();
+    if ao != bo {
+        diff.push_str(&unified_diff(
+            &format!("{ol} stdout"),
+            &format!("{nl} stdout"),
+            &ao,
+            &bo,
+        ));
+    }
+    if ae != be {
+        diff.push_str(&unified_diff(
+            &format!("{ol} stderr"),
+            &format!("{nl} stderr"),
+            &ae,
+            &be,
+        ));
+    }
+    if a.exit != b.exit {
+        diff.push_str(&format!(
+            "exit code: {} -> {}\n",
+            code(a.exit),
+            code(b.exit)
+        ));
+    }
+    Some(Difference {
+        script: label.to_string(),
+        what: what.join(", "),
+        diff,
+    })
 }
 
 fn code(c: Option<i32>) -> String {
@@ -454,6 +680,25 @@ fn run_one(
         .file_name()
         .map(|n| n.to_string_lossy().to_string())
         .unwrap_or_default();
+    // "./name": a file called `-x.cig` is a path, not a flag
+    let args: Vec<String> = ["run", "--dry-run", "--plain", "--no-color", "--no-doctor"]
+        .iter()
+        .map(|s| s.to_string())
+        .chain([format!("./{name}")])
+        .collect();
+    exec(who, &args, dir, scratch, limit)
+}
+
+/// One run of a tool build: `args` in `dir`, with a scratch home, a short allow-list of the
+/// environment (the cig of the same carton first on `PATH` when `who.cig` names one), stdin closed
+/// and a time limit.
+fn exec(
+    who: &Resolved,
+    args: &[String],
+    dir: &Path,
+    scratch: &Path,
+    limit: Duration,
+) -> Result<RunOutput, String> {
     let mut cmd = limited(&who.path);
     cmd.env_clear();
     // a short allow-list from the parent; everything else of the user's environment stays out
@@ -462,13 +707,20 @@ fn run_one(
             cmd.env(k, v);
         }
     }
+    if let Some(cig_dir) = who.cig.as_deref().and_then(Path::parent) {
+        let rest = std::env::var_os("PATH").unwrap_or_default();
+        let joined = std::env::join_paths(
+            std::iter::once(cig_dir.to_path_buf()).chain(std::env::split_paths(&rest)),
+        );
+        if let Ok(j) = joined {
+            cmd.env("PATH", j);
+        }
+    }
     cmd.env(
         "TERM",
         std::env::var_os("TERM").unwrap_or_else(|| "dumb".into()),
     );
-    cmd.args(["run", "--dry-run", "--plain", "--no-color", "--no-doctor"])
-        // "./name": a file called `-x.cig` is a path, not a flag
-        .arg(format!("./{name}"))
+    cmd.args(args)
         .current_dir(dir)
         .env("HOME", scratch.join("user"))
         .env("CIGSCRIPT_HOME", scratch.join("home"))
@@ -796,7 +1048,187 @@ mod tests {
             carton: "0.1.0".into(),
             version: Version::parse("1.20.0").unwrap(),
             path: p,
+            cig: None,
         }
+    }
+
+    /// A fixture of another tool: a shell script that prints what a real one prints.
+    #[cfg(unix)]
+    fn fake_tool(dir: &Path, tool: &str, name: &str, version: &str, body: &str) -> Resolved {
+        let mut r = fake_cig(dir, name, body);
+        r.tool = tool.into();
+        r.version = Version::parse(version).unwrap();
+        r
+    }
+
+    #[cfg(unix)]
+    fn project(d: &Path, files: &[(&str, &str)]) -> ProjectCtx {
+        let proj = d.join("p");
+        std::fs::create_dir_all(&proj).unwrap();
+        for (f, body) in files {
+            std::fs::write(proj.join(f), body).unwrap();
+        }
+        ProjectCtx {
+            root: proj,
+            ..ProjectCtx::default()
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn cigo_trial_runs_check_and_the_dry_run_of_each_chain_and_finds_the_one_that_differs() {
+        let d = tempfile::tempdir().unwrap();
+        let ctx = project(
+            d.path(),
+            &[(
+                "cig-tasks.json",
+                r#"{"project":"p","tasks":{"build":{},"-flag":{},"has space":{},"ci":{}}}"#,
+            )],
+        );
+        // the new carton's cig, which the new cigo must find first on PATH
+        std::fs::create_dir_all(d.path().join("newcig")).unwrap();
+        let newcig = fake_tool(&d.path().join("newcig"), "cig", "cig", "1.21.0", "echo cig");
+        let old = fake_tool(
+            d.path(),
+            "cigo",
+            "cigo-old",
+            "1.17.0",
+            r#"if [ "$1" = check ]; then echo "check: ok"; exit 0; fi
+for a; do l=$a; done
+echo "plan $l: 2 tasks (cigo 1.17.0)""#,
+        );
+        let mut new = fake_tool(
+            d.path(),
+            "cigo",
+            "cigo-new",
+            "1.18.0",
+            r#"if [ "$1" = check ]; then echo "check: ok"; exit 0; fi
+for a; do l=$a; done
+case "$l" in
+  build) echo "plan build: 3 tasks (cigo 1.18.0)"; echo "args: $*"; echo "cig=$(command -v cig)" ;;
+  *) echo "plan $l: 2 tasks (cigo 1.18.0)" ;;
+esac"#,
+        );
+        new.cig = Some(newcig.path.clone());
+        let o = CigoTrial {
+            trust: trusted_for(d.path()),
+        }
+        .run(&old, &new, &ctx, Duration::from_secs(30));
+        // check, `ci` and `build`: a name with a leading dash or a space is never a chain
+        assert_eq!((o.compared, o.same), (3, 2), "{o:?}");
+        assert_eq!(o.different.len(), 1, "{o:?}");
+        let d0 = &o.different[0];
+        assert_eq!(d0.script, "cigo --dry-run run build");
+        assert!(d0.diff.contains("+plan build: 3 tasks"), "{}", d0.diff);
+        assert!(
+            d0.diff
+                .contains("+args: --dry-run --plain --no-color --no-doctor run build"),
+            "{}",
+            d0.diff
+        );
+        assert!(
+            d0.diff.contains(&format!("+cig={}", newcig.path.display())),
+            "the carton's cig comes first on PATH: {}",
+            d0.diff
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn cigo_trial_reports_a_changed_check_and_skips_a_project_with_no_manifest() {
+        let d = tempfile::tempdir().unwrap();
+        let ctx = project(d.path(), &[("cig-tasks.json", "{}")]);
+        let old = fake_tool(d.path(), "cigo", "o", "1.17.0", r#"echo "fine""#);
+        let new = fake_tool(
+            d.path(),
+            "cigo",
+            "n",
+            "1.18.0",
+            r#"if [ "$1" = check ]; then echo "E999: unknown key" >&2; exit 1; fi
+echo "fine""#,
+        );
+        let trial = CigoTrial {
+            trust: trusted_for(d.path()),
+        };
+        let o = trial.run(&old, &new, &ctx, Duration::from_secs(30));
+        assert_eq!((o.compared, o.same, o.different.len()), (2, 1, 1), "{o:?}");
+        assert_eq!(o.different[0].script, "cigo check");
+        assert!(o.different[0].what.contains("exit 0 -> 1"), "{o:?}");
+        assert!(o.different[0].diff.contains("+E999: unknown key"));
+
+        let none = ProjectCtx {
+            root: d.path().join("empty"),
+            ..ProjectCtx::default()
+        };
+        let o = trial.run(&old, &new, &none, Duration::from_secs(30));
+        assert_eq!(o.compared, 0);
+        assert_eq!(o.skipped, ["cigo: no cig-tasks.json in the project"]);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn cigcompile_trial_tests_each_program_into_scratch_and_shows_the_difference() {
+        let d = tempfile::tempdir().unwrap();
+        let ctx = project(d.path(), &[("a.cig", "x\n"), ("b.cig", "x\n")]);
+        let before: Vec<_> = std::fs::read_dir(&ctx.root)
+            .unwrap()
+            .flatten()
+            .map(|e| e.file_name())
+            .collect();
+        let body = |extra: &str| {
+            format!(
+                r#"[ "$1" = test ] || exit 2
+out=$2; [ "$2" = --out ] && out=$3
+echo built > "$out" || exit 3
+for a; do l=$a; done
+echo "built $out"
+case "$l" in
+  ./b.cig) {extra} ;;
+  *) echo "same     $l (dry run: the same plan, output and exit)" ;;
+esac"#
+            )
+        };
+        let old = fake_tool(
+            d.path(),
+            "cigcompile",
+            "cc-old",
+            "0.2.0",
+            &body(r#"echo "same     ./b.cig (dry run: the same plan, output and exit)""#),
+        );
+        let new = fake_tool(
+            d.path(),
+            "cigcompile",
+            "cc-new",
+            "0.3.0",
+            &body(r#"echo "DIFFERS  ./b.cig"; echo "  stdout differs"; exit 1"#),
+        );
+        let o = CigcompileTrial {
+            trust: trusted_for(d.path()),
+        }
+        .run(&old, &new, &ctx, Duration::from_secs(30));
+        assert_eq!((o.compared, o.same), (2, 1), "{o:?}");
+        assert_eq!(o.different.len(), 1);
+        assert_eq!(o.different[0].script, "b.cig (cigcompile test)");
+        assert!(o.different[0].what.contains("exit 0 -> 1"));
+        assert!(o.different[0].diff.contains("+DIFFERS  ./b.cig"));
+        // the programs went to scratch: nothing was added to the project
+        let after: Vec<_> = std::fs::read_dir(&ctx.root)
+            .unwrap()
+            .flatten()
+            .map(|e| e.file_name())
+            .collect();
+        assert_eq!(before.len(), after.len(), "{after:?}");
+        // a project with no programs says so
+        let empty = ProjectCtx {
+            root: d.path().join("none"),
+            ..ProjectCtx::default()
+        };
+        let o = CigcompileTrial {
+            trust: trusted_for(d.path()),
+        }
+        .run(&old, &new, &empty, Duration::from_secs(30));
+        assert_eq!(o.compared, 0);
+        assert!(o.skipped[0].contains("no .cig programs"), "{o:?}");
     }
 
     #[cfg(unix)]
@@ -878,18 +1310,9 @@ mod tests {
     }
 
     #[test]
-    fn the_other_tools_are_registered_stubs() {
+    fn the_three_trials_are_registered() {
         let r = registered(trusted_for(Path::new("/")));
         let tools: Vec<&str> = r.iter().map(|t| t.tool()).collect();
         assert_eq!(tools, ["cig", "cigo", "cigcompile"]);
-        let any = Resolved {
-            tool: "cigo".into(),
-            carton: "0.1.0".into(),
-            version: Version::parse("1.0.0").unwrap(),
-            path: PathBuf::from("/nonexistent"),
-        };
-        let o = CigoTrial.run(&any, &any, &ProjectCtx::default(), Duration::from_secs(1));
-        assert_eq!(o.skipped, ["cigo: no machine-readable trial entry yet"]);
-        assert_eq!(o.compared, 0);
     }
 }

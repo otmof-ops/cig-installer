@@ -280,7 +280,7 @@ lists them all.
 | `carton`, `carton list`, `carton show <v>`, `carton <v>` | which carton this machine is on, what exists, what is inside one, and moving to another |
 | `channel [stable\|beta\|nightly]` | the channel this machine follows, or switch it. Nothing is installed |
 | `use <carton>` | make an installed carton the machine's, with no download |
-| `update` | check, choose, verify, trial and switch. `--check` only looks, `--to` names a carton, `--no-trial` skips the trial |
+| `update` | check, choose, verify, trial and switch. `--check` only looks, `--to` names a carton, `--no-trial` skips the trial, `--auto` is what the daily job runs |
 | `rollback [tool]` | back to the previous carton, or one tool's previous build |
 | `pin carton <pin>`, `pin <tool> <version>` | write a project pin file: the carton, or one tool's (`cig`, `cigo`, `cigar`) |
 | `list`, `which [tool]`, `check` | what is installed, what runs here and why (every tool when none is named), and whether the combination fits |
@@ -347,14 +347,28 @@ them with `cargo build --release -p ciginstaller -p cigi-shim` and then
   reaches `pinned`. Signed metadata, with protection against replayed or
   frozen releases, is [#9](https://github.com/otmof-ops/cig-installer/issues/9)
   and is not built. [SECURITY.md](SECURITY.md) has the detail.
-- **The trial covers `cig`.** An update runs the new `cig` on your project's
-  scripts. Trials of `cigo` and `cigcompile` wait for entry points in those
-  tools.
-- **Updates are checked when you run a command.** There is no background
-  service. `auto_update` accepts `security` and `all`, and both behave as
-  `notify`.
+- **The trial covers `cig`, `cigo` and `cigcompile`.** An update runs the new
+  `cig` on your project's scripts, the new `cigo` (`cigo check`, then
+  `cigo --dry-run run` of the `ci` chain and of each task your
+  `cig-tasks.json` declares) and the new `cigcompile` (`cigcompile test` on
+  your programs, built in a scratch folder), each beside the old build, and
+  shows what differs before it switches. A tool the project does not use
+  (no `cig-tasks.json`, no `.cig` programs) is skipped, and the trial says so.
+- **Updates are checked when you run a command, and can run on a schedule you
+  opt into.** `auto_update = notify` (the default) says once a day that a
+  carton is out. `security` installs a carton that clears a security advisory
+  in the signed manifest, and `all` installs every new carton. Both run
+  `ciginstaller update --auto`: the same trial and the same rollback, so a
+  carton that fails its trial is rolled back and the next terminal says so
+  once. Setting either writes a daily job through the journal: a systemd user
+  timer on Linux (`~/.config/systemd/user/cigi-update.timer`), a launchd agent
+  on macOS and a Task Scheduler task on Windows. It runs at most daily, with
+  a random delay of up to two hours, on mains power and when the machine is
+  idle (systemd has no idle condition, so on Linux it runs at idle CPU and I/O
+  priority). `auto_update = off` or `notify` takes it away, and so does
+  `uninstall --all`. A value your administrator locks is the one obeyed.
 - **`cig unburn` cannot undo an update yet.** `ciginstaller rollback` is the
-  undo.
+  undo; the installer's journal is not a run record that cig can read.
 - **The first carton holds `cig`, `cigo` and `cigcompile`.** CigarScript joins
   it when it has a release.
 - **Crash reports file through `gh` or your token, not yet the courier.**

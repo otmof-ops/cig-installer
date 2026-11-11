@@ -706,15 +706,31 @@ fn stage(
         if !trials.iter().any(|t| t.tool() == c.tool) {
             continue;
         }
-        let side = |v: &Version, carton: &Version| {
+        // the cig of each side's carton, for the tools that run one (cigo, CigCompile)
+        let cig_of = |v: Option<Version>| {
+            if c.tool == "cig" {
+                return None;
+            }
+            v.and_then(|v| tool_exe(&cx.home, "cig", &v))
+        };
+        let old_cig = cig_of(m.build_in(cur, "cig").cloned().or_else(|| {
+            cx.state
+                .cartons
+                .get(&cur.to_string())
+                .and_then(|r| r.tools.get("cig"))
+                .and_then(|v| Version::parse(v).ok())
+        }));
+        let new_cig = cig_of(target.products.get("cig").cloned());
+        let side = |v: &Version, carton: &Version, cig: Option<PathBuf>| {
             tool_exe(&cx.home, &c.tool, v).map(|path| Resolved {
                 tool: c.tool.clone(),
                 carton: carton.to_string(),
                 version: v.clone(),
                 path,
+                cig,
             })
         };
-        match (side(from, cur), side(to, &target.version)) {
+        match (side(from, cur, old_cig), side(to, &target.version, new_cig)) {
             (Some(o), Some(n)) => pairs.push((o, n)),
             _ => skipped.push(format!(
                 "{}: the old or the new build has no readable receipt",

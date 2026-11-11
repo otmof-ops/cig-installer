@@ -87,6 +87,11 @@ pub fn maybe_notify(cx: &Cx) {
     else {
         return;
     };
+    // an automatic update that was rolled back is said once, whatever the daily notice does
+    if let Some(line) = super::auto::pending_notice(cx) {
+        cx.ui.notice(&line);
+        super::auto::mark_notice_shown(cx);
+    }
     let day = today();
     let mut n = read(cx);
     if n.noticed.as_deref() == Some(day.as_str()) {

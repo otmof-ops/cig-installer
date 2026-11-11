@@ -10,8 +10,10 @@ pub mod install;
 pub mod mirror;
 pub mod programs;
 // ---- the update lifecycle ----
+pub mod auto;
 pub mod notice;
 pub mod rollback;
+pub mod schedule;
 pub mod switch;
 pub mod trial;
 pub mod tripwire;
