@@ -354,6 +354,13 @@ pub fn run(cx: &mut Cx, a: &UpdateArgs) -> Result<Updated, InstallerError> {
         Some(new_cig) => super::family::announce_fixed(&cx.home, &new_cig),
         None => Vec::new(),
     };
+    // and every other tool's reported bugs this carton fixed, said by the installer (#12)
+    let fixed = super::fixed::fixes(&cx.home.root(), &m, &target);
+    super::fixed::mark(&cx.home.root(), &fixed);
+    let announced: Vec<String> = announced
+        .into_iter()
+        .chain(fixed.iter().map(|f| super::fixed::line(f, true)))
+        .collect();
 
     // report, with the rollback hint
     let mut r = Report::done(format!("updated carton {cur} to {tv}")).detail(fresh.clone());

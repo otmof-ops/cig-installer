@@ -36,6 +36,8 @@ pub struct ReleaseInfo {
     pub published: String,
     pub prerelease: bool,
     pub assets: BTreeMap<String, AssetInfo>,
+    /// The release's notes, where `Fixes #12` names an issue the build fixes (#12).
+    pub notes: String,
 }
 
 /// Where releases are read from: GitHub through the maintainer's `gh` ([`crate::gh::Gh`]), or a
@@ -181,7 +183,7 @@ fn fetch_build(
     channel: &str,
     rel: &dyn Releases,
     report: &mut Vec<String>,
-) -> Result<Table, String> {
+) -> Result<(Table, String), String> {
     let first = def
         .targets
         .first()
@@ -260,7 +262,7 @@ fn fetch_build(
             missing.join(", ")
         ));
     }
-    Ok(t)
+    Ok((t, release.notes.clone()))
 }
 
 /// The two candidate channels. The name is also the channel's and the carton number's label.
@@ -494,6 +496,7 @@ pub fn assemble(req: &Request, rel: &dyn Releases) -> Result<Assembled, String> 
         }
     }
 
+    let mut fixes: Vec<(String, Version, String, u64)> = Vec::new();
     for (tool, v) in &req.members {
         let def = defs
             .tools
@@ -540,9 +543,13 @@ pub fn assemble(req: &Request, rel: &dyn Releases) -> Result<Assembled, String> 
             ));
             continue;
         }
-        let build = fetch_build(tool, v, def, &req.channel, rel, &mut report)?;
+        let (build, notes) = fetch_build(tool, v, def, &req.channel, rel, &mut report)?;
         table_at(&mut doc, &["build", tool])?.insert(vs, Value::Table(build));
+        for (repo, n) in fixed_refs(&notes, &def.repo) {
+            fixes.push((tool.clone(), v.clone(), repo, n));
+        }
     }
+    record_fixes(&mut doc, &fixes, &mut report)?;
 
     let mut c = Table::new();
     c.insert("released".into(), datetime(&today)?);
@@ -588,6 +595,94 @@ pub fn assemble(req: &Request, rel: &dyn Releases) -> Result<Assembled, String> 
         sha256,
         report,
     })
+}
+
+/// The issues a release's notes say the build fixes, GitHub's way: a keyword (`fix`, `fixes`,
+/// `fixed`, `close`, `closes`, `closed`, `resolve`, `resolves`, `resolved`) and one reference
+/// after it (`#12`, `otmof-ops/cig-script#7`). A reference with no repository is the release's own.
+pub fn fixed_refs(notes: &str, own: &str) -> Vec<(String, u64)> {
+    const KEYS: [&str; 9] = [
+        "fix", "fixes", "fixed", "close", "closes", "closed", "resolve", "resolves", "resolved",
+    ];
+    let mut out: Vec<(String, u64)> = Vec::new();
+    let words: Vec<&str> = notes.split_whitespace().collect();
+    for w in words.windows(2) {
+        let key = w[0]
+            .trim_start_matches(|c: char| !c.is_ascii_alphabetic())
+            .trim_end_matches(|c: char| !c.is_ascii_alphabetic())
+            .to_ascii_lowercase();
+        if !KEYS.contains(&key.as_str()) {
+            continue;
+        }
+        let r = w[1].trim_end_matches(|c: char| matches!(c, ',' | '.' | ';' | ':' | ')' | '*'));
+        let Some((repo, num)) = r.split_once('#') else {
+            continue;
+        };
+        let Ok(n) = num.parse::<u64>() else {
+            continue;
+        };
+        let repo = if repo.is_empty() {
+            own.to_string()
+        } else if repo.split('/').count() == 2
+            && repo
+                .chars()
+                .all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.' | '/'))
+        {
+            repo.to_string()
+        } else {
+            continue;
+        };
+        if !out.contains(&(repo.clone(), n)) {
+            out.push((repo, n));
+        }
+    }
+    out
+}
+
+/// Each fix a new build's notes name becomes an advisory with no `affects` (#12): it is told to the
+/// person who reported the issue when a carton carries the build, and shown to nobody else. An
+/// advisory already naming the issue is left as it is.
+fn record_fixes(
+    doc: &mut Table,
+    fixes: &[(String, Version, String, u64)],
+    report: &mut Vec<String>,
+) -> Result<(), String> {
+    if fixes.is_empty() {
+        return Ok(());
+    }
+    let list = doc
+        .entry("advisory")
+        .or_insert_with(|| Value::Array(Vec::new()));
+    let Value::Array(list) = list else {
+        return Err("the previous manifest's `advisory` is not an array of tables".into());
+    };
+    for (tool, v, repo, n) in fixes {
+        let id = format!("{repo}#{n}");
+        if list
+            .iter()
+            .any(|a| a.get("id").and_then(Value::as_str) == Some(id.as_str()))
+        {
+            continue;
+        }
+        let mut a = Table::new();
+        a.insert("id".into(), Value::String(id.clone()));
+        a.insert("affects".into(), Value::Array(Vec::new()));
+        a.insert("fixed_in".into(), Value::String(v.to_string()));
+        a.insert("severity".into(), Value::String("bug".into()));
+        a.insert(
+            "summary".into(),
+            Value::String(format!("fixed in {tool} {v}")),
+        );
+        a.insert(
+            "url".into(),
+            Value::String(format!("https://github.com/{repo}/issues/{n}")),
+        );
+        list.push(Value::Table(a));
+        report.push(format!(
+            "{tool} {v}: its release notes say it fixes {id}; recorded for that issue's reporter"
+        ));
+    }
+    Ok(())
 }
 
 /// The `.sha256` sidecar of a manifest file, as `sha256sum` writes it.

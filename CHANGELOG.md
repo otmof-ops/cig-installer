@@ -6,6 +6,20 @@ All notable changes to cig-installer. The format follows Keep a Changelog; the
 project follows semantic versioning. Nothing is released yet, so everything
 below is under Unreleased, and the first version will take it as its section.
 
+### A bug you reported is told to you when a carton fixes it, for every tool (#12)
+
+- After an update, a report this machine filed against cigo, cigcompile, cigar or the installer
+  whose fix the new carton carries is said once: "the bug you reported (cig-orchestrator#12,
+  <title>) is fixed in cigo 1.18.0, which this update installed with carton 0.2.0". cig's own
+  reports stay cig's (`cig crash announce-fixed`).
+- The daily notice that a newer carton is out also says which of your reported bugs it fixes, in
+  the issue's words: "... is fixed in cigo 1.4.2, which is in carton 1.1.3. update: ciginstaller
+  update". Each report is told once: `announced` and `fixed_in` are written into it.
+- The fixed version comes from the manifest's advisories: one whose `url` is the issue's, or whose
+  `id` is `owner/repo#N` or `repo#N`, with `fixed_in`. `cargo xtask manifest assemble` writes them
+  from each new build's release notes (`Fixes #12`, `closes owner/repo#7`, GitHub's closing
+  keywords), with no `affects`, so they reach the reporter and nobody else.
+
 ### Shims know their home, and a moved home never runs the old one (#46, #47)
 
 - A shim finds its home from where it sits (`<home>/bin/<name>`); `CIGSCRIPT_HOME` still overrides, and `CIGI_SHIM_VERBOSE=1` and `doctor` name both when they differ. The shim passes the home it found to the installer and the tool, so `export PATH=<home>/bin:$PATH` is the whole of the advice and cigo finds cig through the same home. `ciginstaller` run from `<home>/bin` works on that home too.
