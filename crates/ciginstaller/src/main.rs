@@ -199,6 +199,13 @@ fn dispatch(cli: Cli, ui: Ui) -> i32 {
                 targets,
             }) => cmd::mirror::run(&mut cx, dir, carton.as_deref(), channel.as_deref(), targets),
             // ---- the update lifecycle ----
+            Some(Command::Update(c)) if c.auto => flows::auto::run(
+                &mut cx,
+                &flows::auto::AutoArgs {
+                    project: c.project.clone(),
+                },
+            )
+            .map(Outcome::Report),
             Some(Command::Update(c)) => flows::update::run(&mut cx, &update_args(c)).map(|u| {
                 if u.exit != 0 {
                     exit_override = Some(u.exit);
@@ -298,6 +305,13 @@ fn dispatch(cli: Cli, ui: Ui) -> i32 {
     {
         if let Some(cx) = &notice_cx {
             flows::notice::maybe_notify(cx);
+        }
+    }
+    // `auto_update = security | all` keeps a daily schedule; anything else takes it away. A
+    // machine-locked value counts like any other. Quiet unless it changed something.
+    if ok && code == 0 && !read_only(&cli.command) && name != "uninstall" && name != "resolve" {
+        if let Some(cx) = notice_cx.as_mut() {
+            flows::schedule::reconcile(cx);
         }
     }
     // `bench_after_update = on`: a short local sample once an update has switched the machine

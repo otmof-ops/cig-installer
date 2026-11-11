@@ -32,6 +32,12 @@ below is under Unreleased, and the first version will take it as its section.
 Installing, pinning, switching, updating and rolling back the family, on
 Linux, with every build checked first and every change one undoable step.
 
+### One update flow, finished (#7)
+
+- The update trial covers `cigo` and `cigcompile`. cigo's runs `cigo check` and `cigo --dry-run run` of the `ci` chain and of each task in the project's `cig-tasks.json`; CigCompile's runs `cigcompile test` on the project's `.cig` programs, built in a scratch folder. Each runs with the old and the new build, each with the cig of its own carton first on `PATH`, and the differences are shown before the switch.
+- `auto_update = security` installs the newest carton that clears a security advisory of the manifest, and `all` installs the newest carton. Both are `ciginstaller update --auto`: the trial and the rollback of an update, at most one attempt a day, none on battery power, none outside a `rollout` share. A carton that fails is rolled back, the next terminal says so once, and the same carton is not tried again for seven days. A machine-locked `auto_update` is obeyed.
+- A daily schedule for those two values, written through the journal and removed by `auto_update = off`, `notify` and `uninstall --all`: a systemd user timer, a launchd agent or a Task Scheduler task, with a random delay of up to two hours and the OS's own mains-power and idle conditions. Turning it on in the system goes through one seam; the tests record the command and never run it.
+
 ### The humidor is the shared store (#1)
 
 - The store moved from `store/` to `humidor/store/`, so one shelf holds every version of every tool and the objects behind them. cig's index and its `humidor/<ver>/cig` links are untouched, and cig skips the `store/` directory because it is not a version.
