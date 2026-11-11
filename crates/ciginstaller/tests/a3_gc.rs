@@ -101,7 +101,7 @@ fn toolchain(fx: &Fixture, tool: &str, v: &str) -> bool {
 
 fn objects(fx: &Fixture) -> Vec<(String, u64, u64)> {
     let mut out = Vec::new();
-    for shard in std::fs::read_dir(fx.cigscript().join("store/objects")).unwrap() {
+    for shard in std::fs::read_dir(fx.cigscript().join("humidor/store/objects")).unwrap() {
         for f in std::fs::read_dir(shard.unwrap().path()).unwrap() {
             let f = f.unwrap();
             let m = f.metadata().unwrap();

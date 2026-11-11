@@ -1,7 +1,7 @@
 --- exit 2 ---
 --- stdout ---
 ok: home: the directories the installer writes into are yours alone
-  because I checked owner and mode of bin/, toolchains/, store/ and installer/
+  because I checked owner and mode of bin/, toolchains/, humidor/store/ and installer/
 ok: transactions: no transaction is interrupted
   because I checked 2 journal(s) in installer/txn, all ended
 ok: toolchains: 4 toolchain(s) match their receipts
@@ -28,7 +28,7 @@ note: trust: one source served the manifest and the builds, so no second place a
 ok: history: the last successful update was at <time>
   because I checked state.json's history
 ok: disk: the store holds 8 object(s), <size>, shared by 4 toolchain(s) as hard links; `gc` has nothing to free
-  because I checked the sizes in store/objects and what `gc --dry-run` plans
+  because I checked the sizes in humidor/store/objects and what `gc --dry-run` plans
 ok: tin: there is no tin yet
   because I checked ~/.cigscript/tin does not exist
 ok: humidor: the humidor mirror agrees with the installed cig(s)

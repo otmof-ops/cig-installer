@@ -41,6 +41,9 @@ fn installed_files(fx: &Fixture) -> Snapshot {
         entries: all
             .entries
             .into_iter()
+            // the store inside the humidor is objects, not what is installed: a rollback keeps
+            // the objects an update added until `gc` frees them
+            .filter(|(p, _)| p != "humidor/store" && !p.starts_with("humidor/store/"))
             .filter(|(p, _)| {
                 ["toolchains", "bin", "humidor"]
                     .iter()
@@ -502,7 +505,7 @@ fn a3_rollback_verifies_the_old_toolchain_first() {
     ok(&cigi(&fx, &["update", "--no-trial"]));
     let dir = fx.cigscript().join("toolchains/cig/1.20.0/bin");
     let bin = dir.join("cig");
-    let store = fx.cigscript().join("store");
+    let store = fx.cigscript().join("humidor/store");
     // a file gone from the old toolchain is put back from the store before the flip
     std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o755)).unwrap();
     std::fs::remove_file(&bin).unwrap();

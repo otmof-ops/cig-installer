@@ -246,6 +246,23 @@ not run it.
 The platform packages are still planned
 ([#15](https://github.com/otmof-ops/cig-installer/issues/15)).
 
+## Where things live
+
+Everything is under `~/.cigscript` (or `CIGSCRIPT_HOME`):
+
+| Path | What is in it |
+| --- | --- |
+| `bin/` | the shims: `cig`, `cigo`, `cigcompile`, `cigar`, and `ciginstaller` |
+| `toolchains/<tool>/<version>/` | each installed build, read-only, made of hard links to the store |
+| `humidor/` | cig's own shelf, `<version>/cig` and `index.json`, which cig reads |
+| `humidor/store/` | the shared store: `objects/<aa>/<sha256>` by content, and `tmp/` |
+| `installer/` | state, the shim index, the journal (`txn/`), caches, the lock |
+
+A home made by an earlier build kept its objects in `store/`. The first command
+that writes moves them under the humidor in one journaled step (`migrate store`),
+and an interruption puts the home back as it was; a command that only reads
+works on either layout.
+
 ## Commands
 
 Every command takes `--json`, `--plain`, `--no-color`, `--yes`,

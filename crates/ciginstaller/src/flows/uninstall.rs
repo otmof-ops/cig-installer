@@ -409,7 +409,7 @@ fn snapshot_entries(home: &Home) -> Vec<serde_json::Value> {
     }
     for (id, bytes) in home.object_store().all() {
         v.push(json!({
-            "path": format!("store/objects/{}/{}", &id.sha256[..2.min(id.sha256.len())], id.file_name()),
+            "path": format!("humidor/store/objects/{}/{}", &id.sha256[..2.min(id.sha256.len())], id.file_name()),
             "kind": "object", "sha256": id.sha256, "bytes": bytes,
         }));
     }
@@ -713,9 +713,11 @@ fn remove_family(
     if std::fs::read_dir(home.bin()).is_ok_and(|mut r| r.next().is_none()) {
         txn.delete(&home.bin()).map_err(ie)?;
     }
+    // the store lives in the humidor now, so it goes first: the humidor is removed when nothing
+    // else is left in it
+    txn.delete(&home.store()).map_err(ie)?;
     remove_all_humidor_mirrors(txn, home).map_err(ie)?;
     txn.delete(&home.toolchains()).map_err(ie)?;
-    txn.delete(&home.store()).map_err(ie)?;
     for (shell, profile, _) in profiles(home) {
         match remove_path_block(txn, shell, home).map_err(ie)? {
             PathChange::Edited => notes.push(format!(

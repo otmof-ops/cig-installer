@@ -27,7 +27,7 @@ fn setup() -> Fixture {
 fn view(fx: &Fixture) -> Snapshot {
     let root = fx.cigscript();
     let mut s = Snapshot::default();
-    for p in ["bin", "toolchains", "store/objects", "humidor"] {
+    for p in ["bin", "toolchains", "humidor/store/objects", "humidor"] {
         for (k, v) in Snapshot::take(&root.join(p)).entries {
             s.entries.insert(format!("{p}/{k}"), v);
         }
@@ -94,7 +94,7 @@ fn a4_repair_restores_from_the_store_byte_for_byte() {
     view(&fx).assert_same(&whole);
     // restored files are links of the store objects again (they share an inode)
     use cigi_home::platform::ino;
-    let obj = std::fs::read_dir(fx.cigscript().join("store/objects"))
+    let obj = std::fs::read_dir(fx.cigscript().join("humidor/store/objects"))
         .unwrap()
         .flatten()
         .flat_map(|d| std::fs::read_dir(d.path()).unwrap().flatten())

@@ -96,7 +96,7 @@ fn view(fx: &Fixture) -> Snapshot {
     for p in [
         "bin",
         "toolchains",
-        "store/objects",
+        "humidor/store/objects",
         "humidor",
         "installer/previous",
     ] {

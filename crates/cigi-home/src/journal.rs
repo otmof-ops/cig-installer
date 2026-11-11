@@ -507,6 +507,7 @@ impl Txn {
     fn dir_mode_for(&self, path: &Path) -> Option<u32> {
         if platform::starts_with(path, &self.home.installer())
             || platform::starts_with(path, &self.home.store())
+            || platform::starts_with(path, &self.home.shared_store())
         {
             Some(0o700)
         } else if platform::starts_with(path, &self.home.root()) {

@@ -83,8 +83,8 @@ fn tool_dirs(fx: &Fixture) -> Vec<String> {
 
 fn assert_untouched(fx: &Fixture, why: &str) {
     let root = fx.cigscript();
-    for p in ["toolchains", "bin", "store/objects", "humidor"] {
-        let s = Snapshot::take(&root.join(p));
+    for p in ["toolchains", "bin", "humidor/store/objects", "humidor"] {
+        let s = Snapshot::take(&root.join(p)).without(&["store"]);
         assert!(
             s.entries.is_empty(),
             "{why}: {p} holds {:?}",

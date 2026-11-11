@@ -102,7 +102,7 @@ fn store_bytes(fx: &Fixture) -> u64 {
             })
             .unwrap_or(0)
     }
-    walk(&fx.cigscript().join("store/objects"))
+    walk(&fx.cigscript().join("humidor/store/objects"))
 }
 
 /// Five cigo versions cost under 1.5 times one: content-addressed toolchains (#1). cigo is

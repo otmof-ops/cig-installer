@@ -294,7 +294,7 @@ fn layout(cx: &Cx, v: &mut Vec<Item>) {
         Ok(()) => v.push(ok(
             "home",
             "the directories the installer writes into are yours alone",
-            "owner and mode of bin/, toolchains/, store/ and installer/",
+            "owner and mode of bin/, toolchains/, humidor/store/ and installer/",
         )),
         Err(e) => v.push(
             act(
@@ -948,7 +948,7 @@ fn disk(cx: &Cx, v: &mut Vec<Item>) {
                     plan.objects.len(),
                     size_text(plan.bytes())
                 ),
-                "the sizes in store/objects and what `gc --dry-run` plans",
+                "the sizes in humidor/store/objects and what `gc --dry-run` plans",
             )
             .fix("ciginstaller gc"),
         );
@@ -956,7 +956,7 @@ fn disk(cx: &Cx, v: &mut Vec<Item>) {
         v.push(ok(
             "disk",
             format!("{what}; `gc` has nothing to free"),
-            "the sizes in store/objects and what `gc --dry-run` plans",
+            "the sizes in humidor/store/objects and what `gc --dry-run` plans",
         ));
     }
 }
