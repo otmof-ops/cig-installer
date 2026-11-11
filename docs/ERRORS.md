@@ -1612,7 +1612,7 @@ Related: [`E1902`](#e1902-a-shim-target-is-outside-its-home), [`E1831`](#e1831-i
 
 ### E1904 a setting is locked by the machine
 
-*usage · since 0.1.0 · arises in config, install, any*
+*usage · since 0.1.0 · arises in any*
 
 **Kind of no:** these are MY ciggies (the door: it knows you and said no; 403 Forbidden; permission denied; a lock; a refusal by policy).
 
