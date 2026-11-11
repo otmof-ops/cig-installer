@@ -240,6 +240,13 @@ pub fn get_manifest_with(
     let dir = manifest_cache_dir(home, channel);
     std::fs::create_dir_all(&dir).map_err(io_err(&dir))?;
     let side = sidecar.unwrap_or_default();
+    // a document and sidecar the cache already holds, byte for byte, are not written again: they
+    // were synced when they were first written, and a fetch that finds nothing new (most of them)
+    // then costs one synced write, not three (#32: the first line of `carton <missing>` waited on
+    // all three, 171 to 211 ms on a CI runner's disk)
+    let unchanged = cached
+        .as_ref()
+        .is_some_and(|c| c.doc == doc.as_bytes() && c.sidecar == side);
     let meta = format!(
         "{{\n  \"format\": 1,\n  \"sequence\": {},\n  \"fetched_at\": {},\n  \"expires\": {},\n  \"source\": {},\n  \"sha256\": {}\n}}\n",
         admitted.sequence,
@@ -248,9 +255,12 @@ pub fn get_manifest_with(
         json_str(&src.name()),
         json_str(&crate::digest::sha256_hex(doc.as_bytes())),
     );
-    // the document first: a crash after it leaves a sidecar that disagrees, which offline refuses
-    write_atomic(&dir.join("manifest.toml"), doc.as_bytes())?;
-    write_atomic(&dir.join("manifest.toml.sha256"), side.as_bytes())?;
+    if !unchanged {
+        // the document first: a crash after it leaves a sidecar that disagrees, which offline refuses
+        write_atomic(&dir.join("manifest.toml"), doc.as_bytes())?;
+        write_atomic(&dir.join("manifest.toml.sha256"), side.as_bytes())?;
+    }
+    // always: it carries the time of this fetch (the 24 hour rule) and the sequence floor
     write_atomic(&dir.join("fetched.json"), meta.as_bytes())?;
     Ok(admitted)
 }
