@@ -19,8 +19,8 @@ mod installer;
 mod tests;
 
 use cigi_shim::{
-    choose_home, find, read_script_header, resolve_entry, script_arg, stays_inside, trusted_for,
-    Found, HomeChoice, Identity, TargetError, MAX_FILE, TOOLS,
+    choose_home, find, read_script_header, resolve_entry, script_arg, stays_inside, tool_of,
+    trusted_for, Found, HomeChoice, Identity, TargetError, MAX_FILE,
 };
 
 /// What the walk up from the working directory found.
@@ -261,10 +261,10 @@ fn main() {
     #[cfg(windows)]
     cigi_sys::process::swallow_ctrl_c();
     let is_installer = cfg!(windows) && name == "cigi";
-    if !is_installer && !TOOLS.contains(&name.as_str()) {
+    if !is_installer && tool_of(&name).is_none() {
         die(
             "E1844",
-            &format!("this file is named `{name}`, which is not a tool the installer shims"),
+            &format!("this file is named `{name}`, which is not a shim the installer places"),
             "ciginstaller shims sync",
         );
     }

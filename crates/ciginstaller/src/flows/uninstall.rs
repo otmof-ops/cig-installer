@@ -373,9 +373,10 @@ fn profiles(home: &Home) -> Vec<(Shell, PathBuf, PathChange)> {
 }
 
 fn bin_entries(home: &Home) -> Vec<PathBuf> {
-    cigi_shim::TOOLS
+    cigi_shim::SHIMS
         .iter()
-        .chain(["ciginstaller", "cigi"].iter())
+        .map(|(n, _)| *n)
+        .chain(["ciginstaller", "cigi"].iter().copied())
         .map(|n| shim_path(home, n))
         .filter(|p| std::fs::symlink_metadata(p).is_ok())
         .collect()

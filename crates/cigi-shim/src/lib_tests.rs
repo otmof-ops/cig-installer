@@ -139,3 +139,26 @@ fn a_home_named_through_a_link_bounds_the_walk_of_its_real_path() {
     assert!(stop.is_none());
     let _ = std::fs::remove_dir_all(&base);
 }
+
+#[test]
+fn shim_table_maps_every_shim_to_a_tool_in_tools() {
+    // every shim's tool is one TOOLS knows, and every tool in TOOLS has a shim of its own name
+    for (shim, tool) in super::SHIMS {
+        assert!(
+            super::TOOLS.contains(&tool),
+            "{shim} serves {tool}, which is not a tool"
+        );
+    }
+    for t in super::TOOLS {
+        assert_eq!(super::tool_of(t), Some(t), "no shim for the tool {t}");
+    }
+    // the second shim of a tool: cigar's language server runs the carton's cigar
+    assert_eq!(super::tool_of("cigar-lsp"), Some("cigar"));
+    let cigar_shims = super::shims_of("cigar");
+    assert!(cigar_shims.contains(&"cigar") && cigar_shims.contains(&"cigar-lsp"));
+    assert_eq!(super::shims_of("cig"), vec!["cig"]);
+    // a name no shim serves: the shim refuses it (E1844), the installer leaves it out
+    assert_eq!(super::tool_of("cig-lsp"), None);
+    assert_eq!(super::tool_of("evil"), None);
+    assert!(super::shims_of("ciginstaller").is_empty());
+}

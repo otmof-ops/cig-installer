@@ -480,6 +480,9 @@ fn tool_def(tool: &str, host: &str) -> String {
         "cig" => binary("cig", "otmof-ops/cig-script"),
         "cigcompile" => binary("cigcompile", "otmof-ops/cig-compile"),
         "cigo" => "[tool.cigo]\nrepo    = \"otmof-ops/cig-orchestrator\"\ntag     = \"v{version}\"\nlayout  = \"archive\"\nasset   = \"cig-orchestrator-v{version}.tar.gz\"\nsidecar = \"{asset}.sha256\"\nstrip   = 1\nshims   = [ { name = \"cigo\", path = \"bin/cigo\", windows_path = \"bin/cigo.cmd\" } ]\ntargets = [ \"any\" ]\nattests = false\n\n".to_string(),
+        "cigar" => format!(
+            "[tool.cigar]\nrepo    = \"otmof-ops/cigar-script\"\ntag     = \"v{{version}}\"\nlayout  = \"archive\"\nasset   = \"cigar-v{{version}}-{{os}}-{{arch}}.tar.gz\"\nsidecar = \"{{asset}}.sha256\"\nstrip   = 0\nshims   = [ {{ name = \"cigar\", path = \"bin/cigar\", windows_path = \"bin/cigar.exe\" }}, {{ name = \"cigar-lsp\", path = \"bin/cigar-lsp\", windows_path = \"bin/cigar-lsp.exe\" }} ]\ntargets = [ \"{host}\" ]\nattests = false\n\n"
+        ),
         "ciginstaller" => format!(
             "[tool.ciginstaller]\nrepo    = \"otmof-ops/cig-installer\"\ntag     = \"v{{version}}\"\nlayout  = \"archive\"\nasset   = \"ciginstaller-v{{version}}-{{os}}-{{arch}}.tar.gz\"\nsidecar = \"{{asset}}.sha256\"\nstrip   = 0\nshims   = []\ntargets = [ \"{host}\" ]\nattests = false\n\n"
         ),

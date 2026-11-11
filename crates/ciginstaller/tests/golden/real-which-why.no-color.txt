@@ -1,11 +1,12 @@
 --- exit 0 ---
 --- stdout ---
-[ok] 2 of 4 tools run from here
+[ok] 2 of 5 tools run from here
   tool          runs      from           why
   cig           1.20.1    carton 0.1.1   the machine's carton
   cigo          1.17.0    carton 0.1.1   the machine's carton
   CigCompile    nothing   -              E1840: not installed
   CigarScript   nothing   -              E1840: not installed
+  cigar-lsp     nothing   -              E1840: not installed
   cig:
     1. CIGI_CARTON is not set
     2. no carton pin in this project

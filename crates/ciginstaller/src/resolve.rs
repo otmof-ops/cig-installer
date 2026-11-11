@@ -142,6 +142,33 @@ pub fn resolve(cx: &mut Cx, tool: &str, mode: Mode) -> Result<Resolution, Instal
     resolve_for(cx, tool, mode, None)
 }
 
+/// Resolve a shim name. Most shims serve a tool of their own name and this is `resolve`; a shim
+/// whose SHIMS tool is a different name (`cigar-lsp` -> `cigar`) resolves that tool and the
+/// path returned is the shim's own target in the resolved toolchain. The carton and the build
+/// are the tool's, so an editor that starts `cigar-lsp` in a project gets the server of the
+/// cigar the project resolves to.
+pub fn resolve_shim(
+    cx: &mut Cx,
+    shim_name: &str,
+    mode: Mode,
+    script: Option<&Path>,
+) -> Result<Resolution, InstallerError> {
+    let tool = cigi_shim::tool_of(shim_name).unwrap_or(shim_name);
+    let mut res = resolve_for(cx, tool, mode, script)?;
+    if shim_name != tool {
+        let path =
+            crate::flows::shim_exe(&cx.home, tool, &res.build, shim_name).ok_or_else(|| {
+                InstallerError::new(
+                    "E1831",
+                    format!("{shim_name} {} has no readable receipt", res.build),
+                )
+                .with_fix("ciginstaller repair")
+            })?;
+        res.path = path;
+    }
+    Ok(res)
+}
+
 /// What a resolution is told besides the tool.
 #[derive(Debug, Clone, Copy, Default)]
 struct Opts {

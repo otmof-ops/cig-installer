@@ -13,7 +13,7 @@ use serde_json::json;
 use super::tabular::details;
 use super::Outcome;
 use crate::cx::Cx;
-use crate::resolve::{resolve, resolve_for, Mode, Resolution};
+use crate::resolve::{resolve_shim, Mode, Resolution};
 
 pub fn run(
     cx: &mut Cx,
@@ -53,8 +53,9 @@ fn all(cx: &mut Cx, why: bool) -> Result<Outcome, InstallerError> {
     let mut steps: Vec<String> = Vec::new();
     let mut resolved = 0;
     let mut first_fix: Option<String> = None;
-    for tool in cigi_shim::TOOLS {
-        match resolve(cx, tool, Mode::Which) {
+    for (shim, _tool) in cigi_shim::SHIMS {
+        let tool = shim;
+        match resolve_shim(cx, shim, Mode::Which, None) {
             Ok(res) => {
                 // No `touch_last_used` here: this is a survey of every tool, it must leave
                 // `state.json` alone (the one-tool form keeps its once-a-day touch).
@@ -118,7 +119,7 @@ fn all(cx: &mut Cx, why: bool) -> Result<Outcome, InstallerError> {
     }
     let mut r = Report::done(format!(
         "{resolved} of {} tools run from here",
-        cigi_shim::TOOLS.len()
+        cigi_shim::SHIMS.len()
     ));
     for l in details(&cx.ui, &table) {
         r = r.detail(l);
@@ -142,7 +143,7 @@ fn one(
     // Exit rule: only the codes that mean "refused" (a pin or CIGI_CARTON the machine cannot
     // meet: E1816, E1842, E1801) exit 2. Everything else keeps its own code: E1840 (no tool) is
     // 127, E1831 and the rest follow the registry, E1890 (a bug) is 70.
-    let res = resolve_for(cx, tool, Mode::Which, script).map_err(|mut e| {
+    let res = resolve_shim(cx, tool, Mode::Which, script).map_err(|mut e| {
         if matches!(e.code, "E1816" | "E1842" | "E1801" | "E1809" | "E1819") {
             e.exit = EXIT_REFUSED;
         }

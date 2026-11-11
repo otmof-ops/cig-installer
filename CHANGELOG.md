@@ -6,6 +6,11 @@ All notable changes to cig-installer. The format follows Keep a Changelog; the
 project follows semantic versioning. Nothing is released yet, so everything
 below is under Unreleased, and the first version will take it as its section.
 
+### One archive, two shims: cigar packs its language server beside it (#1, cigar-script#16)
+
+- `cigar` and `cigar-lsp` ship in one archive per machine, `cigar-vX.Y.Z-<os>-<arch>.tar.gz`, holding `bin/cigar` and `bin/cigar-lsp`. The manifest's `[tool.cigar]` is an archive with `strip = 0` and a shim for each program, so the installer places both in `bin/`. The shim index gains a row per shim keyed by the shim's name: a `cigar-lsp` run is decided by the fast path from that row, without a slow path, so an editor that starts `cigar-lsp` in a project gets the server of the cigar the project resolves to.
+- `cigi-shim`'s `SHIMS` table names every shim and the tool it serves. A name not in the table is still refused (E1844). The per-tool pin files (`.cigar-version`, `cigar.toml`) send a `cigar-lsp` run to the slow path exactly as they send `cigar`; `ciginstaller __resolve cigar-lsp` resolves cigar for the project and runs the shim's own target in that toolchain. `ciginstaller shims`, `uninstall cigar` and `repair` all follow: a cigar carton places `bin/cigar-lsp`, uninstall takes it, repair puts it back.
+
 ### `cig bench` on the installer: bench/bench.toml, the phases and the nightly (#35)
 
 - `bench/bench.toml` is now the installer's suite in `cig bench`'s format (start-up: `--version`, `status` and `list` on an empty home, each checked against its output), so `cig bench --family` reads it. The embedded budgets that `ciginstaller bench` compares with moved to `bench/budgets.toml`; nothing about them changed.

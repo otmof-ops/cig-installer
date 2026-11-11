@@ -92,8 +92,21 @@ fn a_carton_with_cigar_installs_and_shims_it() {
     let idx = std::fs::read_to_string(root.join("installer/shim-index")).unwrap();
     assert!(idx.contains("\tcigar\t"), "{idx}");
     assert!(idx.contains(".cigar-version"), "{idx}");
-    // cigar has no LSP binary, so there is no cigar-lsp shim
-    assert!(!root.join("bin/cigar-lsp").exists());
+    // the archive also carries the language server, and its shim runs the carton's: an editor
+    // that starts `cigar-lsp` in a project gets the one the project's cigar came with
+    assert!(
+        root.join("toolchains/cigar/0.1.0/bin/cigar-lsp").is_file(),
+        "toolchains/cigar/0.1.0/bin/cigar-lsp"
+    );
+    assert!(root.join("bin/cigar-lsp").exists(), "the cigar-lsp shim");
+    let o = fx.run_shim("cigar-lsp", &fx.project, &[]);
+    ok(&o);
+    assert!(
+        text(&o).starts_with("cigar-lsp 0.1.0 args="),
+        "{}",
+        text(&o)
+    );
+    assert!(idx.contains("\tcigar-lsp\t"), "{idx}");
 }
 
 #[test]
@@ -169,10 +182,16 @@ fn uninstall_cigar_clears_shim_toolchain_and_run_cache() {
     std::fs::write(cache.join("prog-1"), "built\n").unwrap();
     std::fs::create_dir_all(fx.user_home.join(".cache/other")).unwrap();
     std::fs::write(fx.user_home.join(".cache/other/keep"), "x\n").unwrap();
+    // the language server's shim is in bin/ before uninstall and it follows cigar out
+    assert!(root.join("bin/cigar-lsp").exists(), "the cigar-lsp shim");
     let o = cigi(&fx, &["--json", "uninstall", "cigar"]);
     ok(&o);
     assert!(!root.join("toolchains/cigar").exists());
     assert!(!root.join("bin/cigar").exists(), "the shim goes with it");
+    assert!(
+        !root.join("bin/cigar-lsp").exists(),
+        "the cigar-lsp shim goes with it"
+    );
     assert!(!cache.exists(), "the run cache");
     assert!(fx.user_home.join(".cache/other/keep").exists());
     assert!(root.join("bin/cig").exists(), "cig stays");
@@ -180,4 +199,45 @@ fn uninstall_cigar_clears_shim_toolchain_and_run_cache() {
     assert!(removed.contains("cigar's run cache"), "{removed}");
     let idx = std::fs::read_to_string(root.join("installer/shim-index")).unwrap();
     assert!(!idx.contains("\tcigar\t"), "{idx}");
+    assert!(!idx.contains("\tcigar-lsp\t"), "{idx}");
+}
+
+#[test]
+fn a_cigar_version_pin_resolves_cigar_lsp_through_the_slow_path() {
+    // an editor that starts `cigar-lsp` in a project gets the server of the cigar the project
+    // resolves to: a `.cigar-version` pin past the machine's carton sends the shim to the slow
+    // path (as it does for `cigar`), and that path runs the cigar-lsp of the carton the pin
+    // picks (cigar 0.2.0's language server).
+    let fx = setup();
+    let proj = project(&fx, "pinned-lsp", &[(".cigar-version", ">=0.2\n")]);
+    let o = fx.run_shim("cigar-lsp", &proj, &[]);
+    ok(&o);
+    assert!(
+        text(&o).starts_with("cigar-lsp 0.2.0 args="),
+        "{}",
+        text(&o)
+    );
+    let o = which(&fx, &proj, &["cigar-lsp"]);
+    ok(&o);
+    assert!(text(&o).contains("cigar-lsp 0.2.0"), "{}", text(&o));
+}
+
+#[test]
+fn repair_recreates_a_deleted_cigar_lsp_shim() {
+    let fx = setup();
+    let root = fx.cigscript();
+    let lsp = root.join("bin/cigar-lsp");
+    assert!(lsp.exists(), "the cigar-lsp shim is there before repair");
+    std::fs::remove_file(&lsp).unwrap();
+    assert!(!lsp.exists());
+    ok(&cigi(&fx, &["repair"]));
+    assert!(lsp.exists(), "repair puts it back");
+    // and it still runs the carton's cigar-lsp, through the fast path
+    let o = fx.run_shim("cigar-lsp", &fx.project, &[]);
+    ok(&o);
+    assert!(
+        text(&o).starts_with("cigar-lsp 0.1.0 args="),
+        "{}",
+        text(&o)
+    );
 }
