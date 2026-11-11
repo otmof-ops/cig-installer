@@ -7,6 +7,7 @@ members = [
     "crates/cigi-ui",
     "crates/cigi-shim",
     "crates/ciginstaller",
+    "crates/cigi-budgets",
     "crates/cigi-testkit",
     "crates/cigi-sys",
     "xtask",

@@ -220,12 +220,14 @@ pub enum Command {
     // ---- end of the programs block ----
     // ---- health: doctor, repair, uninstall, remove ----
     /// One report on the whole family: shims, PATH, toolchains, state, matrix, manifest, disk,
-    /// humidor, transactions. Reads only; each finding ends with the command that fixes it.
+    /// the tin, the guard's kernel features, humidor, transactions, and each tool's own doctor.
+    /// Reads only; each finding ends with the command that fixes it.
     Doctor {
         /// Also fetch the manifest now (the only thing that uses the network).
         #[arg(long)]
         network: bool,
-        /// Print the tools' own doctors, as they answer, under their headings.
+        /// Only the tools' own doctors, as they answer, under their headings. Without this the
+        /// tools' doctors follow the installer's own findings.
         #[arg(long)]
         tools: bool,
     },

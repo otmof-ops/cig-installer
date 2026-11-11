@@ -59,7 +59,7 @@ from = "E1900"
 to = "E1999"
 family = "installer"
 kind = "usage"
-meaning = "the installer, second range: the mirror and what travels over it (E1900); the rest is not assigned yet"
+meaning = "the installer, second range: the mirror and what travels over it (E1900), the update channel's signatures (E1901), and what a shim refuses to run and why (E1902, E1903); the rest is not assigned yet"
 
 # ----- the four kinds of no (copied verbatim from cig) ------------------------------------
 
@@ -1857,3 +1857,43 @@ remedy = "serve the mirror over https, or use a `file://` mirror or a bundle (`c
 why = "a server answered an https request by sending it on to plain http"
 probe = "none"
 remedy = "ask the mirror's operator to serve https only; nothing here can be told to follow it"
+
+[[code]]
+code = "E1902"
+title = "a shim target is outside its home"
+meaning = "A shim was asked to run a build whose path leads out of the home the shim sits in: an index written for another home (this one was moved or restored), or an index that was edited. Nothing was run."
+fix = "`ciginstaller repair`"
+no = "cant-see-any"
+arises = ["any"]
+tags = ["installer", "ci-likely"]
+since = "0.1.0"
+related = ["E1903", "E1844"]
+[[code.cause]]
+why = "the home was copied, moved or restored from a backup and its shim-index still names the old home's builds"
+no = "cant-see-any"
+probe = "shim-index-agrees"
+remedy = "`ciginstaller repair` writes the index again for this home"
+[[code.cause]]
+why = "the shim-index was edited by hand"
+probe = "shim-index-agrees"
+remedy = "`ciginstaller repair` writes the index again from state.json"
+
+[[code]]
+code = "E1903"
+title = "a shim target is not the build its receipt recorded"
+meaning = "A shim found the file it was about to run is not the one the installer recorded for it: its device, inode, size or modification time changed. Nothing was run."
+fix = "`ciginstaller repair`"
+no = "cant-see-any"
+arises = ["any"]
+tags = ["installer", "ci-likely"]
+since = "0.1.0"
+related = ["E1902", "E1831"]
+[[code.cause]]
+why = "the home was copied or restored from a backup, which gives every file a new device and inode"
+no = "cant-see-any"
+probe = "receipt-verify"
+remedy = "`ciginstaller repair` checks each file against its receipt's hash and records it again"
+[[code.cause]]
+why = "the build was replaced in place by another file"
+probe = "receipt-verify"
+remedy = "`ciginstaller repair` puts the receipt's file back from the store"

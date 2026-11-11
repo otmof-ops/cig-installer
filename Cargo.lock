@@ -531,11 +531,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "cigi-budgets"
+version = "0.1.0"
+dependencies = [
+ "cigi-testkit",
+ "cigi-ui",
+ "serde_json",
+ "tempfile",
+]
+
+[[package]]
 name = "cigi-home"
 version = "0.1.0"
 dependencies = [
  "cig-compat",
  "cigi-home",
+ "cigi-shim",
  "cigi-sys",
  "fs4",
  "hex",

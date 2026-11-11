@@ -114,7 +114,8 @@ fn a4_doctor_clean_home_is_read_only() {
     }
     // no lock, no journal, no cache write: the home is exactly as it was
     Snapshot::take(&fx.user_home).assert_same(&before);
-    assert!(d["tools"].as_array().unwrap().is_empty());
+    // the tools' own doctors are part of the default report (the fakes have no self-check)
+    assert_eq!(d["tools"].as_array().unwrap().len(), 2, "{d:#}");
 }
 
 #[test]
@@ -376,24 +377,239 @@ fn a4_doctor_extra_file_in_a_toolchain() {
         .exists());
 }
 
-/// The tools' own checks run only when asked, and each is `<tool> __doctor --json`. The fakes
-/// here echo their arguments, which is not JSON: they have no self-check (a6_family has the rest).
+/// The tools' own checks are part of the default report, each is `<tool> __doctor --json`, and
+/// `--tools` shows them and nothing else. The fakes here echo their arguments, which is not JSON:
+/// they have no self-check (a6_family has the rest).
 #[test]
-fn a4_doctor_tools_only_when_asked() {
+fn a4_doctor_runs_the_tools_by_default_and_tools_means_only_them() {
     let fx = setup();
-    let (_, plain) = doctor(&fx);
-    assert!(plain["tools"].as_array().unwrap().is_empty());
-    let (code, d) = doctor_args(&fx, None, &["--tools"]);
-    assert_eq!(code, 0, "{d:#}");
-    let tools = d["tools"].as_array().unwrap();
-    assert_eq!(tools.len(), 2, "{d:#}");
+    let (_, both) = doctor(&fx);
+    assert!(!both["findings"].as_array().unwrap().is_empty());
+    let tools = both["tools"].as_array().unwrap();
+    assert_eq!(tools.len(), 2, "{both:#}");
+    let (code, only) = doctor_args(&fx, None, &["--tools"]);
+    assert_eq!(code, 0, "{only:#}");
+    assert!(
+        only["findings"].as_array().unwrap().is_empty(),
+        "--tools printed the installer's own findings: {only:#}"
+    );
+    assert_eq!(only["tools"], both["tools"]);
     let cig = tools.iter().find(|t| t["tool"] == "cig 1.20.0").unwrap();
     assert_eq!(cig["self_check"], false);
     assert_eq!(
         cig["note"],
         "this cig build has no self-check; it needs a newer build"
     );
-    assert!(!d.to_string().contains("args=doctor"));
+    assert!(!only.to_string().contains("args=doctor"));
+}
+
+/// cigcompile speaks the protocol: its own answer, in the shape `cigcompile __doctor --json`
+/// prints (`{"tool","version","findings":[{check,severity,found,because,fix}]}`), is read and
+/// shown under its heading, by default and under `--tools`.
+#[test]
+fn a4_doctor_reads_cigcompiles_own_self_check() {
+    let mut fx = fixture();
+    fx.product("cigcompile", "0.2.0").doctor_json(
+        r#"{"tool":"cigcompile","version":"0.2.0","findings":[
+  {"check":"runtime","severity":"ok","found":"cig 1.20.0 at the humidor","because":"a build for this machine appends its program to this cig","fix":null},
+  {"check":"cache","severity":"action","found":"the build cache is damaged","because":"its index does not parse","fix":"cigcompile cache clear"}]}"#,
+    );
+    fx.carton(
+        "0.1.0",
+        &[
+            ("cig", "1.20.0"),
+            ("cigo", "1.16.0"),
+            ("cigcompile", "0.2.0"),
+        ],
+    );
+    fx.publish("stable");
+    ok(&cigi(&fx, &["install", "carton", "--carton", "0.1.0"]));
+    for extra in [&[][..], &["--tools"][..]] {
+        let (code, d) = doctor_args(&fx, None, extra);
+        let t = d["tools"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|t| t["tool"] == "cigcompile 0.2.0")
+            .unwrap_or_else(|| panic!("cigcompile is not named: {d:#}"));
+        assert_eq!(t["self_check"], true, "{t}");
+        let f = t["findings"].as_array().unwrap();
+        assert_eq!(f.len(), 2, "{t}");
+        assert_eq!(f[0]["section"], "runtime");
+        assert_eq!(f[1]["severity"], "action");
+        assert_eq!(f[1]["fix"], "cigcompile cache clear");
+        // its action counts, and the first fix is the one it gave
+        assert_eq!(code, 2, "{d:#}");
+        assert!(d["needs_action"].as_u64().unwrap() >= 1);
+    }
+}
+
+/// A fixture root for the kernel probes: `proc/...` and `sys/...` as the guard's features read
+/// them. `None` leaves the file out.
+fn kernel_root(
+    fx: &Fixture,
+    release: Option<&str>,
+    userns: Option<&str>,
+    lsm: Option<&str>,
+) -> std::path::PathBuf {
+    let root = fx.tmp.path().join("probe-root");
+    let put = |rel: &str, body: Option<&str>| {
+        if let Some(b) = body {
+            let p = root.join(rel);
+            std::fs::create_dir_all(p.parent().unwrap()).unwrap();
+            std::fs::write(p, format!("{b}\n")).unwrap();
+        }
+    };
+    std::fs::create_dir_all(&root).unwrap();
+    put("proc/sys/kernel/osrelease", release);
+    put("proc/sys/user/max_user_namespaces", userns);
+    put("sys/kernel/security/lsm", lsm);
+    root
+}
+
+/// `(exit code, data)` of `--json doctor` with the probes pointed at `root`.
+fn doctor_probing(fx: &Fixture, root: &std::path::Path) -> (i32, Value) {
+    let mut c = fx.cigi();
+    c.env("CIGI_ALLOW_SINGLE_SOURCE", "true")
+        .env("CIGI_DOCTOR_PROBE_ROOT", root)
+        .args(["--yes", "--json", "doctor"]);
+    let o = retrying(&mut c);
+    let line = String::from_utf8_lossy(&o.stdout)
+        .lines()
+        .last()
+        .unwrap_or("")
+        .to_string();
+    let v: Value = serde_json::from_str(&line).unwrap_or_else(|e| panic!("{e}: {}", text(&o)));
+    (o.status.code().unwrap_or(-1), v["data"].clone())
+}
+
+fn one<'a>(d: &'a Value, section: &str) -> &'a Value {
+    let all: Vec<&Value> = d["findings"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|f| f["section"] == section)
+        .collect();
+    assert_eq!(all.len(), 1, "{section}: {all:#?}");
+    all[0]
+}
+
+#[test]
+fn a4_doctor_guard_kernel_features_all_present() {
+    let fx = setup();
+    let root = kernel_root(
+        &fx,
+        Some("6.8.0-1-generic"),
+        Some("31000"),
+        Some("lockdown,capability,yama,apparmor,bpf"),
+    );
+    let (code, d) = doctor_probing(&fx, &root);
+    assert_eq!(code, 0, "{d:#}");
+    for s in ["kernel", "user namespaces", "BPF LSM"] {
+        assert_eq!(one(&d, s)["severity"], "ok", "{s}: {d:#}");
+    }
+}
+
+/// Each missing feature is a finding that ends with its one fix command; none is an action, so a
+/// machine without a guard feature still has a doctor that exits 0.
+#[test]
+fn a4_doctor_guard_kernel_features_missing_each_end_with_a_fix() {
+    let fx = setup();
+    let root = kernel_root(
+        &fx,
+        Some("5.4.0-170-generic"),
+        Some("0"),
+        Some("lockdown,yama,apparmor"),
+    );
+    let (code, d) = doctor_probing(&fx, &root);
+    assert_eq!(code, 0, "{d:#}");
+    assert_eq!(d["needs_action"], 0);
+    let kernel = one(&d, "kernel");
+    assert_eq!(kernel["severity"], "note");
+    assert!(kernel["found"]
+        .as_str()
+        .unwrap()
+        .contains("5.4.0-170-generic"));
+    assert!(kernel["found"].as_str().unwrap().contains("5.12"));
+    let userns = one(&d, "user namespaces");
+    assert_eq!(userns["severity"], "note");
+    assert_eq!(
+        userns["fix"],
+        "sudo sysctl -w user.max_user_namespaces=15000"
+    );
+    let bpf = one(&d, "BPF LSM");
+    assert_eq!(bpf["severity"], "note");
+    let fix = bpf["fix"].as_str().unwrap();
+    // the fix keeps the modules that are on and adds bpf
+    assert!(fix.contains("lsm=lockdown,yama,apparmor,bpf"), "{fix}");
+    assert!(fix.ends_with("sudo update-grub"), "{fix}");
+}
+
+#[test]
+fn a4_doctor_guard_kernel_features_unreadable_say_so_and_never_pass() {
+    let fx = setup();
+    let root = kernel_root(&fx, None, None, None);
+    let (code, d) = doctor_probing(&fx, &root);
+    assert_eq!(code, 0, "{d:#}");
+    for s in ["kernel", "user namespaces", "BPF LSM"] {
+        assert_eq!(one(&d, s)["severity"], "note", "{s}: {d:#}");
+        assert!(!one(&d, s)["because"].as_str().unwrap().is_empty());
+    }
+    // a kernel with no user namespaces has no file for a command to change
+    assert!(one(&d, "user namespaces")["fix"].is_null());
+}
+
+/// The seam only changes where doctor reads: nothing in the folder or the home is written, and
+/// without it the same sections come from the machine itself.
+#[test]
+fn a4_doctor_probe_root_is_only_a_place_to_read_from() {
+    let fx = setup();
+    let root = kernel_root(&fx, Some("6.8.0"), Some("1"), Some("bpf"));
+    let before = Snapshot::take(&root);
+    let home = Snapshot::take(&fx.user_home);
+    let (_, d) = doctor_probing(&fx, &root);
+    one(&d, "BPF LSM");
+    Snapshot::take(&root).assert_same(&before);
+    Snapshot::take(&fx.user_home).assert_same(&home);
+    let (_, host) = doctor(&fx);
+    for s in ["kernel", "user namespaces", "BPF LSM"] {
+        one(&host, s);
+    }
+}
+
+#[test]
+fn a4_doctor_measures_the_tin_beside_the_store() {
+    let fx = setup();
+    // no tin yet
+    let (_, d) = doctor(&fx);
+    let t = one(&d, "tin");
+    assert_eq!(t["severity"], "ok");
+    assert!(t["found"].as_str().unwrap().contains("no tin"));
+    // a small tin: measured, with cig tin gc as the fix, and no note
+    let objects = fx.cigscript().join("tin/objects/ab");
+    std::fs::create_dir_all(&objects).unwrap();
+    std::fs::write(objects.join("cdef"), vec![7u8; 4096]).unwrap();
+    let before = Snapshot::take(&fx.cigscript());
+    let (code, d) = doctor(&fx);
+    assert_eq!(code, 0, "{d:#}");
+    let t = one(&d, "tin");
+    assert_eq!(t["severity"], "ok");
+    assert_eq!(t["fix"], "cig tin gc");
+    let found = t["found"].as_str().unwrap();
+    assert!(
+        found.contains("the tin holds") && found.contains("1 file(s)"),
+        "{found}"
+    );
+    assert!(found.contains("beside the store"), "{found}");
+    Snapshot::take(&fx.cigscript()).assert_same(&before);
+    // a big one is a note
+    let big = std::fs::File::create(objects.join("big")).unwrap();
+    big.set_len((1 << 30) + 1).unwrap();
+    let (code, d) = doctor(&fx);
+    assert_eq!(code, 0, "{d:#}");
+    let t = one(&d, "tin");
+    assert_eq!(t["severity"], "note", "{t}");
+    assert_eq!(t["fix"], "cig tin gc");
 }
 
 #[test]

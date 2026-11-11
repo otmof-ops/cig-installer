@@ -14,6 +14,7 @@ fn run(c: Option<&str>, p: &str) -> Pick {
     Pick::Run {
         carton: c.map(String::from),
         path: p.to_string(),
+        identity: None,
     }
 }
 

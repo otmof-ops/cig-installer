@@ -1,9 +1,10 @@
 // SPDX-FileCopyrightText: 2026 Jay Taylor (https://github.com/otmof-ops/cig-installer)
 // SPDX-License-Identifier: FSL-1.1-ALv2
 //! `a3_shim_perf` (SPEC 14.2, 14.3): the shim's own time from process start to `exec`, measured by
-//! `CIGI_SHIM_TIMING=1`, against an installed fixture home. The budget is 1 ms on a release build;
-//! this runs on the debug build a test gets, so it asserts with headroom (5 ms) and reports the
-//! number. The strict 1 ms assertion on the release shim is in cigi-shim's own tests.
+//! `CIGI_SHIM_TIMING=1`, against an installed fixture home. The budget is 2 ms (#20). On the debug
+//! build a plain `cargo test` gets it asserts with headroom (5 ms); on a release build
+//! (`cargo test --release`, which the `bench` workflow runs) it asserts the budget itself. The
+//! strict 1 ms assertion on the release shim is in cigi-shim's own tests.
 #![cfg(unix)]
 
 mod common;
@@ -53,12 +54,17 @@ fn a3_shim_perf() {
     }
     own.sort_unstable();
     let (med, p95) = (own[own.len() / 2], own[own.len() * 95 / 100]);
+    let (limit_ns, build) = if cfg!(debug_assertions) {
+        (5_000_000, "debug, 5 ms headroom")
+    } else {
+        (2_000_000, "release, the 2 ms budget")
+    };
     eprintln!(
-        "a3_shim_perf: shim-own median {med} ns, p95 {p95} ns over {} runs (debug build)",
+        "a3_shim_perf: shim-own median {med} ns, p95 {p95} ns over {} runs ({build})",
         own.len()
     );
     assert!(
-        med < 5_000_000,
-        "shim median {med} ns is over the 5 ms headroom"
+        med < limit_ns,
+        "shim median {med} ns is over the limit of {limit_ns} ns ({build})"
     );
 }

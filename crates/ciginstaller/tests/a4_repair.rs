@@ -154,7 +154,17 @@ fn a4_repair_refetches_when_the_store_object_is_damaged_too() {
         "{paths:?}"
     );
     assert!(paths.iter().any(|p| p.contains("cig-v1.20.0")), "{paths:?}");
-    view(&fx).assert_same(&whole);
+    // the store object came back as a new file, so the receipt's record of its device and inode
+    // (#47) and the index's copy of it are written again: those two files and nothing else
+    let d = view(&fx).diff(&whole);
+    assert_eq!(
+        d,
+        vec![
+            "changed: installer/shim-index".to_string(),
+            "changed: toolchains/cig/1.20.0/.cigi-receipt.json".to_string()
+        ],
+        "{d:?}"
+    );
     // the humidor link is the repaired binary again
     let a = std::fs::read(fx.cigscript().join("humidor/1.20.0/cig")).unwrap();
     let b = std::fs::read(tc(&fx, "cig/1.20.0/bin/cig")).unwrap();

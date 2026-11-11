@@ -135,7 +135,25 @@ impl Default for State {
     }
 }
 
+/// The `extra` key that holds the folder this home was last known to live in.
+pub const HOME_KEY: &str = "home";
+
 impl State {
+    /// The folder this home was recorded in (`extra["home"]`), when one was.
+    pub fn recorded_home(&self) -> Option<&str> {
+        self.extra.get(HOME_KEY).and_then(|v| v.as_str())
+    }
+
+    /// Record where this home lives. `force` writes it even when one is recorded (repair, after
+    /// the home moved); otherwise only the first one is kept, so a moved home still says where
+    /// it came from until `ciginstaller repair` re-derives the record.
+    pub fn record_home(&mut self, path: &str, force: bool) {
+        if force || self.recorded_home().is_none() {
+            self.extra
+                .insert(HOME_KEY.to_string(), serde_json::Value::from(path));
+        }
+    }
+
     /// Read `state.json`; a home with none yet gets the default (nothing
     /// installed). A newer `format` or unreadable JSON is `E1830`.
     pub fn load(home: &Home) -> Result<State, StateError> {

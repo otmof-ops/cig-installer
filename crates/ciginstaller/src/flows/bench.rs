@@ -259,9 +259,21 @@ fn shim_samples(scratch: &Scratch, runs: usize) -> Result<Vec<f64>, String> {
         .join("bin")
         .join(format!("cig{}", std::env::consts::EXE_SUFFIX));
     std::fs::copy(&src, &shim).map_err(|e| format!("cannot copy the shim: {e}"))?;
+    // the target lives inside the scratch home: a shim refuses one outside its own (#47, E1902);
+    // a hard link where the filesystem allows it, a copy where it does not
+    let tool_dir = home
+        .join("toolchains")
+        .join("cig")
+        .join("0.0.0")
+        .join("bin");
+    std::fs::create_dir_all(&tool_dir).map_err(|e| format!("{}: {e}", tool_dir.display()))?;
+    let target = tool_dir.join(format!("cig{}", std::env::consts::EXE_SUFFIX));
+    if !target.is_file() && std::fs::hard_link(&exe, &target).is_err() {
+        std::fs::copy(&exe, &target).map_err(|e| format!("cannot place the shim's target: {e}"))?;
+    }
     let index = format!(
         "cigi-index 1\nmachine\t0.0.0\ncarton\t0.0.0\tcig\t{}\nlegacy-pin-files\t.cig-version\n",
-        exe.display()
+        target.display()
     );
     std::fs::write(home.join("installer").join("shim-index"), index)
         .map_err(|e| format!("cannot write the scratch index: {e}"))?;
@@ -459,7 +471,11 @@ fn install_samples(scratch: &Scratch, mirror: &Path, what: &[&str]) -> Result<f6
         Ok(took)
     } else {
         let err = String::from_utf8_lossy(&o.stderr);
-        let first = err.lines().next().unwrap_or("it failed");
+        // the first line that says what went wrong, not a `note:` that came before it
+        let first = err
+            .lines()
+            .find(|l| !l.trim().is_empty() && !l.starts_with("note:"))
+            .unwrap_or("it failed");
         Err(format!("the install failed: {first}"))
     }
 }

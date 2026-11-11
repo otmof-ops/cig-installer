@@ -110,6 +110,13 @@ pub struct Receipt {
     /// receipts written before it was recorded and for builds whose manifest states none.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub license: Option<String>,
+    /// What the shim checks before it runs a build: for each executable file, its path in the
+    /// toolchain and `dev:ino:size:mtime` as the file stood when it was installed (or when
+    /// `ciginstaller repair` last re-derived it). A moved or restored home changes the device and
+    /// inode, so its record no longer matches and the shim refuses until `repair` writes it
+    /// again. Absent in receipts written before the record existed.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub identity: BTreeMap<String, String>,
 }
 
 impl Receipt {
@@ -137,6 +144,58 @@ impl Receipt {
             .map(|s| s.path.clone())
             .unwrap_or_else(|| format!("bin/{name}"))
     }
+}
+
+/// `dev:ino:size:mtime` of every executable file the receipt lists, measured under `dir`.
+/// A file that cannot be read is left out (the shim then has nothing to compare and `verify`
+/// reports the file).
+pub fn measure_identity(dir: &Path, receipt: &Receipt) -> BTreeMap<String, String> {
+    receipt
+        .files
+        .iter()
+        .filter(|f| f.exec)
+        .filter_map(|f| {
+            cigi_shim::Identity::measure(&dir.join(&f.path))
+                .ok()
+                .map(|i| (f.path.clone(), i.render()))
+        })
+        .collect()
+}
+
+/// The executable files of an installed toolchain whose identity no longer matches what its
+/// receipt recorded (moved, restored or replaced). A receipt with no record has nothing to
+/// differ from.
+pub fn identity_drift(home: &Home, tool: &str, v: &Version) -> Vec<String> {
+    let dir = home.toolchain(tool, v);
+    let Ok(r) = read_receipt_at(&dir, tool, &v.to_string()) else {
+        return Vec::new();
+    };
+    let now = measure_identity(&dir, &r);
+    r.identity
+        .iter()
+        .filter(|(p, want)| now.get(*p) != Some(*want))
+        .map(|(p, _)| p.clone())
+        .collect()
+}
+
+/// Write the receipt's identity record again from the files as they stand now, inside `txn`.
+/// The caller has checked the files against the receipt's hashes first: this blesses what is
+/// there. `true` when the receipt changed.
+pub fn refresh_identity(
+    txn: &mut Txn,
+    home: &Home,
+    tool: &str,
+    v: &Version,
+) -> Result<bool, ToolchainError> {
+    let dir = home.toolchain(tool, v);
+    let mut r = read_receipt_at(&dir, tool, &v.to_string())?;
+    let now = measure_identity(&dir, &r);
+    if r.identity == now {
+        return Ok(false);
+    }
+    r.identity = now;
+    write_receipt(txn, home, &r)?;
+    Ok(true)
 }
 
 /// One way an installed toolchain differs from its receipt.
@@ -333,7 +392,10 @@ pub fn materialize(
         shims: provenance.shims,
         humidor_mirror: None,
         license: provenance.license,
+        identity: BTreeMap::new(),
     };
+    let mut receipt = receipt;
+    receipt.identity = measure_identity(&partial, &receipt);
     let rpath = partial.join(RECEIPT_NAME);
     util::write_atomic(&rpath, receipt.to_json().as_bytes(), Some(0o644))
         .map_err(io_err(&rpath))?;

@@ -41,6 +41,14 @@ jobs:
       - name: THIRD-PARTY-NOTICES.md is current
         run: python3 ci/gen-third-party.py --check
 
+  # The performance budgets (#20) on a release build, on Linux, macOS and Windows: bench.yml. A few
+  # minutes, so it runs on pull requests and on main, not nightly.
+  bench:
+    name: release bench
+    uses: ./.github/workflows/bench.yml
+    permissions:
+      contents: read
+
   # The bootstrap scripts (#5): shellcheck, then the fill and install tests against a local fixture.
   # Cheap and Linux only; nothing leaves the runner.
   bootstrap:
