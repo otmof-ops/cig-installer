@@ -140,7 +140,7 @@ Every code is in [docs/ERRORS.md](docs/ERRORS.md).
 | everything from one carton | a pack is a named slice of a carton and a stick is one tool of it, so adding more later takes builds from the same carton and nothing mixes |
 | builds checked before they run | three levels, and nothing below the floor installs: `pinned`, `attested` and `checksummed`. [SECURITY.md](SECURITY.md) says what each proves and what none of them do |
 | an install is a burn | every change is a journaled transaction that ends in one atomic switch. A kill before the switch rolls back, and a kill after it rolls forward. No moment has a tool half-updated |
-| the right build for each project | `pin carton <pin>` writes `.cig-carton`, `pin <tool> <version>` writes `.cig-version`, `.cigo-version` or `.cigar-version` for one tool, and `pin` also takes `--file` for a key in `cig-tasks.json` or `cigar.toml`. `which <tool> --why` shows every step of the choice, and `which --why` does it for every tool |
+| the right build for each project | `pin carton <pin>` writes `.cig-carton`, `pin <tool> <version>` writes `.cig-version`, `.cigo-version` or `.cigar-version` for one tool, and `pin` also takes `--file` for a key in `cig-tasks.json` or `cigar.toml`. A `cigar = "1.0"` key in `cigar.toml` (or a `.cigar-version`) pins the CigarScript version, and the compiler comes with the cigar's carton: a project pinned to 1.0 builds with the cigcompile of the carton that holds cigar 1.0, after 1.1 is installed too, and a `carton` key in the same file wins. `which <tool> --why` shows every step of the choice, and `which --why` does it for every tool |
 | updates that are tried first | `update` runs the new `cig` against your project before it switches, and shows the differences it found |
 | an undo | `rollback` returns the previous carton, or one tool's build with `rollback <tool>` |
 | combinations that fit | `check` is the marry-up matrix: it says when a tool needs a newer `cig`, or a pin and a carton disagree, before anything runs |
@@ -282,7 +282,7 @@ lists them all.
 | `use <carton>` | make an installed carton the machine's, with no download |
 | `update` | check, choose, verify, trial and switch. `--check` only looks, `--to` names a carton, `--no-trial` skips the trial, `--auto` is what the daily job runs |
 | `rollback [tool]` | back to the previous carton, or one tool's previous build |
-| `pin carton <pin>`, `pin <tool> <version>` | write a project pin file: the carton, or one tool's (`cig`, `cigo`, `cigar`) |
+| `pin carton <pin>`, `pin <tool> <version>` | write a project pin file: the carton, or one tool's (`cig`, `cigo`, `cigar`); a pin on `cigar` also selects `cigcompile` |
 | `list`, `which [tool]`, `check` | what is installed, what runs here and why (every tool when none is named), and whether the combination fits |
 | `doctor`, `repair` | find problems the installer owns, each with its fix command, and repair files from receipts |
 | `uninstall <tool>`, `uninstall --all`, `remove <carton>` | remove a tool, everything the installer added, or one carton; your data stays |

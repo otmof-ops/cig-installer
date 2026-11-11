@@ -19,7 +19,9 @@ pub mod machine;
 pub mod pins;
 
 pub use pins::ScriptPin;
-use pins::{cig_from_json, header_pin, pin_from_carton_file, pin_from_json, pin_from_toml};
+use pins::{
+    cig_from_json, cigar_from_toml, header_pin, pin_from_carton_file, pin_from_json, pin_from_toml,
+};
 
 /// The tools the shim serves.
 pub const TOOLS: [&str; 4] = ["cig", "cigo", "cigcompile", "cigar"];
@@ -418,6 +420,8 @@ pub fn bound<'a>(
 
 /// Walk up from `start` (at most 40 levels): the first directory with a verdict decides.
 /// In one directory: `.cig-carton`, then `cig-tasks.json`, then `cigar.toml`, then the `legacy` names.
+/// A `cig-tasks.json` with a `"cig"` key and a `cigar.toml` with a `cigar` key (and no `carton`)
+/// are legacy pins: they come first among the legacy files.
 ///
 /// `stop`: the user's home directory. A project inside it is searched up to and including the home
 /// and no further, so `/home/.cig-carton` or `/tmp/.cig-carton` never reaches into it.
@@ -427,7 +431,7 @@ pub fn find(start: &Path, legacy: &[&str], t: Trusted, stop: Option<&Path>, cap:
     let mut dir = Some(start);
     for _ in 0..MAX_DEPTH {
         let Some(d) = dir else { break };
-        let mut manifest_cig = None;
+        let mut manifest_files: Vec<PathBuf> = Vec::new();
         for (name, kind) in [
             (".cig-carton", Kind::CartonFile),
             ("cig-tasks.json", Kind::Json),
@@ -458,13 +462,20 @@ pub fn find(start: &Path, legacy: &[&str], t: Trusted, stop: Option<&Path>, cap:
                             pin,
                         };
                     }
-                    if kind == Kind::Json && cig_from_json(&text).is_some() {
-                        manifest_cig = Some(file);
+                    // a manifest's `"cig"` floor and `cigar.toml`'s `cigar` key are pins of the
+                    // legacy kind: they send the project to the resolver, never to a carton
+                    let names_a_version = match kind {
+                        Kind::Json => cig_from_json(&text).is_some(),
+                        Kind::Toml => cigar_from_toml(&text).is_some(),
+                        Kind::CartonFile => false,
+                    };
+                    if names_a_version {
+                        manifest_files.push(file);
                     }
                 }
             }
         }
-        let files: Vec<PathBuf> = manifest_cig
+        let files: Vec<PathBuf> = manifest_files
             .into_iter()
             .chain(
                 legacy

@@ -409,6 +409,13 @@ fn with_header(
 
 /// Which installed `(carton, build)` runs `tool` under the legacy pins when one tool (`st`) comes
 /// from a stick out of `carton` and every other tool from the base carton (SPEC 8 step 3).
+/// The tool that `tool` is built with, when a pin on that tool decides which build of `tool` runs:
+/// cigcompile comes with the carton that holds the cigar a project is pinned to (cig-compile
+/// ADR 0003), never with the machine's carton and never from a stick of cigar alone.
+fn bound_to(tool: &str, pinned: &str) -> Option<&'static str> {
+    (tool == "cigcompile" && pinned == "cigar").then_some("cigar")
+}
+
 fn legacy_pick(
     cx: &Cx,
     tool: &str,
@@ -430,6 +437,21 @@ fn legacy_pick(
             .get(tool)
             .and_then(|v| parsed(v))?;
         return mine(&b).then(|| (carton.clone(), b));
+    }
+    if let Some(of) = bound_to(tool, st) {
+        // the tool comes with the pinned tool's own carton: the newest installed carton whose
+        // pinned tool meets every pin on it and that holds this tool too
+        let mut cartons: Vec<Version> = cx.state.cartons.keys().filter_map(|k| parsed(k)).collect();
+        cartons.sort_by(|a, b| b.cmp(a));
+        return cartons.into_iter().find_map(|c| {
+            let rec = cx.state.cartons.get(&c.to_string())?;
+            let pinned = rec.tools.get(of).and_then(|v| parsed(v))?;
+            let b = rec.tools.get(tool).and_then(|v| parsed(v))?;
+            pins.iter()
+                .filter(|(t, _)| t == of)
+                .all(|(_, p)| p.satisfied_by(&pinned))
+                .then_some((c, b))
+        });
     }
     let machine = cx.state.machine_carton.as_deref().and_then(parsed);
     let fits: Vec<(Version, Version)> = holders(cx, tool)
@@ -716,13 +738,20 @@ fn resolve_inner(
                 if let Some((c, b)) = legacy_pick(cx, tool, &st, &carton, &pins) {
                     return found(cx, tool, Some(c), b, Why::Legacy(label), steps.clone());
                 }
-                let fix = format!("ciginstaller install stick {st} --carton {carton}");
+                let coupled = bound_to(tool, &st).is_some();
+                let fix = if coupled {
+                    format!("ciginstaller install carton --carton {carton}")
+                } else {
+                    format!("ciginstaller install stick {st} --carton {carton}")
+                };
                 if mode == Mode::Run
                     && !fetched
                     && cx.may_fetch_pinned(&format!("{st} from carton {carton}"))?
                 {
                     let mut a = InstallArgs::carton(Some(carton.to_string()));
-                    a.what = What::Stick(st.clone());
+                    if !coupled {
+                        a.what = What::Stick(st.clone());
+                    }
                     a.no_path = true;
                     a.reason = Some("legacy pin".into());
                     install::run(cx, &a)?;
