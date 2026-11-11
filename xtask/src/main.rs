@@ -19,6 +19,17 @@ usage:
   cargo xtask manifest assemble --candidate beta|nightly --base <X.Y.Z> [the flags above]
         (the carton is numbered X.Y.Z-beta.N or X.Y.Z-nightly.N, N one past the previous
         manifest's; the channel is the candidate's; a nightly implies --latest)
+        [--tuf-entries <file>]      (also write the signed-target entries for `tuf sign releases`)
+  cargo xtask tuf keygen <file> [--base64]
+  cargo xtask tuf init --dir <d> --root-key <f>... --root-threshold <n> --targets-key <f>
+        --releases-key <f> --snapshot-key <f> --timestamp-key <f>
+  cargo xtask tuf sign targets|snapshot|timestamp --dir <d> --key <f> [--expires-days <n>]
+  cargo xtask tuf sign releases --dir <d> --key <f> --entries <file> [--expires-days <n>]
+  cargo xtask tuf rotate root|targets|snapshot|timestamp --dir <d> --new-key <f>...
+        --old-root-key <f>... [--root-threshold <n>]
+  cargo xtask tuf rotate releases --dir <d> --new-key <f> --targets-key <f>
+  cargo xtask tuf floor --dir <d>
+        (key files are paths outside this repository; a key is never printed)
   cargo xtask pins <manifest.toml>
   cargo xtask release prune [--keep 3] [--product <tool>] [--manifest <file>] [--pin <tool>=<v>:<who>]...
         (prints the plan of #26, a dry run; --yes is blocked until the index is signed)
@@ -62,6 +73,7 @@ fn main() {
     {
         ["manifest", "assemble", rest @ ..] => assemble_cmd(rest),
         ["release", "prune", rest @ ..] => prune_cmd(rest),
+        ["tuf", rest @ ..] => tuf_cmd(rest),
         ["pins", manifest] => pins_cmd(Path::new(manifest)),
         ["errors-doc"] => errors_doc_cmd(),
         ["fixture-mirror", dir] => fixture_mirror_cmd(Path::new(dir)),
@@ -94,6 +106,7 @@ fn assemble_cmd(rest: &[&str]) {
     let (mut notes, mut channel) = (String::new(), None::<String>);
     let (mut candidate, mut base, mut latest) = (None, None, false);
     let (mut previous, mut out, mut expires_days) = (None, None, 30i64);
+    let mut tuf_entries = None::<PathBuf>;
     let mut it = rest.iter();
     while let Some(flag) = it.next() {
         let mut value = || {
@@ -139,6 +152,7 @@ fn assemble_cmd(rest: &[&str]) {
             "--latest" => latest = true,
             "--previous" => previous = Some(PathBuf::from(value())),
             "--out" => out = Some(PathBuf::from(value())),
+            "--tuf-entries" => tuf_entries = Some(PathBuf::from(value())),
             "--expires-days" => {
                 expires_days = value()
                     .parse()
@@ -206,6 +220,17 @@ fn assemble_cmd(rest: &[&str]) {
         println!("- {line}");
     }
     println!("wrote {} and {}", out.display(), side.display());
+    if let Some(p) = tuf_entries {
+        let entries = xtask::tuf::entries_for(&done.text).unwrap_or_else(|e| fail(&e));
+        let json = serde_json::Value::Array(entries.iter().map(|e| e.to_json()).collect());
+        std::fs::write(&p, serde_json::to_string_pretty(&json).unwrap_or_default())
+            .unwrap_or_else(|e| fail(&format!("{}: {e}", p.display())));
+        println!(
+            "wrote {}: {} signed-target entries; `tuf sign releases --entries` signs them",
+            p.display(),
+            entries.len()
+        );
+    }
     println!("read it before uploading it to the `manifest` release");
 }
 
@@ -275,4 +300,194 @@ fn prune_cmd(rest: &[&str]) {
     };
     let plans = prune::plan(&xtask::gh::Gh, &tools, &opts).unwrap_or_else(|e| fail(&e));
     print!("{}", prune::render(&plans, keep));
+}
+
+/// A key file named on the command line may not be inside this repository.
+fn key_path(s: &str) -> PathBuf {
+    let p = PathBuf::from(s);
+    let abs = p.canonicalize().unwrap_or_else(|_| p.clone());
+    let repo = root().canonicalize().unwrap_or_else(|_| root());
+    if abs.starts_with(&repo) {
+        fail(&format!(
+            "{s} is inside the repository; keys live outside it, and a path that is not is the only kind this tool reads"
+        ));
+    }
+    p
+}
+
+fn tuf_cmd(rest: &[&str]) {
+    use xtask::tuf::{self, KeyFile, Rotate};
+    let (cmd, rest) = match rest.split_first() {
+        Some((c, r)) => (*c, r),
+        None => usage("tuf what?"),
+    };
+    let (sub, rest) = match (cmd, rest.split_first()) {
+        ("sign" | "rotate", Some((s, r))) => (Some(*s), r),
+        ("keygen", _) => (None, rest),
+        (_, _) => (None, rest),
+    };
+    let (mut dir, mut keys, mut old_root, mut new_keys) = (None, vec![], vec![], vec![]);
+    let (mut root_keys, mut positional) = (vec![], vec![]);
+    let (mut threshold, mut entries, mut expires) = (None::<u64>, None::<PathBuf>, None::<i64>);
+    let (mut targets_key, mut releases_key, mut snapshot_key, mut timestamp_key) =
+        (None, None, None, None);
+    let mut b64 = false;
+    let mut it = rest.iter();
+    while let Some(flag) = it.next() {
+        let mut value = || {
+            it.next()
+                .map(|s| s.to_string())
+                .unwrap_or_else(|| usage(&format!("{flag} needs a value")))
+        };
+        match *flag {
+            "--dir" => dir = Some(PathBuf::from(value())),
+            "--key" => keys.push(key_path(&value())),
+            "--root-key" => root_keys.push(key_path(&value())),
+            "--old-root-key" => old_root.push(key_path(&value())),
+            "--new-key" => new_keys.push(key_path(&value())),
+            "--targets-key" => targets_key = Some(key_path(&value())),
+            "--releases-key" => releases_key = Some(key_path(&value())),
+            "--snapshot-key" => snapshot_key = Some(key_path(&value())),
+            "--timestamp-key" => timestamp_key = Some(key_path(&value())),
+            "--root-threshold" => {
+                threshold = Some(value().parse().unwrap_or_else(|_| usage("a number")))
+            }
+            "--entries" => entries = Some(PathBuf::from(value())),
+            "--expires-days" => {
+                expires = Some(value().parse().unwrap_or_else(|_| usage("a number")))
+            }
+            "--base64" => b64 = true,
+            f if f.starts_with("--") => usage(&format!("unknown flag {f}")),
+            p => positional.push(p.to_string()),
+        }
+    }
+    let dir = || dir.clone().unwrap_or_else(|| usage("--dir is required"));
+    let key = |p: &Option<PathBuf>, n: &str| {
+        KeyFile::read(
+            p.as_ref()
+                .unwrap_or_else(|| usage(&format!("{n} is required"))),
+        )
+        .unwrap_or_else(|e| fail(&e))
+    };
+    let read_keys = |v: &[PathBuf]| -> Vec<KeyFile> {
+        v.iter()
+            .map(|p| KeyFile::read(p).unwrap_or_else(|e| fail(&e)))
+            .collect()
+    };
+    let now = jiff::Timestamp::now();
+    let done = |what: &str, r: Result<u64, String>| match r {
+        Ok(v) => println!("wrote {what} version {v} in {}", dir().display()),
+        Err(e) => fail(&e),
+    };
+    match (cmd, sub) {
+        ("keygen", _) => {
+            let p = positional.first().unwrap_or_else(|| usage("keygen <file>"));
+            let id = tuf::keygen(&key_path(p), b64).unwrap_or_else(|e| fail(&e));
+            println!("wrote a new key to {p}; key id {id}");
+        }
+        ("init", _) => {
+            let d = dir();
+            let r = tuf::init(&tuf::Init {
+                dir: &d,
+                root_keys: read_keys(&root_keys),
+                root_threshold: threshold.unwrap_or_else(|| usage("--root-threshold")),
+                targets_key: key(&targets_key, "--targets-key"),
+                releases_key: key(&releases_key, "--releases-key"),
+                snapshot_key: key(&snapshot_key, "--snapshot-key"),
+                timestamp_key: key(&timestamp_key, "--timestamp-key"),
+                now,
+            });
+            match r {
+                Ok(()) => println!("wrote 1.root.json and 1.targets.json in {}", d.display()),
+                Err(e) => fail(&e),
+            }
+        }
+        ("sign", Some(role)) => {
+            let one = || {
+                if keys.len() != 1 {
+                    usage("give --key once");
+                }
+                KeyFile::read(&keys[0]).unwrap_or_else(|e| fail(&e))
+            };
+            match role {
+                "targets" => done(
+                    "targets",
+                    tuf::sign_targets(&dir(), &one(), now, expires.unwrap_or(tuf::TARGETS_DAYS)),
+                ),
+                "snapshot" => done(
+                    "snapshot",
+                    tuf::sign_snapshot(&dir(), &one(), now, expires.unwrap_or(tuf::SNAPSHOT_DAYS)),
+                ),
+                "timestamp" => done(
+                    "timestamp",
+                    tuf::sign_timestamp(
+                        &dir(),
+                        &one(),
+                        now,
+                        expires.unwrap_or(tuf::TIMESTAMP_DAYS),
+                    ),
+                ),
+                "releases" => {
+                    let p = entries.unwrap_or_else(|| usage("--entries is required"));
+                    let v: serde_json::Value =
+                        serde_json::from_str(&read(&p)).unwrap_or_else(|e| fail(&e.to_string()));
+                    let list = v
+                        .as_array()
+                        .unwrap_or_else(|| fail("the entries file is not a list"));
+                    let es: Vec<_> = list
+                        .iter()
+                        .map(|x| tuf::Entry::from_json(x).unwrap_or_else(|e| fail(&e)))
+                        .collect();
+                    done(
+                        "releases",
+                        tuf::sign_releases(
+                            &dir(),
+                            &one(),
+                            &es,
+                            now,
+                            expires.unwrap_or(tuf::RELEASES_DAYS),
+                        ),
+                    )
+                }
+                _ => usage("sign targets|releases|snapshot|timestamp"),
+            }
+        }
+        ("rotate", Some("releases")) => {
+            if new_keys.len() != 1 {
+                usage("give --new-key once");
+            }
+            done(
+                "targets",
+                tuf::rotate_releases(
+                    &dir(),
+                    &key(&targets_key, "--targets-key"),
+                    &KeyFile::read(&new_keys[0]).unwrap_or_else(|e| fail(&e)),
+                    now,
+                ),
+            )
+        }
+        ("rotate", Some(role)) => {
+            let what = match role {
+                "root" => Rotate::Root,
+                "targets" => Rotate::Targets,
+                "snapshot" => Rotate::Snapshot,
+                "timestamp" => Rotate::Timestamp,
+                _ => usage("rotate root|targets|snapshot|timestamp|releases"),
+            };
+            let d = dir();
+            done(
+                "root",
+                tuf::rotate(&tuf::RotateSpec {
+                    dir: &d,
+                    what,
+                    new_keys: read_keys(&new_keys),
+                    root_threshold: threshold,
+                    old_root_keys: read_keys(&old_root),
+                    now,
+                }),
+            )
+        }
+        ("floor", _) => print!("{}", tuf::floor_lines(&dir()).unwrap_or_else(|e| fail(&e))),
+        _ => usage("tuf keygen|init|sign|rotate|floor"),
+    }
 }

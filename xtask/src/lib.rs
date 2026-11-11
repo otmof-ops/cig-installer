@@ -9,3 +9,4 @@ pub mod gh;
 pub mod pins;
 pub mod prune;
 pub mod tokens;
+pub mod tuf;

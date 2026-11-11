@@ -1536,6 +1536,7 @@ the installer, second range: the mirror and what travels over it (E1900), the up
 | code | title | kind of no | what to type next |
 |---|---|---|---|
 | [`E1900`](#e1900-a-mirror-over-plain-http) | a mirror over plain http | these are MY ciggies | `ciginstaller config set mirror https://<your mirror>/`, or `ciginstaller config unset mirror` to use GitHub |
+| [`E1901`](#e1901-the-update-channels-signed-metadata-was-refused) | the update channel's signed metadata was refused | these are MY ciggies | `ciginstaller update --check --refresh` once the channel is current again; `ciginstaller doctor --network` names what failed |
 | [`E1902`](#e1902-a-shim-target-is-outside-its-home) | a shim target is outside its home | can't see any ciggies bro | `ciginstaller repair` |
 | [`E1903`](#e1903-a-shim-target-is-not-the-build-its-receipt-recorded) | a shim target is not the build its receipt recorded | can't see any ciggies bro | `ciginstaller repair` |
 
@@ -1556,6 +1557,23 @@ A mirror is a plain `http://` address that is not on this machine, or it is on t
 3. a server answered an https request by sending it on to plain http (no probe; a suggestion, not a finding). **Remedy:** ask the mirror's operator to serve https only; nothing here can be told to follow it
 
 Related: [`E1820`](#e1820-download-failed), [`E1822`](#e1822-trust-floor-not-met), [`E1838`](#e1838-mirror-directory-refused).
+
+### E1901 the update channel's signed metadata was refused
+
+*usage · since 0.1.0 · arises in update, doctor, any*
+
+**Kind of no:** these are MY ciggies (the door: it knows you and said no; 403 Forbidden; permission denied; a lock; a refusal by policy).
+
+The update channel's signed metadata (The Update Framework: root, timestamp, snapshot, targets and the releases delegation) did not verify: a signature, a threshold, an expiry, a version that went backwards, or a build whose length or hash is not the one the signed targets name. Nothing was installed and nothing changed on this machine.
+
+**What to type next:** `ciginstaller update --check --refresh` once the channel is current again; `ciginstaller doctor --network` names what failed
+
+**Known causes**, ranked; the doctor checks them in this order:
+
+1. the signed metadata expired, or a newer version was seen before (a replay or a freeze) (no probe; a suggestion, not a finding). **Remedy:** wait for the channel's next timestamp, then `ciginstaller update --check --refresh`
+2. a build's length or sha256 differs from what the signed targets name (it was swapped on the way) (no probe; a suggestion, not a finding). **Remedy:** `ciginstaller update --check --refresh` from GitHub (`ciginstaller config unset mirror`); report it if it repeats
+
+Related: [`E1822`](#e1822-trust-floor-not-met), [`E1900`](#e1900-a-mirror-over-plain-http).
 
 ### E1902 a shim target is outside its home
 

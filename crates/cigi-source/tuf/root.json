@@ -1,0 +1,1 @@
+{"placeholder":"The first signed root of the update channel goes here (docs/decisions/0004-signed-metadata.md, section 3). Until it does, a TufTrust built from this file refuses everything."}

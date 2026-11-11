@@ -218,13 +218,15 @@ fn headings_are_sentence_case() {
             let title = l.trim_start_matches('#').trim();
             // words after the first, ignoring anything in code spans, product names and numbers
             let plain: String = title.split('`').step_by(2).collect::<Vec<_>>().join(" ");
-            // a number or decision id in front ("3.", "0001:") is not the first word
+            // a number or decision id in front ("3.", "1a.", "0001:") is not the first word
             let bad: Vec<&str> = plain
                 .split_whitespace()
                 .skip_while(|w| {
-                    w.trim_end_matches(['.', ':'])
-                        .chars()
-                        .all(|c| c.is_ascii_digit())
+                    let n = w.trim_end_matches(['.', ':']);
+                    let n = n
+                        .strip_suffix(|c: char| c.is_ascii_lowercase())
+                        .unwrap_or(n);
+                    !n.is_empty() && n.chars().all(|c| c.is_ascii_digit())
                 })
                 .skip(1)
                 .filter(|w| is_title_case_word(w))

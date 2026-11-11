@@ -1,0 +1,92 @@
+name: tuf
+
+# The online half of the signed update channel (docs/decisions/0004-signed-metadata.md).
+#
+# Signs with the three ONLINE keys only (releases, snapshot, timestamp). The root and targets keys
+# are offline and are never here: the targets role signed the delegation to `releases` once, so a
+# release does not need it. Metadata is published as assets of the rolling `tuf` release, in this
+# order: delegated role, then snapshot, then timestamp last, so a reader never sees a timestamp
+# that points at a file that is not there yet.
+#
+# The keys are secrets of the protected environment `tuf-online`, which only `main` may use. A key
+# is written to a private file in RUNNER_TEMP, handed to xtask by path, and removed at the end. No
+# step prints a key; none runs with `set -x`.
+on:
+  schedule:
+    # daily: the timestamp lives 7 days, the snapshot and releases roles 30
+    - cron: "17 4 * * *"
+  workflow_dispatch:
+    inputs:
+      manifest_run:
+        description: "Run id of a `manifest` workflow run whose artifact is to be signed (empty: only refresh the online roles)"
+        required: false
+        default: ""
+
+permissions:
+  contents: write
+  actions: read
+
+concurrency:
+  group: tuf-publish
+  cancel-in-progress: false
+
+jobs:
+  sign:
+    name: sign and publish the online roles
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    environment: tuf-online
+    env:
+      CARGO_TERM_COLOR: always
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      IN_MANIFEST_RUN: ${{ inputs.manifest_run }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Rust (stable)
+        run: |
+          rustup update stable --no-self-update
+          rustup default stable
+      - name: the metadata published so far
+        run: |
+          mkdir -p meta
+          gh release download tuf -R "$GITHUB_REPOSITORY" -D meta \
+            || { echo "::error::there is no tuf release yet: the first root and targets come from the offline ceremony"; exit 1; }
+          ls meta | sort > "$RUNNER_TEMP/before.txt"
+      - name: the manifest to sign, if one was asked for
+        run: |
+          echo '[]' > "$RUNNER_TEMP/entries.json"
+          if [[ -n "$IN_MANIFEST_RUN" ]]; then
+            [[ "$IN_MANIFEST_RUN" =~ ^[0-9]+$ ]] || { echo "::error::manifest_run is a run id"; exit 1; }
+            gh run download "$IN_MANIFEST_RUN" -R "$GITHUB_REPOSITORY" -D "$RUNNER_TEMP/assembled"
+            # the entries file `manifest assemble --tuf-entries` wrote next to the manifest
+            found=$(find "$RUNNER_TEMP/assembled" -name 'tuf-entries.json' | head -n 1)
+            [[ -n "$found" ]] || { echo "::error::that run has no tuf-entries.json"; exit 1; }
+            cp "$found" "$RUNNER_TEMP/entries.json"
+          fi
+      - name: sign releases, snapshot and timestamp
+        env:
+          TUF_RELEASES_KEY: ${{ secrets.TUF_RELEASES_KEY }}
+          TUF_SNAPSHOT_KEY: ${{ secrets.TUF_SNAPSHOT_KEY }}
+          TUF_TIMESTAMP_KEY: ${{ secrets.TUF_TIMESTAMP_KEY }}
+        run: |
+          set +x
+          umask 077
+          keys="$RUNNER_TEMP/keys"; mkdir -p "$keys"
+          for k in RELEASES SNAPSHOT TIMESTAMP; do
+            v="TUF_${k}_KEY"
+            [[ -n "${!v}" ]] || { echo "::error::the secret $v is not set"; exit 1; }
+            printf '%s\n' "${!v}" > "$keys/$k.key"
+          done
+          cargo run --quiet --package xtask -- tuf sign releases  --dir meta --key "$keys/RELEASES.key"  --entries "$RUNNER_TEMP/entries.json"
+          cargo run --quiet --package xtask -- tuf sign snapshot  --dir meta --key "$keys/SNAPSHOT.key"
+          cargo run --quiet --package xtask -- tuf sign timestamp --dir meta --key "$keys/TIMESTAMP.key"
+      - name: remove the keys
+        if: always()
+        run: rm -rf "$RUNNER_TEMP/keys"
+      - name: publish, timestamp last
+        run: |
+          ls meta | sort > "$RUNNER_TEMP/after.txt"
+          new=$(comm -13 "$RUNNER_TEMP/before.txt" "$RUNNER_TEMP/after.txt" | grep -v '^timestamp.json$' | grep -v 'snapshot.json$' || true)
+          snap=$(comm -13 "$RUNNER_TEMP/before.txt" "$RUNNER_TEMP/after.txt" | grep 'snapshot.json$' || true)
+          for f in $new $snap; do gh release upload tuf "meta/$f" -R "$GITHUB_REPOSITORY"; done
+          gh release upload tuf meta/timestamp.json -R "$GITHUB_REPOSITORY" --clobber
