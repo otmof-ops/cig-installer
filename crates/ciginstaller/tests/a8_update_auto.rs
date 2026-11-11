@@ -59,6 +59,67 @@ fn unit_dir(fx: &Fixture) -> PathBuf {
     fx.user_home.join(".config/systemd/user")
 }
 
+/// The files the daily schedule is written to here: a launchd agent on macOS, a systemd user
+/// service and timer on Linux and the other unixes (`schedule::Os::host`).
+fn schedule_files(fx: &Fixture) -> Vec<PathBuf> {
+    if cfg!(target_os = "macos") {
+        vec![fx
+            .user_home
+            .join("Library/LaunchAgents/io.github.otmof-ops.cigi-update.plist")]
+    } else {
+        vec![
+            unit_dir(fx).join("cigi-update.service"),
+            unit_dir(fx).join("cigi-update.timer"),
+        ]
+    }
+}
+
+fn no_schedule(fx: &Fixture) -> bool {
+    schedule_files(fx).iter().all(|f| !f.exists())
+}
+
+/// What the record-only seam logs when the schedule is turned on, and when it is turned off.
+fn enable_lines() -> &'static [&'static str] {
+    if cfg!(target_os = "macos") {
+        &["launchctl bootstrap gui/{uid} "]
+    } else {
+        &[
+            "systemctl --user daemon-reload",
+            "systemctl --user enable --now cigi-update.timer",
+        ]
+    }
+}
+
+fn disable_line() -> &'static str {
+    if cfg!(target_os = "macos") {
+        "launchctl bootout gui/{uid}/io.github.otmof-ops.cigi-update"
+    } else {
+        "systemctl --user disable --now cigi-update.timer"
+    }
+}
+
+/// The schedule runs `update --auto`, at low priority, daily.
+fn the_schedule_runs_update_auto(fx: &Fixture) {
+    if cfg!(target_os = "macos") {
+        let plist = read(&schedule_files(fx)[0]);
+        assert!(
+            plist.contains("<string>update</string>") && plist.contains("<string>--auto</string>"),
+            "{plist}"
+        );
+        assert!(
+            plist.contains("<key>StartInterval</key>")
+                && plist.contains("<key>LowPriorityIO</key>"),
+            "{plist}"
+        );
+    } else {
+        let service = read(&unit_dir(fx).join("cigi-update.service"));
+        let timer = read(&unit_dir(fx).join("cigi-update.timer"));
+        assert!(service.contains("ConditionACPower=true"), "{service}");
+        assert!(service.contains("update\" \"--auto\""), "{service}");
+        assert!(timer.contains("RandomizedDelaySec=7200") && timer.contains("OnCalendar=daily"));
+    }
+}
+
 fn enable_log(fx: &Fixture) -> String {
     read(&fx.cigscript().join("installer/schedule-enable.log"))
 }
@@ -263,7 +324,7 @@ fn a8_auto_obeys_the_machine_lock_and_waits_for_mains_power() {
     ok(&o);
     assert!(text(&o).contains("auto_update = off"), "{}", text(&o));
     assert_eq!(machine_carton(&fx), "0.1.0");
-    assert!(!unit_dir(&fx).join("cigi-update.timer").exists());
+    assert!(no_schedule(&fx));
 
     // IT locks it to `all`: that is obeyed, and on battery nothing runs
     layer(&fx, "auto_update = \"all\"\nlocked = [ \"auto_update\" ]\n");
@@ -304,7 +365,7 @@ fn a8_schedule_is_written_through_the_journal_enabled_by_record_only_and_taken_a
     fx.publish("stable");
     ok(&cigi(&fx, &["install", "carton", "--carton", "0.1.0"]));
     // the default (notify) writes nothing
-    assert!(!unit_dir(&fx).join("cigi-update.timer").exists());
+    assert!(no_schedule(&fx));
 
     let o = cigi(&fx, &["config", "set", "auto_update", "security"]);
     ok(&o);
@@ -313,18 +374,12 @@ fn a8_schedule_is_written_through_the_journal_enabled_by_record_only_and_taken_a
         "{}",
         text(&o)
     );
-    let service = read(&unit_dir(&fx).join("cigi-update.service"));
-    let timer = read(&unit_dir(&fx).join("cigi-update.timer"));
-    assert!(service.contains("ConditionACPower=true"), "{service}");
-    assert!(service.contains("update\" \"--auto\""), "{service}");
-    assert!(timer.contains("RandomizedDelaySec=7200") && timer.contains("OnCalendar=daily"));
+    the_schedule_runs_update_auto(&fx);
     // enabling went through the seam: recorded, never run
     let log = enable_log(&fx);
-    assert!(log.contains("systemctl --user daemon-reload"), "{log}");
-    assert!(
-        log.contains("systemctl --user enable --now cigi-update.timer"),
-        "{log}"
-    );
+    for line in enable_lines() {
+        assert!(log.contains(line), "{log}");
+    }
     let state = read(&fx.cigscript().join("installer/state.json"));
     assert!(state.contains("\"schedule\""), "{state}");
     // and it is in the journal
@@ -338,10 +393,9 @@ fn a8_schedule_is_written_through_the_journal_enabled_by_record_only_and_taken_a
 
     // off takes it away, and says it was disabled first
     ok(&cigi(&fx, &["config", "set", "auto_update", "off"]));
-    assert!(!unit_dir(&fx).join("cigi-update.timer").exists());
-    assert!(!unit_dir(&fx).join("cigi-update.service").exists());
+    assert!(no_schedule(&fx));
     assert!(
-        enable_log(&fx).contains("systemctl --user disable --now cigi-update.timer"),
+        enable_log(&fx).contains(disable_line()),
         "{}",
         enable_log(&fx)
     );
@@ -355,14 +409,9 @@ fn a8_uninstall_all_removes_the_schedule() {
     fx.publish("stable");
     ok(&cigi(&fx, &["install", "carton", "--carton", "0.1.0"]));
     ok(&cigi(&fx, &["config", "set", "auto_update", "all"]));
-    assert!(unit_dir(&fx).join("cigi-update.timer").exists());
+    assert!(schedule_files(&fx).iter().all(|f| f.exists()));
 
     let o = cigi(&fx, &["uninstall", "--all", "--yes-irreversible"]);
     ok(&o);
-    assert!(
-        !unit_dir(&fx).join("cigi-update.timer").exists(),
-        "{}",
-        text(&o)
-    );
-    assert!(!unit_dir(&fx).join("cigi-update.service").exists());
+    assert!(no_schedule(&fx), "{}", text(&o));
 }
