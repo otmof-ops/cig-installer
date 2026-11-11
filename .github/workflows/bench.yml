@@ -92,17 +92,27 @@ jobs:
           $env:CIGI_NO_REGISTRY_PATH = '1'
           $env:NO_COLOR = '1'
           $ci = (Resolve-Path target/release/ciginstaller.exe).Path
-          # the strict run is the verdict: it fails when any row is over
-          & $ci --plain bench --strict --runs 100
-          $strict = $LASTEXITCODE
-          # the same run as data: say what was measured and what was not
-          $raw = & $ci --json bench --runs 100
-          $d = ($raw | Out-String | ConvertFrom-Json).data
-          foreach ($r in $d.budgets) {
-            $state = if ($r.status -eq 'not measured') { 'NOT MEASURED' } else { $r.status }
-            "{0,-14} {1,-16} {2} (limit {3} {4})  {5}" -f $state, $r.id, $r.median, $r.limit, $r.unit, $r.note
+          # one measurement is the verdict, read as data: every row is printed and judged from it
+          function Measure-Bench {
+            $raw = & $ci --json bench --runs 100
+            if ($LASTEXITCODE -ne 0) { throw "ciginstaller bench failed (exit $LASTEXITCODE): $raw" }
+            $d = ($raw | Out-String | ConvertFrom-Json).data
+            foreach ($r in $d.budgets) {
+              $state = if ($r.status -eq 'not measured') { 'NOT MEASURED' } else { $r.status }
+              "{0,-14} {1,-16} {2} (limit {3} {4})  {5}" -f $state, $r.id, $r.median, $r.limit, $r.unit, $r.note | Out-Host
+            }
+            $d
           }
-          if ($strict -ne 0) { throw "ciginstaller bench --strict failed (exit $strict): a budget is over" }
+          $d = Measure-Bench
+          # a shared runner can stall its disk for seconds: when only times are over, they are measured
+          # once more and judged on that. A real regression is over both times; a size is judged once.
+          $over = @($d.budgets | Where-Object { $_.status -eq 'over' })
+          if ($over.Count -gt 0 -and @($over | Where-Object { $_.unit -ne 'ms' }).Count -eq 0) {
+            "over on the first measurement: $(($over | ForEach-Object { $_.id }) -join ' '); measuring once more" | Out-Host
+            $d = Measure-Bench
+          }
+          $over = @($d.budgets | Where-Object { $_.status -eq 'over' })
+          if ($over.Count -gt 0) { throw "over its budget: $(($over | ForEach-Object { "$($_.id) $($_.median) (limit $($_.limit) $($_.unit))" }) -join '; ')" }
           if ($d.build -ne 'release') { throw "this is a $($d.build) build; the budgets are judged on a release build" }
           # a row that was not measured is not a pass: name every row this job must measure here
           $bad = @()

@@ -144,11 +144,25 @@ fn write_five_cigo(s: &Scratch, shared: bool) {
 }
 
 /// The shim's dispatch, the atomic switch and both binary sizes: no shell-script product needed.
+/// A shared runner can stall its disk for seconds, so when a time is over its budget it is
+/// measured once more and judged on that: a real regression is over both times. Sizes are
+/// judged on the one measurement.
 #[test]
 fn budget_neutral_shim_switch_and_sizes() {
     let s = scratch();
-    let d = bench(&s, &[]);
+    let mut d = bench(&s, &[]);
     let platform = std::env::consts::OS;
+    let times = ["shim_dispatch", "switch"];
+    if release() && times.iter().any(|id| row(&d, id)["status"] == "over") {
+        for id in times {
+            eprintln!(
+                "budget_neutral[{platform}]: first measurement, {id}: {}",
+                row(&d, id)
+            );
+        }
+        eprintln!("budget_neutral[{platform}]: a time is over its budget; measuring once more");
+        d = bench(&s, &[]);
+    }
     for id in ["shim_dispatch", "switch", "installer_bytes", "shim_bytes"] {
         let r = row(&d, id);
         eprintln!(
