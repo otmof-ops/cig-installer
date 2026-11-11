@@ -18,6 +18,14 @@
 #[cfg(all(feature = "fault-injection", not(debug_assertions)))]
 compile_error!("the fault-injection feature is for debug test builds only, never a release build");
 
+/// The tests' seam for the update schedule (cig-installer#7): in a fault-injection build,
+/// `CIGI_SCHEDULE_ENABLER=record` logs the command that would enable the schedule instead of
+/// running it. A release build never reads the variable.
+pub fn schedule_enabler_recorded() -> bool {
+    cfg!(feature = "fault-injection")
+        && std::env::var("CIGI_SCHEDULE_ENABLER").is_ok_and(|v| v == "record")
+}
+
 pub mod config;
 pub mod error;
 pub mod home;
@@ -25,6 +33,7 @@ pub mod humidor;
 pub mod index;
 pub mod journal;
 pub mod lock;
+pub mod machine;
 pub mod migrate;
 pub mod path;
 pub mod platform;
@@ -49,7 +58,7 @@ pub use humidor::{
 pub use index::ShimIndex;
 pub use journal::{
     list_txns, prune_txns, recover, Before, FlipIntent, Journal, JournalOp, RecoverOutcome,
-    Recovered, RollbackFailure, RollbackReport, Txn, TxnInfo, TxnStatus,
+    Recovered, RollbackFailure, RollbackReport, Txn, TxnInfo, TxnStatus, TXN_RETENTION_DAYS,
 };
 pub use lock::InstallerLock;
 pub use migrate::{migrate_store, StoreMigration};

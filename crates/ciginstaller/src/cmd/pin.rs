@@ -398,6 +398,14 @@ fn outranked_by(dir: &Path, target: &str, cigscript_home: &Path) -> Option<&'sta
     None
 }
 
+fn shown_pin(v: &str) -> &str {
+    if v.is_empty() {
+        "no pin"
+    } else {
+        v
+    }
+}
+
 pub fn run(
     cx: &mut Cx,
     tool: &str,
@@ -457,6 +465,12 @@ pub fn run(
     write_atomic(&path, &text, old_md.as_ref())?;
     let mut r = Report::done(format!("{what} pinned to {parsed} in {}", path.display()));
     if what == "carton" {
+        if let Some(store) = cx.cfg.locked_by("carton") {
+            r = r.detail(format!(
+                "carton is locked to {} by {store}; the pin is written, and the lock wins on this machine",
+                shown_pin(&cx.cfg.get("carton"))
+            ));
+        }
         let fits = cx
             .state
             .cartons

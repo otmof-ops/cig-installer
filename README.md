@@ -140,7 +140,7 @@ Every code is in [docs/ERRORS.md](docs/ERRORS.md).
 | everything from one carton | a pack is a named slice of a carton and a stick is one tool of it, so adding more later takes builds from the same carton and nothing mixes |
 | builds checked before they run | three levels, and nothing below the floor installs: `pinned`, `attested` and `checksummed`. [SECURITY.md](SECURITY.md) says what each proves and what none of them do |
 | an install is a burn | every change is a journaled transaction that ends in one atomic switch. A kill before the switch rolls back, and a kill after it rolls forward. No moment has a tool half-updated |
-| the right build for each project | `pin carton <pin>` writes `.cig-carton`, `pin <tool> <version>` writes `.cig-version`, `.cigo-version` or `.cigar-version` for one tool, and `pin` also takes `--file` for a key in `cig-tasks.json` or `cigar.toml`. `which <tool> --why` shows every step of the choice, and `which --why` does it for every tool |
+| the right build for each project | `pin carton <pin>` writes `.cig-carton`, `pin <tool> <version>` writes `.cig-version`, `.cigo-version` or `.cigar-version` for one tool, and `pin` also takes `--file` for a key in `cig-tasks.json` or `cigar.toml`. A `cigar = "1.0"` key in `cigar.toml` (or a `.cigar-version`) pins the CigarScript version, and the compiler comes with the cigar's carton: a project pinned to 1.0 builds with the cigcompile of the carton that holds cigar 1.0, after 1.1 is installed too, and a `carton` key in the same file wins. `which <tool> --why` shows every step of the choice, and `which --why` does it for every tool |
 | updates that are tried first | `update` runs the new `cig` against your project before it switches, and shows the differences it found |
 | an undo | `rollback` returns the previous carton, or one tool's build with `rollback <tool>` |
 | combinations that fit | `check` is the marry-up matrix: it says when a tool needs a newer `cig`, or a pin and a carton disagree, before anything runs |
@@ -280,15 +280,15 @@ lists them all.
 | `carton`, `carton list`, `carton show <v>`, `carton <v>` | which carton this machine is on, what exists, what is inside one, and moving to another |
 | `channel [stable\|beta\|nightly]` | the channel this machine follows, or switch it. Nothing is installed |
 | `use <carton>` | make an installed carton the machine's, with no download |
-| `update` | check, choose, verify, trial and switch. `--check` only looks, `--to` names a carton, `--no-trial` skips the trial |
+| `update` | check, choose, verify, trial and switch. `--check` only looks, `--to` names a carton, `--no-trial` skips the trial, `--auto` is what the daily job runs |
 | `rollback [tool]` | back to the previous carton, or one tool's previous build |
-| `pin carton <pin>`, `pin <tool> <version>` | write a project pin file: the carton, or one tool's (`cig`, `cigo`, `cigar`) |
+| `pin carton <pin>`, `pin <tool> <version>` | write a project pin file: the carton, or one tool's (`cig`, `cigo`, `cigar`); a pin on `cigar` also selects `cigcompile` |
 | `list`, `which [tool]`, `check` | what is installed, what runs here and why (every tool when none is named), and whether the combination fits |
 | `doctor`, `repair` | find problems the installer owns, each with its fix command, and repair files from receipts |
 | `uninstall <tool>`, `uninstall --all`, `remove <carton>` | remove a tool, everything the installer added, or one carton; your data stays |
 | `gc` | remove cartons unused for `keep_days` and the store objects nothing uses |
 | `shims sync`, `shims list` | rewrite the shims from the installer's state, and list them |
-| `config list\|get\|set\|unset` | the installer's settings and where each value comes from, such as `channel`, `trust`, `update_check`, `keep_days`, `bench_after_update`, `rollout`, `theme` and `voice` |
+| `config list\|get\|set\|unset` | the installer's settings and where each value comes from, such as `channel`, `carton`, `trust`, `update_check`, `keep_days`, `bench_after_update`, `rollout`, `theme` and `voice`; a value the machine locks says `locked by <store>` ([organizations](docs/ORGANIZATIONS.md)) |
 | `licences [tool] [--text]` | the license of the installer and of each build here (an SPDX id, or "not stated"), where its text is, and what was acknowledged at the first install; `--text` prints one license file; the field is the code license (docs are CC-BY-4.0); read-only, nothing is sent anywhere |
 | `history` | the last installs, updates and rollbacks |
 | `crash list\|show\|send\|delete` | every tool's crash reports, in one queue: `show` prints exactly what `send` sends, nothing leaves without `send`, and `reports = never` refuses |
@@ -347,14 +347,28 @@ them with `cargo build --release -p ciginstaller -p cigi-shim` and then
   reaches `pinned`. Signed metadata, with protection against replayed or
   frozen releases, is [#9](https://github.com/otmof-ops/cig-installer/issues/9)
   and is not built. [SECURITY.md](SECURITY.md) has the detail.
-- **The trial covers `cig`.** An update runs the new `cig` on your project's
-  scripts. Trials of `cigo` and `cigcompile` wait for entry points in those
-  tools.
-- **Updates are checked when you run a command.** There is no background
-  service. `auto_update` accepts `security` and `all`, and both behave as
-  `notify`.
+- **The trial covers `cig`, `cigo` and `cigcompile`.** An update runs the new
+  `cig` on your project's scripts, the new `cigo` (`cigo check`, then
+  `cigo --dry-run run` of the `ci` chain and of each task your
+  `cig-tasks.json` declares) and the new `cigcompile` (`cigcompile test` on
+  your programs, built in a scratch folder), each beside the old build, and
+  shows what differs before it switches. A tool the project does not use
+  (no `cig-tasks.json`, no `.cig` programs) is skipped, and the trial says so.
+- **Updates are checked when you run a command, and can run on a schedule you
+  opt into.** `auto_update = notify` (the default) says once a day that a
+  carton is out. `security` installs a carton that clears a security advisory
+  in the signed manifest, and `all` installs every new carton. Both run
+  `ciginstaller update --auto`: the same trial and the same rollback, so a
+  carton that fails its trial is rolled back and the next terminal says so
+  once. Setting either writes a daily job through the journal: a systemd user
+  timer on Linux (`~/.config/systemd/user/cigi-update.timer`), a launchd agent
+  on macOS and a Task Scheduler task on Windows. It runs at most daily, with
+  a random delay of up to two hours, on mains power and when the machine is
+  idle (systemd has no idle condition, so on Linux it runs at idle CPU and I/O
+  priority). `auto_update = off` or `notify` takes it away, and so does
+  `uninstall --all`. A value your administrator locks is the one obeyed.
 - **`cig unburn` cannot undo an update yet.** `ciginstaller rollback` is the
-  undo.
+  undo; the installer's journal is not a run record that cig can read.
 - **The first carton holds `cig`, `cigo` and `cigcompile`.** CigarScript joins
   it when it has a release.
 - **Crash reports file through `gh` or your token, not yet the courier.**
@@ -385,13 +399,17 @@ them with `cargo build --release -p ciginstaller -p cigi-shim` and then
   ([#9](https://github.com/otmof-ops/cig-installer/issues/9)). A program with no
   script on this machine is listed with its advisory so its author can be told,
   and cannot be rebuilt here.
-- **Organization policy is half built
+- **Organization policy is built; one enforcer is not
   ([#17](https://github.com/otmof-ops/cig-installer/issues/17)).**
   `rollout = N%` stages a new carton to a share of machines, chosen by a hash
   of the machine id that never leaves the machine, and `status --json` is the
   inventory an organization's own tools collect. With no automatic install yet,
   the stage gates the update notice; your own `ciginstaller update` always
-  takes the carton. System-wide locked settings wait for
+  takes the carton. A machine layer (`/etc/cigscript/config.toml`, a macOS
+  configuration profile or the Windows registry) sets and locks a pinned
+  carton, `auto_update`, `reports`, a mirror and the guard preset, as
+  [docs/ORGANIZATIONS.md](docs/ORGANIZATIONS.md) describes. The guard preset is
+  recorded and locked here; what it switches on is cigo's, and waits for
   [cig-orchestrator#66](https://github.com/otmof-ops/cig-orchestrator/issues/66).
 - **Not built:** the window
   ([#18](https://github.com/otmof-ops/cig-installer/issues/18)).

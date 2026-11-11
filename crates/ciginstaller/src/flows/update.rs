@@ -281,6 +281,7 @@ pub fn run(cx: &mut Cx, a: &UpdateArgs) -> Result<Updated, InstallerError> {
     }
     let mut txn = cx.begin(&format!("update carton {cur} to {tv}"))?;
     let txn_id = txn.id().to_string();
+    let txn_dir = txn.dir().to_path_buf();
     let staged = stage(cx, &mut txn, &m, &target, &cur, &changes, &fetched, a);
     let staged = match staged {
         Ok(s) => s,
@@ -354,6 +355,13 @@ pub fn run(cx: &mut Cx, a: &UpdateArgs) -> Result<Updated, InstallerError> {
         Some(new_cig) => super::family::announce_fixed(&cx.home, &new_cig),
         None => Vec::new(),
     };
+    // and every other tool's reported bugs this carton fixed, said by the installer (#12)
+    let fixed = super::fixed::fixes(&cx.home.root(), &m, &target);
+    super::fixed::mark(&cx.home.root(), &fixed);
+    let announced: Vec<String> = announced
+        .into_iter()
+        .chain(fixed.iter().map(|f| super::fixed::line(f, true)))
+        .collect();
 
     // report, with the rollback hint
     let mut r = Report::done(format!("updated carton {cur} to {tv}")).detail(fresh.clone());
@@ -395,9 +403,15 @@ pub fn run(cx: &mut Cx, a: &UpdateArgs) -> Result<Updated, InstallerError> {
         .detail(format!(
             "carton {cur} stays installed until the next update, so you can go back"
         ))
+        .detail(format!(
+            "cig can undo it too, for {} days: close ciginstaller, then `cig runs adopt {}` and `cig unburn <the run id it prints>`",
+            cigi_home::TXN_RETENTION_DAYS,
+            txn_dir.display()
+        ))
         .next("ciginstaller rollback");
     let r = r.data(json!({
         "from": cur.to_string(), "to": tv.to_string(), "txn": txn_id,
+        "undo": format!("cig runs adopt {}", txn_dir.display()),
         "changes": plan_lines, "whats_new": fresh, "links": links,
         "announced": announced,
         "fetched": fetched.iter().map(|f| json!({"tool": f.tool, "version": f.version.to_string()})).collect::<Vec<_>>(),
@@ -699,15 +713,31 @@ fn stage(
         if !trials.iter().any(|t| t.tool() == c.tool) {
             continue;
         }
-        let side = |v: &Version, carton: &Version| {
+        // the cig of each side's carton, for the tools that run one (cigo, CigCompile)
+        let cig_of = |v: Option<Version>| {
+            if c.tool == "cig" {
+                return None;
+            }
+            v.and_then(|v| tool_exe(&cx.home, "cig", &v))
+        };
+        let old_cig = cig_of(m.build_in(cur, "cig").cloned().or_else(|| {
+            cx.state
+                .cartons
+                .get(&cur.to_string())
+                .and_then(|r| r.tools.get("cig"))
+                .and_then(|v| Version::parse(v).ok())
+        }));
+        let new_cig = cig_of(target.products.get("cig").cloned());
+        let side = |v: &Version, carton: &Version, cig: Option<PathBuf>| {
             tool_exe(&cx.home, &c.tool, v).map(|path| Resolved {
                 tool: c.tool.clone(),
                 carton: carton.to_string(),
                 version: v.clone(),
                 path,
+                cig,
             })
         };
-        match (side(from, cur), side(to, &target.version)) {
+        match (side(from, cur, old_cig), side(to, &target.version, new_cig)) {
             (Some(o), Some(n)) => pairs.push((o, n)),
             _ => skipped.push(format!(
                 "{}: the old or the new build has no readable receipt",

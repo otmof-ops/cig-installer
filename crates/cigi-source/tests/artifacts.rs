@@ -427,6 +427,58 @@ fn manifest_round_trip_and_cache() {
     assert!(cigi_source::fetch::cache_age_secs(&fx.home, "stable", None).unwrap() < 60);
 }
 
+/// A fetch that finds the document the cache already holds rewrites only `fetched.json`; a new
+/// document replaces all three (#32: each write is synced, and the first line waits on them).
+#[cfg(unix)]
+#[test]
+fn an_unchanged_manifest_is_not_written_again() {
+    use std::os::unix::fs::MetadataExt;
+    let mut fx = Fixture::new();
+    fx.carton("0.1.0", &[("cig", "1.0.0")]);
+    fx.publish("stable");
+    let src = mirror(&fx);
+    get_manifest(&src, &trust(), &fx.home, "stable", false).unwrap();
+    let dir = fx.cigscript().join("installer/cache/manifests/stable");
+    let ino = |f: &str| std::fs::metadata(dir.join(f)).unwrap().ino();
+    let (doc, side, meta) = (
+        ino("manifest.toml"),
+        ino("manifest.toml.sha256"),
+        ino("fetched.json"),
+    );
+    // the same document again: the document and sidecar stay, the fetch record is new
+    get_manifest(&src, &trust(), &fx.home, "stable", false).unwrap();
+    assert_eq!(
+        ino("manifest.toml"),
+        doc,
+        "the unchanged document was written again"
+    );
+    assert_eq!(
+        ino("manifest.toml.sha256"),
+        side,
+        "the unchanged sidecar was written again"
+    );
+    assert_ne!(
+        ino("fetched.json"),
+        meta,
+        "the fetch record must say when this fetch was"
+    );
+    // a new document: all three are written
+    fx.carton("0.2.0", &[("cig", "1.1.0")]);
+    fx.publish_with(
+        "stable",
+        &cigi_testkit::PublishOpts {
+            sequence: Some(2),
+            ..Default::default()
+        },
+    );
+    let m = get_manifest(&src, &trust(), &fx.home, "stable", false).unwrap();
+    assert_eq!(m.sequence, 2);
+    assert_ne!(ino("manifest.toml"), doc);
+    assert_ne!(ino("manifest.toml.sha256"), side);
+    let off = get_manifest(&DeadSource, &trust(), &fx.home, "stable", true).unwrap();
+    assert_eq!(off.sequence, 2, "offline reads the new document");
+}
+
 #[test]
 fn offline_with_nothing_cached_is_e1810() {
     let fx = Fixture::new();

@@ -69,6 +69,18 @@ fn top_string(text: &str, want: &str) -> Option<String> {
 /// `cigar.toml`: `carton = "0.1"` before the first table. A line inside a top-level multi-line
 /// array, inline table or multi-line string is never taken for a table header or a key.
 pub fn pin_from_toml(text: &str) -> Option<String> {
+    toml_top_string(text, "carton")
+}
+
+/// `cigar.toml`: `cigar = "1.0"` before the first table, the CigarScript version the project is
+/// written for. Read by the same scanner as the carton key, so the two can never disagree about
+/// what counts as top level. It selects the carton whose cigar meets it, and with it that
+/// carton's cigcompile (cig-compile ADR 0003).
+pub fn cigar_from_toml(text: &str) -> Option<String> {
+    toml_top_string(text, "cigar")
+}
+
+fn toml_top_string(text: &str, want: &str) -> Option<String> {
     let (mut depth, mut ml) = (0usize, None::<&'static str>);
     for line in text.lines() {
         let t = line.trim();
@@ -77,7 +89,7 @@ pub fn pin_from_toml(text: &str) -> Option<String> {
                 return None;
             }
             if let Some(val) = t
-                .strip_prefix("carton")
+                .strip_prefix(want)
                 .and_then(|r| r.trim_start().strip_prefix('='))
             {
                 let val = val.trim();

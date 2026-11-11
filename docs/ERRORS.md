@@ -15,7 +15,7 @@ A code never changes meaning. A retired code is never reused. A code marked *pla
 | `E1840`–`E1879` | installer | `usage` | the installer: shims, pins, updates, rollbacks, repair, uninstall, and the command line |
 | `E1880`–`E1889` | installer | `runtime` | reserved for CIG.OS work not built yet: Secure Boot (#23) takes E1880-E1883, the courier (#24) E1884-E1888 |
 | `E1890`–`E1899` | installer | `internal` | internal: a bug in the installer, or a journal it cannot recover |
-| `E1900`–`E1999` | installer | `usage` | the installer, second range: the mirror and what travels over it (E1900), the update channel's signatures (E1901), and what a shim refuses to run and why (E1902, E1903); the rest is not assigned yet |
+| `E1900`–`E1999` | installer | `usage` | the installer, second range: the mirror and what travels over it (E1900), the update channel's signatures (E1901), what a shim refuses to run and why (E1902, E1903), and the settings the machine locks (E1904); the rest is not assigned yet |
 
 ## The four kinds of no
 
@@ -1531,7 +1531,7 @@ Related: [`E1832`](#e1832-an-interrupted-change-was-recovered), [`E1833`](#e1833
 
 ## installer (`E1900`–`E1999`)
 
-the installer, second range: the mirror and what travels over it (E1900), the update channel's signatures (E1901), and what a shim refuses to run and why (E1902, E1903); the rest is not assigned yet.
+the installer, second range: the mirror and what travels over it (E1900), the update channel's signatures (E1901), what a shim refuses to run and why (E1902, E1903), and the settings the machine locks (E1904); the rest is not assigned yet.
 
 | code | title | kind of no | what to type next |
 |---|---|---|---|
@@ -1539,6 +1539,7 @@ the installer, second range: the mirror and what travels over it (E1900), the up
 | [`E1901`](#e1901-the-update-channels-signed-metadata-was-refused) | the update channel's signed metadata was refused | these are MY ciggies | `ciginstaller update --check --refresh` once the channel is current again; `ciginstaller doctor --network` names what failed |
 | [`E1902`](#e1902-a-shim-target-is-outside-its-home) | a shim target is outside its home | can't see any ciggies bro | `ciginstaller repair` |
 | [`E1903`](#e1903-a-shim-target-is-not-the-build-its-receipt-recorded) | a shim target is not the build its receipt recorded | can't see any ciggies bro | `ciginstaller repair` |
+| [`E1904`](#e1904-a-setting-is-locked-by-the-machine) | a setting is locked by the machine | these are MY ciggies | `ciginstaller config get <setting>` names the store that locks it; ask whoever manages this machine to change it there |
 
 ### E1900 a mirror over plain http
 
@@ -1608,3 +1609,20 @@ A shim found the file it was about to run is not the one the installer recorded 
 2. the build was replaced in place by another file (probe `receipt-verify`). **Remedy:** `ciginstaller repair` puts the receipt's file back from the store
 
 Related: [`E1902`](#e1902-a-shim-target-is-outside-its-home), [`E1831`](#e1831-installed-file-differs-from-its-receipt).
+
+### E1904 a setting is locked by the machine
+
+*usage · since 0.1.0 · arises in any*
+
+**Kind of no:** these are MY ciggies (the door: it knows you and said no; 403 Forbidden; permission denied; a lock; a refusal by policy).
+
+A setting is locked by the machine layer: the file `/etc/cigscript/config.toml` (`locked = [...]`), the managed preferences a configuration profile installs on macOS (a `Locked` array), or `HKLM\SOFTWARE\Policies\otmof-ops\CigScript` on Windows (a `Locked` REG_MULTI_SZ value). Whoever manages this machine set it, so `config set` and `config unset` refuse, and the environment, your own config file and a flag do not change what is in force. Nothing was written.
+
+**What to type next:** `ciginstaller config get <setting>` names the store that locks it; ask whoever manages this machine to change it there
+
+**Known causes**, ranked; the doctor checks them in this order:
+
+1. the machine layer lists the setting in its locks (`ciginstaller config list` shows `locked by <store>`) (no probe; a suggestion, not a finding). **Remedy:** ask whoever manages this machine to unlock or change it in the store `config get` names; on a machine you manage, edit that store
+2. an install answer (`--preset`, `--reports`, an `--answers` file) named a locked setting (no probe; a suggestion, not a finding). **Remedy:** leave the answer out: the locked value is already in force, and `ciginstaller install` takes it as the answer
+
+Related: [`E1870`](#e1870-usage), [`E1875`](#e1875-the-setting-is-not-in-the-file), [`E1830`](#e1830-an-owned-file-is-unreadable-or-too-new).

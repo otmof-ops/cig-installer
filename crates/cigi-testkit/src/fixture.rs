@@ -59,6 +59,7 @@ pub struct Fixture {
     pub extra_cigo_shim: Option<String>,
     products: Vec<ProductBuilder>,
     cartons: Vec<CartonSpec>,
+    advisories: Vec<String>,
     sequences: BTreeMap<String, u64>,
 }
 
@@ -92,6 +93,7 @@ impl Fixture {
             extra_cigo_shim: None,
             products: Vec::new(),
             cartons: Vec::new(),
+            advisories: Vec::new(),
             sequences: BTreeMap::new(),
         }
     }
@@ -140,6 +142,21 @@ impl Fixture {
             Some(i) => self.cartons[i] = spec,
             None => self.cartons.push(spec),
         }
+        self
+    }
+
+    /// An `[[advisory]]` of the manifest: `affects` is one entry as written (`carton <0.1.1`,
+    /// `cig <1.21.0`), `severity` is `security`, `bug` or `note`.
+    pub fn advisory(
+        &mut self,
+        id: &str,
+        severity: &str,
+        affects: &str,
+        fixed_in: &str,
+    ) -> &mut Self {
+        self.advisories.push(format!(
+            "[[advisory]]\nid = \"{id}\"\naffects = [ \"{affects}\" ]\nfixed_in = \"{fixed_in}\"\nseverity = \"{severity}\"\nsummary = \"fixture advisory {id}\"\n\n"
+        ));
         self
     }
 
@@ -340,6 +357,10 @@ impl Fixture {
                 o.push_str(&y);
                 o.push('\n');
             }
+            o.push('\n');
+        }
+        for a in &self.advisories {
+            o.push_str(a);
         }
         o
     }
@@ -382,6 +403,13 @@ impl Fixture {
         format!("file://{}", self.releases.display())
     }
 
+    /// The folder that stands in for the system's machine layer for child processes:
+    /// `<tmp>/machine`, whose `config.toml` a test may write (mode 0644). It does not exist until
+    /// a test makes it, which is a machine with no layer.
+    pub fn machine_root(&self) -> PathBuf {
+        self.tmp.path().join("machine")
+    }
+
     /// Run `<CIGSCRIPT_HOME>/bin/<name>` (a shim the installer made) in `cwd`.
     pub fn run_shim(&self, name: &str, cwd: &Path, args: &[&str]) -> Output {
         let mut c = Command::new(self.cigscript().join("bin").join(name));
@@ -409,6 +437,12 @@ impl Fixture {
             // no report route may run unless a test names it: a `gh` on the runner's PATH or a
             // token in its login must never file a real issue (a6_routes sets what it needs)
             .env("CIGI_ROUTES", "none")
+            // the daily update schedule (#7) is written under the scratch home and never loaded:
+            // the commands that would turn it on are recorded in `installer/schedule-enable.log`
+            .env("CIGI_SCHEDULE_ENABLER", "record")
+            // the machine layer (#17) is this scratch folder's `config.toml`, which a test writes
+            // when it wants one: a child never reads the real /etc/cigscript
+            .env("CIGI_TEST_MACHINE_ROOT", self.machine_root())
             .env("PATH", path);
     }
 }

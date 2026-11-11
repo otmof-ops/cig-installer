@@ -10,8 +10,10 @@ pub mod install;
 pub mod mirror;
 pub mod programs;
 // ---- the update lifecycle ----
+pub mod auto;
 pub mod notice;
 pub mod rollback;
+pub mod schedule;
 pub mod switch;
 pub mod trial;
 pub mod tripwire;
@@ -23,6 +25,7 @@ pub mod use_carton;
 // ---- health: doctor, repair, uninstall ----
 pub mod doctor;
 pub mod family;
+pub mod fixed;
 pub mod health;
 pub mod repair;
 pub mod report;

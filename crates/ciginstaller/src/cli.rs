@@ -392,6 +392,14 @@ pub struct UpdateCmd {
     /// The project the trial runs on and whose pins are respected (default: the working directory's).
     #[arg(long, value_name = "DIR")]
     pub project: Option<PathBuf>,
+    /// What the background schedule runs: take the carton `auto_update` allows (`security`: one
+    /// that clears a security advisory; `all`: the newest), through the trial, at most once a day
+    /// and not on battery. A failed trial rolls back and is said on the next terminal.
+    #[arg(
+        long,
+        conflicts_with_all = ["check", "to", "allow_downgrade", "no_trial", "trial_only", "yes_differences", "dry_run", "refresh", "exit_code"]
+    )]
+    pub auto: bool,
     /// Print the plan and write nothing.
     #[arg(long)]
     pub dry_run: bool,

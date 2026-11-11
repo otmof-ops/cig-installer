@@ -1,8 +1,9 @@
 --- exit 0 ---
 --- stdout ---
-[ok] 14 settings, 2 not at their default
+[ok] 15 settings, 2 not at their default
   setting               from                                     value
   channel               default                                  stable
+  carton                default                                  (unset)
   auto_update           default                                  notify
   update_check          default                                  on
   pin_fetch             default                                  ask

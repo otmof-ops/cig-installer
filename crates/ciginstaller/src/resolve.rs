@@ -25,6 +25,8 @@ pub enum Mode {
 pub enum Why {
     Forced(String),
     Pinned(String),
+    /// The machine layer locks `carton` (#17); the store that does.
+    Locked(String),
     Legacy(String),
     /// A script's `# cig` header: `# cig >=1.6.2 in s.cig`.
     Header(String),
@@ -66,6 +68,7 @@ impl Resolution {
         match &self.why {
             Why::Forced(c) => format!("CIGI_CARTON={c}"),
             Why::Pinned(f) => format!("pinned in {f}"),
+            Why::Locked(store) => format!("carton locked by {store}"),
             Why::Legacy(f) => format!("satisfies {f}"),
             Why::Header(h) => format!("satisfies {h}"),
             Why::Machine => "the machine's carton".to_string(),
@@ -178,7 +181,8 @@ pub fn resolve_for(
 ) -> Result<Resolution, InstallerError> {
     let mut steps = Vec::new();
     let mut header = None;
-    if let (true, Some(file)) = (tool == "cig", script) {
+    let locked = locked_carton(cx);
+    if let (true, Some(file), None) = (tool == "cig", script, &locked) {
         let file = cx.cwd.join(file);
         if let Some(found) = cigi_shim::read_script_header(&file) {
             let name = file_label(&file);
@@ -405,6 +409,13 @@ fn with_header(
 
 /// Which installed `(carton, build)` runs `tool` under the legacy pins when one tool (`st`) comes
 /// from a stick out of `carton` and every other tool from the base carton (SPEC 8 step 3).
+/// The tool that `tool` is built with, when a pin on that tool decides which build of `tool` runs:
+/// cigcompile comes with the carton that holds the cigar a project is pinned to (cig-compile
+/// ADR 0003), never with the machine's carton and never from a stick of cigar alone.
+fn bound_to(tool: &str, pinned: &str) -> Option<&'static str> {
+    (tool == "cigcompile" && pinned == "cigar").then_some("cigar")
+}
+
 fn legacy_pick(
     cx: &Cx,
     tool: &str,
@@ -427,6 +438,21 @@ fn legacy_pick(
             .and_then(|v| parsed(v))?;
         return mine(&b).then(|| (carton.clone(), b));
     }
+    if let Some(of) = bound_to(tool, st) {
+        // the tool comes with the pinned tool's own carton: the newest installed carton whose
+        // pinned tool meets every pin on it and that holds this tool too
+        let mut cartons: Vec<Version> = cx.state.cartons.keys().filter_map(|k| parsed(k)).collect();
+        cartons.sort_by(|a, b| b.cmp(a));
+        return cartons.into_iter().find_map(|c| {
+            let rec = cx.state.cartons.get(&c.to_string())?;
+            let pinned = rec.tools.get(of).and_then(|v| parsed(v))?;
+            let b = rec.tools.get(tool).and_then(|v| parsed(v))?;
+            pins.iter()
+                .filter(|(t, _)| t == of)
+                .all(|(_, p)| p.satisfied_by(&pinned))
+                .then_some((c, b))
+        });
+    }
     let machine = cx.state.machine_carton.as_deref().and_then(parsed);
     let fits: Vec<(Version, Version)> = holders(cx, tool)
         .into_iter()
@@ -438,6 +464,124 @@ fn legacy_pick(
         .cloned()
 }
 
+/// The carton pin the machine layer locks, and the store that locks it. A lock holding no value
+/// pins nothing.
+fn locked_carton(cx: &Cx) -> Option<(Pin, String)> {
+    let store = cx.cfg.locked_by("carton")?.to_string();
+    let pin = Pin::parse(cx.cfg.get("carton").trim()).ok()?;
+    Some((pin, store))
+}
+
+/// Where the unlocked `carton` setting is read from, for the trail.
+fn from_of(cx: &Cx) -> String {
+    match cx.cfg.source("carton") {
+        "machine" => cx
+            .cfg
+            .machine_value("carton")
+            .map(|(_, s)| s.to_string())
+            .unwrap_or_default(),
+        other => other.to_string(),
+    }
+}
+
+/// Run `tool` from the newest installed carton that meets `pin`, fetching one the `pin_fetch`
+/// policy allows when none is installed. `label` says where the pin is written, `why` is the
+/// reason `which` gives, `step` and `for_what` word the trail and the fetch notice.
+#[allow(clippy::too_many_arguments)]
+fn pinned_carton(
+    cx: &mut Cx,
+    tool: &str,
+    mode: Mode,
+    fetched: bool,
+    opts: Opts,
+    steps: &mut Vec<String>,
+    base_len: usize,
+    pin: Pin,
+    label: String,
+    why: Why,
+    step: &str,
+    for_what: &str,
+) -> Result<Resolution, InstallerError> {
+    steps.push(format!("{step} {label} pins carton {pin}"));
+    // A range pin (`0.1`, `0`, `>=0.1.0`) passes over a yanked carton; an exact pin still
+    // runs it, with a warning. The shim's index leaves yanked cartons out of its series
+    // lines for the same reason, so both agree.
+    let exact = matches!(pin, Pin::Exact(_));
+    let yanked: BTreeSet<String> = cached_yanked(cx).into_iter().collect();
+    let allowed = |c: &Version| exact || !yanked.contains(&c.to_string());
+    let candidate = holders(cx, tool)
+        .into_iter()
+        .find(|(c, _)| pin.satisfied_by(c) && allowed(c));
+    if let Some((c, b)) = candidate {
+        if yanked.contains(&c.to_string()) {
+            let w = format!(
+                "carton {c} (pinned in {label}) was yanked; it runs because the pin is exact"
+            );
+            if mode == Mode::Run {
+                cx.ui
+                    .say(&cigi_ui::Report::new(cigi_ui::Icon::Note, w).code("E1855"));
+            } else {
+                steps.push(format!("   warning E1855: {w}"));
+            }
+        }
+        return found(cx, tool, Some(c), b, why, steps.clone());
+    }
+    let any_installed = cx
+        .state
+        .cartons
+        .keys()
+        .filter_map(|k| parsed(k))
+        .any(|c| pin.satisfied_by(&c) && allowed(&c));
+    if any_installed {
+        return Err(InstallerError::new(
+            "E1840",
+            format!("the carton {pin} pinned in {label} has no {tool}"),
+        )
+        .with_fix(format!("ciginstaller install stick {tool} --carton {pin}")));
+    }
+    // not installed: the pin_fetch policy
+    let fix = format!("ciginstaller install carton --carton {pin}");
+    let unavailable = |why: &str| {
+        InstallerError::new(
+            "E1842",
+            format!("carton {pin} (pinned in {label}) is not installed, and {why}"),
+        )
+        .with_fix(fix.clone())
+        .with_exit(EXIT_REFUSED)
+    };
+    if mode == Mode::Which {
+        return Err(unavailable("`which` does not fetch"));
+    }
+    if fetched {
+        return Err(InstallerError::new(
+            "E1856",
+            format!("carton {pin} was fetched for {label}, but it still does not hold {tool}"),
+        )
+        .with_fix("ciginstaller carton list"));
+    }
+    // The policy comes before any request: `never` and --offline make none, and `ask` asks
+    // before anything is fetched. The cache only words the question.
+    let named = cx
+        .peek_manifest()
+        .and_then(|m| m.newest_matching(&pin, None).map(|c| c.version.to_string()))
+        .unwrap_or_else(|| pin.to_string());
+    if !cx.may_fetch_pinned(&format!("carton {named}"))? {
+        return Err(unavailable(
+            "fetching is off (pin_fetch, --offline, or no terminal to ask on)",
+        ));
+    }
+    cx.ui.say(&cigi_ui::Report::new(
+        cigi_ui::Icon::Running,
+        format!("fetching carton {named} for {for_what} (pinned in {label})"),
+    ));
+    let mut a = InstallArgs::carton(Some(pin.to_string()));
+    a.no_path = true;
+    a.reason = Some(format!("pinned in {label}"));
+    install::run(cx, &a)?;
+    steps.truncate(base_len);
+    resolve_inner(cx, tool, mode, true, opts, steps)
+}
+
 fn resolve_inner(
     cx: &mut Cx,
     tool: &str,
@@ -447,8 +591,16 @@ fn resolve_inner(
     steps: &mut Vec<String>,
 ) -> Result<Resolution, InstallerError> {
     let base_len = steps.len();
+    // L. a carton the machine layer locks beats everything below, CIGI_CARTON included
+    let locked = locked_carton(cx);
+    if let Some((pin, store)) = &locked {
+        steps.push(format!("L1. carton {pin} is locked by {store}; a project's pin, a script's header and CIGI_CARTON do not change it"));
+    }
     // 1. CIGI_CARTON
-    if let Some(c) = std::env::var("CIGI_CARTON").ok().filter(|s| !s.is_empty()) {
+    if let Some(c) = std::env::var("CIGI_CARTON")
+        .ok()
+        .filter(|s| !s.is_empty() && locked.is_none())
+    {
         steps.push(format!("1. CIGI_CARTON is {c}"));
         let cv = parsed(&c).ok_or_else(|| {
             InstallerError::new("E1816", format!("CIGI_CARTON={c} is not a carton version"))
@@ -468,93 +620,37 @@ fn resolve_inner(
     steps.push("1. CIGI_CARTON is not set".to_string());
 
     // 2. the project's carton pin
-    let project = cx.project()?;
+    let project = if locked.is_some() {
+        None
+    } else {
+        cx.project()?
+    };
     if let Some(p) = &project {
         steps.push(format!(
             "   project pins are read from {}",
             p.root.display()
         ));
     }
-    if let Some((pin, file)) = project.as_ref().and_then(|p| p.carton_pin.clone()) {
-        let label = file_label(&file);
-        steps.push(format!("2. {label} pins carton {pin}"));
-        // A range pin (`0.1`, `0`, `>=0.1.0`) passes over a yanked carton; an exact pin still
-        // runs it, with a warning. The shim's index leaves yanked cartons out of its series
-        // lines for the same reason, so both agree.
-        let exact = matches!(pin, Pin::Exact(_));
-        let yanked: BTreeSet<String> = cached_yanked(cx).into_iter().collect();
-        let allowed = |c: &Version| exact || !yanked.contains(&c.to_string());
-        let candidate = holders(cx, tool)
-            .into_iter()
-            .find(|(c, _)| pin.satisfied_by(c) && allowed(c));
-        if let Some((c, b)) = candidate {
-            if yanked.contains(&c.to_string()) {
-                let w = format!(
-                    "carton {c} (pinned in {label}) was yanked; it runs because the pin is exact"
-                );
-                if mode == Mode::Run {
-                    cx.ui
-                        .say(&cigi_ui::Report::new(cigi_ui::Icon::Note, w).code("E1855"));
-                } else {
-                    steps.push(format!("   warning E1855: {w}"));
-                }
-            }
-            return found(cx, tool, Some(c), b, Why::Pinned(label), steps.clone());
-        }
-        let any_installed = cx
-            .state
-            .cartons
-            .keys()
-            .filter_map(|k| parsed(k))
-            .any(|c| pin.satisfied_by(&c) && allowed(&c));
-        if any_installed {
-            return Err(InstallerError::new(
-                "E1840",
-                format!("the carton {pin} pinned in {label} has no {tool}"),
-            )
-            .with_fix(format!("ciginstaller install stick {tool} --carton {pin}")));
-        }
-        // not installed: the pin_fetch policy
-        let fix = format!("ciginstaller install carton --carton {pin}");
-        let unavailable = |why: &str| {
-            InstallerError::new(
-                "E1842",
-                format!("carton {pin} (pinned in {label}) is not installed, and {why}"),
-            )
-            .with_fix(fix.clone())
-            .with_exit(EXIT_REFUSED)
-        };
-        if mode == Mode::Which {
-            return Err(unavailable("`which` does not fetch"));
-        }
-        if fetched {
-            return Err(InstallerError::new(
-                "E1856",
-                format!("carton {pin} was fetched for {label}, but it still does not hold {tool}"),
-            )
-            .with_fix("ciginstaller carton list"));
-        }
-        // The policy comes before any request: `never` and --offline make none, and `ask` asks
-        // before anything is fetched. The cache only words the question.
-        let named = cx
-            .peek_manifest()
-            .and_then(|m| m.newest_matching(&pin, None).map(|c| c.version.to_string()))
-            .unwrap_or_else(|| pin.to_string());
-        if !cx.may_fetch_pinned(&format!("carton {named}"))? {
-            return Err(unavailable(
-                "fetching is off (pin_fetch, --offline, or no terminal to ask on)",
-            ));
-        }
-        cx.ui.say(&cigi_ui::Report::new(
-            cigi_ui::Icon::Running,
-            format!("fetching carton {named} for this project (pinned in {label})"),
-        ));
-        let mut a = InstallArgs::carton(Some(pin.to_string()));
-        a.no_path = true;
-        a.reason = Some(format!("pinned in {label}"));
-        install::run(cx, &a)?;
-        steps.truncate(base_len);
-        return resolve_inner(cx, tool, mode, true, opts, steps);
+    let chosen = match &locked {
+        Some((pin, store)) => Some((
+            pin.clone(),
+            format!("{store} (locked)"),
+            Why::Locked(store.clone()),
+            "L2.",
+            "this machine",
+        )),
+        None => project
+            .as_ref()
+            .and_then(|p| p.carton_pin.clone())
+            .map(|(pin, file)| {
+                let label = file_label(&file);
+                (pin, label.clone(), Why::Pinned(label), "2.", "this project")
+            }),
+    };
+    if let Some((pin, label, why, step, for_what)) = chosen {
+        return pinned_carton(
+            cx, tool, mode, fetched, opts, steps, base_len, pin, label, why, step, for_what,
+        );
     }
     steps.push("2. no carton pin in this project".to_string());
 
@@ -642,13 +738,20 @@ fn resolve_inner(
                 if let Some((c, b)) = legacy_pick(cx, tool, &st, &carton, &pins) {
                     return found(cx, tool, Some(c), b, Why::Legacy(label), steps.clone());
                 }
-                let fix = format!("ciginstaller install stick {st} --carton {carton}");
+                let coupled = bound_to(tool, &st).is_some();
+                let fix = if coupled {
+                    format!("ciginstaller install carton --carton {carton}")
+                } else {
+                    format!("ciginstaller install stick {st} --carton {carton}")
+                };
                 if mode == Mode::Run
                     && !fetched
                     && cx.may_fetch_pinned(&format!("{st} from carton {carton}"))?
                 {
                     let mut a = InstallArgs::carton(Some(carton.to_string()));
-                    a.what = What::Stick(st.clone());
+                    if !coupled {
+                        a.what = What::Stick(st.clone());
+                    }
                     a.no_path = true;
                     a.reason = Some("legacy pin".into());
                     install::run(cx, &a)?;
@@ -672,6 +775,26 @@ fn resolve_inner(
         });
     }
     steps.push("3. no legacy pin files".to_string());
+
+    // 3b. the `carton` setting, from the person's file, the environment or the machine layer's
+    // unlocked value: a pin for the whole machine, below every project's own
+    if let Ok(pin) = Pin::parse(cx.cfg.get("carton").trim()) {
+        let label = format!("the carton setting ({})", from_of(cx));
+        return pinned_carton(
+            cx,
+            tool,
+            mode,
+            fetched,
+            opts,
+            steps,
+            base_len,
+            pin,
+            label.clone(),
+            Why::Pinned(label),
+            "3b.",
+            "this machine",
+        );
+    }
 
     // 4. the machine carton (rolled-back tools were handled above)
     if let Some(mc) = cx.state.machine_carton.clone().and_then(|c| parsed(&c)) {

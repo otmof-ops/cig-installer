@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: FSL-1.1-ALv2
 
 use super::*;
-use cigi_shim::pins::{pin_from_carton_file, pin_from_json, pin_from_toml};
+use cigi_shim::pins::{cigar_from_toml, pin_from_carton_file, pin_from_json, pin_from_toml};
 
 const INDEX: &str = "cigi-index 1\nmachine\t0.1.0\n\
 carton\t0.1.0\tcig\t/h/cig/1.20.0/cig\ncarton\t0.1.0\tcigo\t/h/cigo/1.17.0/cigo\n\
@@ -45,6 +45,24 @@ fn pin_file_dialects() {
     );
     assert_eq!(pin_from_toml("[p]\ncarton = \"0.2\"\n"), None);
     assert_eq!(pin_from_toml("cartonx = \"0.2\"\n"), None);
+}
+
+#[test]
+fn cigar_key_of_cigar_toml() {
+    assert_eq!(
+        cigar_from_toml("name = \"x\"\ncigar = \"1.0\"  # c\n[deps]\n"),
+        Some("1.0".into())
+    );
+    assert_eq!(cigar_from_toml("cigar = '1'\n"), Some("1".into()));
+    // a table ends the top level, an array hides keys, another key never matches
+    assert_eq!(cigar_from_toml("[p]\ncigar = \"1.0\"\n"), None);
+    assert_eq!(cigar_from_toml("m = [\ncigar = \"1.0\",\n]\n"), None);
+    assert_eq!(cigar_from_toml("cigar_version = \"1.0\"\n"), None);
+    assert_eq!(cigar_from_toml("cigar = 1.0\n"), None);
+    // the two keys are independent
+    let both = "carton = \"0.2\"\ncigar = \"1.0\"\n";
+    assert_eq!(pin_from_toml(both), Some("0.2".into()));
+    assert_eq!(cigar_from_toml(both), Some("1.0".into()));
 }
 
 #[test]

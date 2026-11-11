@@ -12,6 +12,28 @@ below is under Unreleased, and the first version will take it as its section.
 - With `CIG_TIMINGS_FD` set, the installer writes its phases (`start`, `home`, `command`, `output`) to that descriptor as timings lines (format 1), and only then. `docs/BENCH.md` says what is measured and what waits: the cross-product cases, `ciginstaller bench --watch`, `--carton`, `--with`, `--matrix`, the window's Bench view and the check after an update.
 - `.github/workflows/bench-nightly.yml` runs the suite nightly through cig-script's reusable `bench.yml`.
 
+### cig can undo an update too, and the journal is a documented contract (#7)
+
+- `update`'s report says how cig undoes it, for as long as the transaction is kept: close
+  ciginstaller, then `cig runs adopt <home>/installer/txn/<id>` and `cig unburn <run id>`; the JSON
+  carries it as `undo`. cig verifies the transaction and refuses one that wrote outside the home.
+- docs/JOURNAL.md: the journal's lines, ops and before-states, which `ciginstaller rollback` and
+  `cig runs adopt` both read.
+
+### A bug you reported is told to you when a carton fixes it, for every tool (#12)
+
+- After an update, a report this machine filed against cigo, cigcompile, cigar or the installer
+  whose fix the new carton carries is said once: "the bug you reported (cig-orchestrator#12,
+  <title>) is fixed in cigo 1.18.0, which this update installed with carton 0.2.0". cig's own
+  reports stay cig's (`cig crash announce-fixed`).
+- The daily notice that a newer carton is out also says which of your reported bugs it fixes, in
+  the issue's words: "... is fixed in cigo 1.4.2, which is in carton 1.1.3. update: ciginstaller
+  update". Each report is told once: `announced` and `fixed_in` are written into it.
+- The fixed version comes from the manifest's advisories: one whose `url` is the issue's, or whose
+  `id` is `owner/repo#N` or `repo#N`, with `fixed_in`. `cargo xtask manifest assemble` writes them
+  from each new build's release notes (`Fixes #12`, `closes owner/repo#7`, GitHub's closing
+  keywords), with no `affects`, so they reach the reporter and nobody else.
+
 ### Shims know their home, and a moved home never runs the old one (#46, #47)
 
 - A shim finds its home from where it sits (`<home>/bin/<name>`); `CIGSCRIPT_HOME` still overrides, and `CIGI_SHIM_VERBOSE=1` and `doctor` name both when they differ. The shim passes the home it found to the installer and the tool, so `export PATH=<home>/bin:$PATH` is the whole of the advice and cigo finds cig through the same home. `ciginstaller` run from `<home>/bin` works on that home too.
@@ -23,6 +45,22 @@ below is under Unreleased, and the first version will take it as its section.
 
 Installing, pinning, switching, updating and rolling back the family, on
 Linux, with every build checked first and every change one undoable step.
+
+### One ashtray for the family: CigCompile and cigar crashes (#10)
+
+- A crash in CigCompile (origin `cig-compile`) and in `cigar` (origin `cigar-script`) lands in cig's ashtray, is shown by `crash list` beside every other tool's reports, and `crash send` files each in its own repository: by the `repo` the tool wrote, else by the frames, else by the origin. No installer code changed; `tests/a9_family_crash.rs` proves it with the reports as the two tools write them, against the fake tracker, including the older origin spellings through `crash submit`.
+- The tools read one answer before they save anything, `ciginstaller config get reports --json` (`data.value`, `data.source`); a `never` that is not the default (the file, or a machine lock) saves nothing. The test pins that shape.
+### A cigar pin picks the compiler (cig-compile #15)
+
+- `cigar = "1.0"` at the top of `cigar.toml` is read as a pin on cigar, like `.cigar-version`, by the shim (which sends the project to the resolver) and by the installer. A `carton` key in the same file still wins, and a `cigar` key inside a table pins nothing.
+- cigcompile comes with the carton that holds the pinned cigar, so a project pinned to 1.0 builds with cigcompile 1.0 after 1.1 is installed. When no installed carton fits, the whole carton is fetched under `pin_fetch` (not a stick of cigar beside the machine's cigcompile), and a refusal names `ciginstaller install carton --carton <c>`.
+- The installer stays the only place that picks: cigcompile never reads pins. `cigcompile trial <new>` asks it where the new version is.
+
+### One update flow, finished (#7)
+
+- The update trial covers `cigo` and `cigcompile`. cigo's runs `cigo check` and `cigo --dry-run run` of the `ci` chain and of each task in the project's `cig-tasks.json`; CigCompile's runs `cigcompile test` on the project's `.cig` programs, built in a scratch folder. Each runs with the old and the new build, each with the cig of its own carton first on `PATH`, and the differences are shown before the switch.
+- `auto_update = security` installs the newest carton that clears a security advisory of the manifest, and `all` installs the newest carton. Both are `ciginstaller update --auto`: the trial and the rollback of an update, at most one attempt a day, none on battery power, none outside a `rollout` share. A carton that fails is rolled back, the next terminal says so once, and the same carton is not tried again for seven days. A machine-locked `auto_update` is obeyed.
+- A daily schedule for those two values, written through the journal and removed by `auto_update = off`, `notify` and `uninstall --all`: a systemd user timer, a launchd agent or a Task Scheduler task, with a random delay of up to two hours and the OS's own mains-power and idle conditions. Turning it on in the system goes through one seam; the tests record the command and never run it.
 
 ### The humidor is the shared store (#1)
 
@@ -226,6 +264,16 @@ Linux, with every build checked first and every change one undoable step.
   and downloads the archived copy, still at the digest the manifest pins. An
   index that lists other bytes for a build is refused (E1825), and the index
   is only read when the release is gone.
+
+### The machine layer and locked settings (#17)
+
+- **An organization's settings sit below ciginstaller, read only.** Linux and the BSDs read `/etc/cigscript/config.toml`; macOS reads the managed preferences a configuration profile installs, `/Library/Managed Preferences/io.github.otmof-ops.cigscript.plist`; Windows reads `HKLM\SOFTWARE\Policies\otmof-ops\CigScript`. Each lists its locks (`locked = [...]`, a `Locked` array, a `Locked` REG_MULTI_SZ). `docs/ORGANIZATIONS.md` has the formats.
+- **A locked value beats the environment, the person's file and a flag.** An unlocked machine value sits below the person's file and above the built-in default. `config get`, `config list` and `status --json` say `locked by <store>`; `status --json` carries a `locks` object for an organization's own tools.
+- **`config set` and `config unset` on a locked key refuse with new E1904,** which names the store and writes nothing. An install answer (`--preset`, `--reports`, `--answers`) for a locked setting is E1904 too; the locked value counts as the answer.
+- **Five settings an organization locks:** a pinned carton (the new `carton` setting, below a project's `.cig-carton` when unlocked and above everything, a script's `# cig` header and `CIGI_CARTON` included, when locked), `auto_update`, `reports` (a locked `never` stops `bug --send`, `report --send` and every `crash send` whatever `CIG_REPORTS` says), `mirror`, and the guard `preset` (recorded and locked here; enforcement is cig-orchestrator#66's).
+- **A store that is there and cannot be read is an error that names it** (E1830), never skipped: an unknown setting, a bad value, a lock that names nothing, a file anyone can write, a file root does not own. A machine with no store behaves as before.
+- **The shim sends a run down the slow path when the machine layer mentions `carton`,** so a locked carton also holds on the fast path.
+- No variable, file or flag moves the machine layer in a release build; tests reach a stand-in folder through a feature release builds do not have.
 
 ### Staged rollouts (#17)
 

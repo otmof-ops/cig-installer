@@ -340,7 +340,14 @@ fn main() {
     }
     // A tool runs under its own name; the installer, on the slow path, under its own, so its
     // misnamed-binary guard (E1844) holds.
-    let (mut cmd, carton, run_as) = match pick(&index, &name, forced.as_deref(), &pin) {
+    // A carton the machine locks outranks everything the fast path reads (#17): when the machine
+    // layer mentions `carton`, the installer's resolver applies it.
+    let picked = if cigi_shim::machine::machine_layer_mentions_carton() {
+        Pick::Slow
+    } else {
+        pick(&index, &name, forced.as_deref(), &pin)
+    };
+    let (mut cmd, carton, run_as) = match picked {
         Pick::Run {
             carton,
             path,

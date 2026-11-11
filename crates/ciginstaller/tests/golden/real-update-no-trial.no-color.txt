@@ -11,6 +11,7 @@
   trial: skipped (--no-trial)
   trust: checksummed 2
   carton 0.1.1 stays installed until the next update, so you can go back
+  cig can undo it too, for 7 days: close ciginstaller, then `cig runs adopt ~/.cigscript/installer/txn/<id>` and `cig unburn <the run id it prints>`
   -> ciginstaller rollback
 --- stderr ---
 [..] fetching cig 1.20.2  0%  (0.0/<size>)

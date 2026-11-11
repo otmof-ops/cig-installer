@@ -15,6 +15,8 @@ path = "src/main.rs"
 [features]
 # CIGI_FAULT=<phase>:<n> aborts after the n-th journal line of a phase. Release builds never enable it.
 fault-injection = ["cigi-home/fault-injection"]
+# CIGI_TEST_MACHINE_ROOT=<dir> stands in for the system's machine layer. Release builds never enable it.
+test-machine-root = ["cigi-home/test-machine-root"]
 
 [dependencies]
 cig-compat = { workspace = true }
@@ -35,7 +37,7 @@ ureq = { workspace = true }
 [dev-dependencies]
 cigi-testkit = { workspace = true }
 # Turns the fault-injection hook on for test builds only (a2_interrupted_install).
-cigi-home = { workspace = true, features = ["fault-injection"] }
+cigi-home = { workspace = true, features = ["fault-injection", "test-machine-root"] }
 tempfile = { workspace = true }
 serde_json = { workspace = true }
 # the fake issues route of a6_crash

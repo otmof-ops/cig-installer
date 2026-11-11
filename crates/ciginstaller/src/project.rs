@@ -21,6 +21,12 @@ pub use cig_compat::PER_TOOL_PIN_FILES as LEGACY_FILES;
 /// cig (`CIG_NEEDS`, which the carton manifest carries as `requires`) are all it declares.
 pub const MANIFEST_FILE: &str = "cig-tasks.json";
 
+/// `cigar.toml`: its top-level `cigar = "1.0"` key is the CigarScript version the project is
+/// written for, a legacy pin on the tool `cigar` like `.cigar-version`. It picks the carton whose
+/// cigar meets it, and so that carton's cigcompile (cig-compile ADR 0003). A `carton` key in the
+/// same file wins over it (a carton pin is step 2 of the resolver).
+pub const CIGAR_TOML: &str = "cigar.toml";
+
 /// What the walk up from a directory found.
 #[derive(Debug, Clone, Default)]
 pub struct ProjectCtx {
@@ -72,6 +78,7 @@ pub fn discover(
                 let tool = match LEGACY_FILES.iter().find(|(n, _)| *n == name) {
                     Some((_, tool)) => *tool,
                     None if name == MANIFEST_FILE => "cig",
+                    None if name == CIGAR_TOML => "cigar",
                     None => continue,
                 };
                 let text = match read_capped(&p, t, MAX_FILE_INSTALLER) {
@@ -82,6 +89,9 @@ pub fn discover(
                 let line = if name == MANIFEST_FILE {
                     cigi_shim::pins::cig_from_json(&text)
                         .ok_or_else(|| bad_pin_file(&p, "the \"cig\" key holds no constraint"))?
+                } else if name == CIGAR_TOML {
+                    cigi_shim::pins::cigar_from_toml(&text)
+                        .ok_or_else(|| bad_pin_file(&p, "the `cigar` key holds no constraint"))?
                 } else {
                     text.lines()
                         .map(str::trim)
@@ -125,11 +135,14 @@ pub fn project_root(start: &Path, cigscript_home: &Path, user_home: Option<&Path
     start.to_path_buf()
 }
 
-/// A legacy pin as `which --why` names it: `.cig-version >=1.6.2`, `cig-tasks.json "cig" >=1.20.0`.
+/// A legacy pin as `which --why` names it: `.cig-version >=1.6.2`, `cig-tasks.json "cig" >=1.20.0`,
+/// `cigar.toml "cigar" 1.0`.
 pub fn legacy_label(file: &Path, pin: &Pin) -> String {
     let name = file_label(file);
     if name == MANIFEST_FILE {
         format!("{name} \"cig\" {pin}")
+    } else if name == CIGAR_TOML {
+        format!("{name} \"cigar\" {pin}")
     } else {
         format!("{name} {pin}")
     }
