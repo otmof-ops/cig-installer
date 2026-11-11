@@ -646,20 +646,24 @@ remedy = "do not retry in a loop; report it at https://github.com/otmof-ops/cig-
 [[code]]
 code = "E1822"
 title = "trust floor not met"
-meaning = "The artifact is verified at a lower level than the floor you set with `trust`, so it was refused."
+meaning = "The artifact was verified at a lower level than the `trust` setting's floor, so it was refused. Levels, from lowest to highest, are `checksummed`, `attested`, `signed` and `pinned`: `signed` means the signed update metadata (decision 0004) vouches for the artifact, and `pinned` that its digest is compiled into this installer. The failure named which level the artifact reached and which level the floor asks for."
 fix = "`ciginstaller config get trust`"
 no = "these-are-mine"
 arises = ["any"]
 tags = ["installer", "ci-likely"]
 since = "0.1.0"
-related = ["E1827", "E1828"]
+related = ["E1821", "E1827", "E1828", "E1901"]
 [[code.cause]]
 why = "only one source agrees, so it is checksummed, and trust is set higher"
 no = "these-are-mine"
 probe = "trust-level"
 remedy = "lower the floor on purpose with `ciginstaller config set trust checksummed`, or install from the source that attests"
 [[code.cause]]
-why = "the manifest's pin for this artifact is missing in this release of ciginstaller"
+why = "`trust = signed` is set and this installer has no signed root compiled in yet, so no artifact can reach `signed`"
+probe = "trust-level"
+remedy = "`ciginstaller self update` to an installer that carries a signed root, or lower the floor until it does"
+[[code.cause]]
+why = "`trust = pinned` is set and the manifest's pin for this artifact is missing in this release of ciginstaller"
 probe = "manifest-pins"
 remedy = "`ciginstaller self update`"
 

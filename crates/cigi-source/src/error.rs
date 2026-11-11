@@ -67,7 +67,7 @@ pub enum TrustError {
     AttestationFailed { what: String, why: String },
     /// E1820: the file could not be read to check it.
     Io { what: String, why: String },
-    /// E1822: the signed metadata (TUF, decision 0004) did not verify, or does not vouch for this
+    /// E1901: the signed metadata (TUF, decision 0004) did not verify, or does not vouch for this
     /// file. The text is the reason in plain words; no caller branches on it.
     Tuf { why: String },
 }
