@@ -25,6 +25,7 @@ pub mod humidor;
 pub mod index;
 pub mod journal;
 pub mod lock;
+pub mod migrate;
 pub mod path;
 pub mod platform;
 pub mod rollout;
@@ -51,6 +52,7 @@ pub use journal::{
     Recovered, RollbackFailure, RollbackReport, Txn, TxnInfo, TxnStatus,
 };
 pub use lock::InstallerLock;
+pub use migrate::{migrate_store, StoreMigration};
 pub use path::{
     add_path_block, blocks_record, documents_dir, path_block, recorded_registry, recorded_shells,
     registry_line, registry_path_add, registry_path_has, registry_path_remove, registry_record,

@@ -3,9 +3,10 @@
 
 # 0001: Architecture of ciginstaller
 
-- Status: proposed
+- Status: accepted
 - Date: 2026-11-10
 - Issue: otmof-ops/cig-installer#1
+- Accepted: 2026-11-11, with section 3 rewritten for the shared store and the position on reusing cig's crates (section 2) recorded as it stands
 - Companion: `SPEC.md` (the build contract; every path, format and signature lives there)
 
 ## Context
@@ -36,14 +37,18 @@ Facts about the existing code that bound the design:
 
 Crates: `cig-compat` (versions, manifest, marry-up checks; pure), `cigi-home` (paths, store, toolchains, journal, state, locks), `cigi-source` (release sources, downloads, trust), `cigi-ui` (the output grammar, palette, prompts, errors), `cigi-shim`, `ciginstaller`, and a dev-only `cigi-testkit` (fixture release source).
 
-The installer does not depend on `cigscript`. It repeats the small, stable pieces it needs (the pin dialect, asset naming, the sidecar format, the humidor index, the registry schema) and a parity test, run off the main path, proves each still agrees with a pinned cig tag. Section "Alternatives" says why. The cost is real: some duplication. The shared crates that issue #1 imagines (`cig-journal`, `cig-tin`, `cig-errors`) become follow-up work in the CigScript repository, and the installer adopts them when they exist.
+The installer does not depend on `cigscript`. It repeats the small, stable pieces it needs (the pin dialect, asset naming, the sidecar format, the humidor index, the registry schema) and a parity test, run off the main path, proves each still agrees with a pinned cig tag. Section "Alternatives" says why. The cost is real: some duplication.
 
-### 3. One home, and the installer's own store
+**Reusing cig's crates (item 4 of issue #1).** The issue asks for the family's update and runtime code to be reused rather than reimplemented: the journal, the tin, the error registry and the ashtray. That is not done by linking crates today, and this ADR does not say it is. What holds the line is the parity tests in `crates/cig-compat/tests/pins_and_versions.rs`, which check the repeated pieces against cig and are the only thing that keeps the two from drifting; they do not remove the duplication. The extraction itself, which is cig split into crates the installer and the compiler can depend on (`cig-journal`, `cig-tin`, `cig-errors` and the ashtray's pieces), waits on [cig-compile#1](https://github.com/otmof-ops/cig-compile/issues/1), which splits cig that way. That is the path: when those crates exist the installer adopts them behind the seams it already has (the `Journal` trait in `cigi-home`, the registry file in `errors/`), and the repeated code and its parity tests go. Until then the journal, the store and the error ranges are the installer's own.
 
-Everything lives under `~/.cigscript/` (or `CIGSCRIPT_HOME`). New directories: `bin/`, `toolchains/`, `store/`, `installer/`. Existing ones (`runs`, `tin`, `humidor`, `config`) are left alone, apart from the humidor mirror below.
+### 3. One home, and the humidor as the shared store
 
-- **The store is `~/.cigscript/store/`, not the tin and not the humidor.** It is content addressed by SHA-256, one object per distinct file. A toolchain directory (`toolchains/<tool>/<version>/`) is built from hard links to store objects (a copy where links fail), made read-only. Two cigo versions share every file that did not change (docs, licenses, launchers) and cost one copy of each. Binaries that differ throughout do not dedup, and the design does not pretend they do; the #20 budget ("five cigo versions under 1.5x one") is about cigo, which is mostly text.
-- **The humidor is mirrored, not replaced.** For each installed cig, the installer hard links the binary to `humidor/<ver>/cig` and adds an `index.json` entry (`source = "ciginstaller"`). cig's own per-script pin dispatch then finds every installed cig with no change to cig.
+Everything lives under `~/.cigscript/` (or `CIGSCRIPT_HOME`). New directories: `bin/`, `toolchains/`, `installer/`. Existing ones (`runs`, `tin`, `humidor`, `config`) are left alone. The store is not a new top-level directory: it lives inside the humidor.
+
+- **The store is `~/.cigscript/humidor/store/`.** The humidor is the one shelf for every version of every tool, and the objects behind them sit in it: `humidor/store/objects/<aa>/<sha256>[.x]`, with `humidor/store/tmp/` for files being staged. It is content addressed by SHA-256, one object per distinct file, and still not the tin (the tin's `gc` deletes what no run record references, and the two cleanups must not meet). A toolchain directory (`toolchains/<tool>/<version>/`) is built from hard links to store objects (a copy where links fail), made read-only. Two cigo versions share every file that did not change (docs, licenses, launchers) and cost one copy of each. Binaries that differ throughout do not dedup, and the design does not pretend they do; the #20 budget ("five cigo versions under 1.5x one") is about cigo, which is mostly text.
+- **What cig reads stays as it was.** cig reads `humidor/index.json` and the directories under `humidor/` whose names are versions and that hold a `cig` binary; it skips any other name. `store/` is not a version, so cig's listing, its pin dispatch and its `humidor` commands see the shelf they always saw. For each installed cig the installer still hard links the binary to `humidor/<ver>/cig` and adds an `index.json` entry (`source = "ciginstaller"`), so cig's per-script pin dispatch finds every installed cig with no change to cig. Because that binary and the object it came from are the same file, a cig on the shelf costs no second copy.
+- **An older home moves once.** Before this layout the objects were in `~/.cigscript/store/`. The first command that writes (the one that takes the lock and runs `recover`) moves `store/objects` to `humidor/store/objects` as its own journaled transaction, `migrate store`: make `humidor/store/`, rename the objects directory under it (one rename, nothing copied, so every hard link from `toolchains/` and `bin/` stays the same file), make `humidor/store/tmp/`, and delete the old `store/` into the transaction's directory. A failure rolls it back; a kill is undone by the next command's `recover`, and the home is then as it was, byte for byte. A command that only reads (`doctor`, `check`) reads whichever layout the home has and changes nothing, and until the move is done the old place is the one it reads. A home with no `store/` (a new one) is made in the new layout.
+- **`gc`, `repair`, `doctor` and `uninstall` follow.** They ask the home where its store is. `uninstall --all` deletes `humidor/store/` first, then the mirrors it made, and removes `humidor/` only when nothing of anyone else's is left in it; entries that are not the installer's stay, as before.
 
 ### 4. Cartons are the unit; the manifest is data
 
@@ -95,7 +100,7 @@ Good:
 
 Costs and risks:
 
-- Duplicated logic (pin dialect, asset names, registry schema). Mitigated by the parity test and by moving to shared crates when cig extracts them.
+- Duplicated logic (pin dialect, asset names, registry schema). Mitigated by the parity tests and by moving to shared crates when cig-compile#1 extracts them (section 2).
 - `cig unburn` of an update, the cigo/cigcompile trials, TUF, the window, and the reporting pipeline are not in this build (see `SPEC.md`, section 15).
 - Shims add one exec hop. Measured budget: under 2 ms; a CI check enforces it.
 - Hard links mean a tool that rewrites its own files in place (cigo's `update`, cig's `update`) would otherwise change a store object. Toolchain files are read-only and the shim exports `CIGI_MANAGED=1`; the follow-up change makes each updater defer to the installer when it sees that. Until then an in-place update fails loudly instead of corrupting the store, and `repair` restores the file.

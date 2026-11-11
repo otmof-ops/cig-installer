@@ -77,8 +77,34 @@ impl Home {
         self.root.join("toolchains")
     }
 
+    /// The store of this home: `humidor/store/`, where the humidor is the shared shelf. A home
+    /// made before the move still has `store/` and no `humidor/store/` until the first command
+    /// that writes migrates it ([`crate::migrate`]); until then this answers the old place, so a
+    /// command that only reads sees the objects wherever they are.
     pub fn store(&self) -> PathBuf {
+        if self.is_legacy_store() {
+            self.legacy_store()
+        } else {
+            self.shared_store()
+        }
+    }
+
+    /// `humidor/store/`: where the store lives from this layout on.
+    pub fn shared_store(&self) -> PathBuf {
+        self.humidor().join("store")
+    }
+
+    /// `store/`: where the objects were before the humidor became the shared store.
+    pub fn legacy_store(&self) -> PathBuf {
         self.root.join("store")
+    }
+
+    /// The home still has the old `store/objects` and no `humidor/store/objects`. Asked of the
+    /// objects, not of the directories, so a migration cut short after it made `humidor/store/`
+    /// and before it moved anything still reads the old place until `recover` has undone it.
+    pub fn is_legacy_store(&self) -> bool {
+        fs::symlink_metadata(self.shared_store().join("objects")).is_err()
+            && fs::symlink_metadata(self.legacy_store().join("objects")).is_ok_and(|m| m.is_dir())
     }
 
     pub fn installer(&self) -> PathBuf {
@@ -139,7 +165,7 @@ impl Home {
     }
 
     /// Create the directories this build owns, if missing: `installer/` and
-    /// `store/` at 0700 on Unix, `bin/` and `toolchains/` at 0755. Existing
+    /// `humidor/store/` at 0700 on Unix, `bin/`, `toolchains/` and `humidor/` at 0755. Existing
     /// directories are never re-moded.
     pub fn ensure_layout(&self) -> Result<(), HomeError> {
         let made_root = fs::symlink_metadata(&self.root).is_err();
@@ -164,6 +190,7 @@ impl Home {
         for (p, mode) in [
             (self.bin(), 0o755),
             (self.toolchains(), 0o755),
+            (self.humidor(), 0o755),
             (self.store(), 0o700),
             (self.store().join("objects"), 0o700),
             (self.store().join("tmp"), 0o700),

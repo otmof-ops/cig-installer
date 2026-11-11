@@ -18,6 +18,13 @@ below is under Unreleased, and the first version will take it as its section.
 Installing, pinning, switching, updating and rolling back the family, on
 Linux, with every build checked first and every change one undoable step.
 
+### The humidor is the shared store (#1)
+
+- The store moved from `store/` to `humidor/store/`, so one shelf holds every version of every tool and the objects behind them. cig's index and its `humidor/<ver>/cig` links are untouched, and cig skips the `store/` directory because it is not a version.
+- A home made by the old layout is migrated once, at the first command that writes, as the journaled transaction `migrate store`: the objects directory is renamed (nothing is copied, hard links stay), and an interruption or a failure restores the old home byte for byte. Commands that only read use either layout.
+- `gc`, `repair`, `doctor` and `uninstall --all` follow the new layout; `uninstall --all` removes `humidor/` only when nothing of anyone else's is in it.
+- ADR 0001 is accepted. Section 3 is rewritten for the shared store, and the decision on reusing cig's crates is recorded as it stands: parity tests hold it, and the extraction waits on cig-compile#1.
+
 ### Quick closes (#49, #11, #48)
 
 - `update --no-trial` says `trial: skipped (--no-trial)` once, in the voice, plain and `--json` forms (#49).

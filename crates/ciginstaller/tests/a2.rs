@@ -207,7 +207,7 @@ fn a2_legacy_pin() {
 fn installed_view(fx: &Fixture) -> Snapshot {
     let root = fx.cigscript();
     let mut s = Snapshot::default();
-    for p in ["bin", "toolchains", "store/objects", "humidor"] {
+    for p in ["bin", "toolchains", "humidor/store/objects", "humidor"] {
         for (k, v) in Snapshot::take(&root.join(p)).entries {
             s.entries.insert(format!("{p}/{k}"), v);
         }
@@ -404,8 +404,8 @@ fn a2_digest_attacks() {
         assert!(!o.status.success(), "{fault}: {}", text(&o));
         assert!(text(&o).contains(code), "{fault}: {}", text(&o));
         let root = fx.cigscript();
-        for p in ["toolchains", "bin", "store/objects", "humidor"] {
-            let s = Snapshot::take(&root.join(p));
+        for p in ["toolchains", "bin", "humidor/store/objects", "humidor"] {
+            let s = Snapshot::take(&root.join(p)).without(&["store"]);
             assert!(
                 s.entries.is_empty(),
                 "{fault}: {p} holds {:?}",

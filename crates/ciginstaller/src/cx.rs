@@ -214,6 +214,18 @@ impl Cx {
         if let Some(p) = problem {
             return Err(p);
         }
+        // a home made by the old layout moves its objects under the humidor, once, here: the
+        // first command that writes (a command that only reads reads either layout)
+        if let Some(m) = cigi_home::migrate_store(&self.home, &lock).map_err(ie)? {
+            self.ui.say(&Report::new(
+                Icon::Note,
+                format!(
+                    "moved the store into the humidor ({} object(s), {}); `ciginstaller gc` and `repair` use it from there",
+                    m.moved.objects,
+                    crate::flows::health::size_text(m.moved.bytes)
+                ),
+            ));
+        }
         self.lock = Some(lock);
         self.state = State::load(&self.home).map_err(ie)?;
         Ok(())
