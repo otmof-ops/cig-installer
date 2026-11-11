@@ -31,6 +31,7 @@ pub fn run(cx: &mut Cx) -> Result<Outcome, InstallerError> {
         "reason": standing.why.map(|w| w.as_str()),
     });
     let cartons: Vec<&String> = cx.state.cartons.keys().collect();
+    let locks = locks_json(cx);
     let Some(carton) = machine.clone().filter(|_| !tools.is_empty()) else {
         let mut r = Report::done("nothing is installed yet");
         if let Some(l) = interrupted(cx) {
@@ -44,6 +45,7 @@ pub fn run(cx: &mut Cx) -> Result<Outcome, InstallerError> {
                 "cartons": cartons,
                 "channel": channel,
                 "rollout": rollout,
+                "locks": locks,
                 "first_run": crate::flows::install::first_run_view(&cx.state),
                 "tools": {},
                 "trust": {},
@@ -173,6 +175,14 @@ pub fn run(cx: &mut Cx) -> Result<Outcome, InstallerError> {
         ));
     }
 
+    // settings the machine layer locks (#17): one line, the store named
+    if let Some(m) = cx.cfg.machine() {
+        let keys: Vec<&str> = m.locked_keys().collect();
+        if !keys.is_empty() {
+            lines.push(format!("locked by {}: {}", m.source(), keys.join(", ")));
+        }
+    }
+
     // how this machine differs from a plain carton
     for s in cx.state.sticks.iter().filter(|s| s.is_rollback()) {
         lines.push(format!("{} is rolled back to {}", s.tool, s.version));
@@ -230,6 +240,7 @@ pub fn run(cx: &mut Cx) -> Result<Outcome, InstallerError> {
         "cartons": cartons,
         "channel": channel,
         "rollout": rollout,
+        "locks": locks,
         "first_run": crate::flows::install::first_run_view(&cx.state),
         "tools": tools,
         "trust": trust_json,
@@ -239,6 +250,25 @@ pub fn run(cx: &mut Cx) -> Result<Outcome, InstallerError> {
 }
 
 /// The newest carton on the channel that is above the machine's (pre-releases only off stable).
+/// The machine layer as the inventory carries it: the store, and each locked setting with the
+/// value in force. `source` is `null` on a machine with no layer.
+fn locks_json(cx: &Cx) -> Value {
+    let Some(m) = cx.cfg.machine() else {
+        return json!({ "source": null, "locked": [] });
+    };
+    json!({
+        "source": m.source(),
+        "locked": m
+            .locked_keys()
+            .map(|k| json!({
+                "key": k,
+                "value": cx.cfg.get(k),
+                "locked_by": m.source(),
+            }))
+            .collect::<Vec<_>>(),
+    })
+}
+
 fn newest_over(m: &Manifest, mine: &Version, channel: &str) -> Option<Version> {
     let newest = m.latest(channel != "stable")?.version.clone();
     (newest > *mine).then_some(newest)

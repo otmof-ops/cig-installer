@@ -581,6 +581,7 @@ dependencies = [
  "sha2",
  "tempfile",
  "time",
+ "toml_edit 0.22.27",
 ]
 
 [[package]]

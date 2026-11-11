@@ -382,6 +382,13 @@ impl Fixture {
         format!("file://{}", self.releases.display())
     }
 
+    /// The folder that stands in for the system's machine layer for child processes:
+    /// `<tmp>/machine`, whose `config.toml` a test may write (mode 0644). It does not exist until
+    /// a test makes it, which is a machine with no layer.
+    pub fn machine_root(&self) -> PathBuf {
+        self.tmp.path().join("machine")
+    }
+
     /// Run `<CIGSCRIPT_HOME>/bin/<name>` (a shim the installer made) in `cwd`.
     pub fn run_shim(&self, name: &str, cwd: &Path, args: &[&str]) -> Output {
         let mut c = Command::new(self.cigscript().join("bin").join(name));
@@ -409,6 +416,9 @@ impl Fixture {
             // no report route may run unless a test names it: a `gh` on the runner's PATH or a
             // token in its login must never file a real issue (a6_routes sets what it needs)
             .env("CIGI_ROUTES", "none")
+            // the machine layer (#17) is this scratch folder's `config.toml`, which a test writes
+            // when it wants one: a child never reads the real /etc/cigscript
+            .env("CIGI_TEST_MACHINE_ROOT", self.machine_root())
             .env("PATH", path);
     }
 }

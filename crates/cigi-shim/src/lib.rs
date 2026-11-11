@@ -15,6 +15,7 @@ use std::fs::{self, File};
 use std::io::Read;
 use std::path::{Path, PathBuf};
 
+pub mod machine;
 pub mod pins;
 
 pub use pins::ScriptPin;

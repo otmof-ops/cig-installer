@@ -367,6 +367,8 @@ pub enum Source {
     CigReports,
     /// `CIGI_REPORTS` or the `reports` line of `installer/config`.
     Setting,
+    /// The machine layer locks `reports` (#17): nothing a person sets changes it.
+    Locked,
     /// Nothing was set and this is CI with no terminal: never.
     Ci,
     Default,
@@ -389,6 +391,10 @@ pub fn under_ci() -> bool {
 /// `never` holds for every product; then `CIGI_REPORTS` and the installer's config line; with
 /// nothing set, CI means never and a person means ask.
 pub fn consent(cfg: &Config) -> (Consent, Source) {
+    // a locked `reports` outranks cig's variable too: the organization's word is the last one
+    if cfg.locked_by("reports").is_some() {
+        return (parse(&cfg.get("reports")), Source::Locked);
+    }
     if let Ok(v) = std::env::var("CIG_REPORTS") {
         if !v.trim().is_empty() {
             return (parse(&v), Source::CigReports);
@@ -403,8 +409,13 @@ pub fn consent(cfg: &Config) -> (Consent, Source) {
     (Consent::Ask, Source::Default)
 }
 
-/// A `never` anywhere is a `never`: nothing leaves, not even for a report typed by name.
+/// A `never` anywhere is a `never`: nothing leaves, not even for a report typed by name. A
+/// `reports` the machine layer locks is the one exception to "anywhere": it is the only word.
 pub fn explicit_never(cfg: &Config) -> bool {
+    if cfg.locked_by("reports").is_some() {
+        // locked: the machine's value is the only one, whatever the environment says
+        return cfg.get("reports") == "never";
+    }
     std::env::var("CIG_REPORTS").is_ok_and(|v| v.trim() == "never")
         || (cfg.source("reports") != "default" && cfg.get("reports") == "never")
 }

@@ -221,6 +221,16 @@ Linux, with every build checked first and every change one undoable step.
   index that lists other bytes for a build is refused (E1825), and the index
   is only read when the release is gone.
 
+### The machine layer and locked settings (#17)
+
+- **An organization's settings sit below ciginstaller, read only.** Linux and the BSDs read `/etc/cigscript/config.toml`; macOS reads the managed preferences a configuration profile installs, `/Library/Managed Preferences/io.github.otmof-ops.cigscript.plist`; Windows reads `HKLM\SOFTWARE\Policies\otmof-ops\CigScript`. Each lists its locks (`locked = [...]`, a `Locked` array, a `Locked` REG_MULTI_SZ). `docs/ORGANIZATIONS.md` has the formats.
+- **A locked value beats the environment, the person's file and a flag.** An unlocked machine value sits below the person's file and above the built-in default. `config get`, `config list` and `status --json` say `locked by <store>`; `status --json` carries a `locks` object for an organization's own tools.
+- **`config set` and `config unset` on a locked key refuse with new E1904,** which names the store and writes nothing. An install answer (`--preset`, `--reports`, `--answers`) for a locked setting is E1904 too; the locked value counts as the answer.
+- **Five settings an organization locks:** a pinned carton (the new `carton` setting, below a project's `.cig-carton` when unlocked and above everything, a script's `# cig` header and `CIGI_CARTON` included, when locked), `auto_update`, `reports` (a locked `never` stops `bug --send`, `report --send` and every `crash send` whatever `CIG_REPORTS` says), `mirror`, and the guard `preset` (recorded and locked here; enforcement is cig-orchestrator#66's).
+- **A store that is there and cannot be read is an error that names it** (E1830), never skipped: an unknown setting, a bad value, a lock that names nothing, a file anyone can write, a file root does not own. A machine with no store behaves as before.
+- **The shim sends a run down the slow path when the machine layer mentions `carton`,** so a locked carton also holds on the fast path.
+- No variable, file or flag moves the machine layer in a release build; tests reach a stand-in folder through a feature release builds do not have.
+
 ### Staged rollouts (#17)
 
 - **`rollout = N%`** (1 to 100, default 100): a share of machines takes a new

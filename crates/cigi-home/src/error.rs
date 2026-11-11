@@ -290,6 +290,16 @@ pub enum StateError {
     Usage(String),
     /// A plain-http mirror that is not on loopback (E1900).
     PlainHttp(String),
+    /// A setting the machine layer locks, which a person cannot change (E1904).
+    Locked {
+        key: String,
+        source: String,
+    },
+    /// A machine-layer store that is there and cannot be read, trusted or understood (E1830).
+    Machine {
+        source: String,
+        why: String,
+    },
     Journal(JournalError),
 }
 
@@ -300,6 +310,8 @@ impl StateError {
             StateError::Unreadable { .. } => "E1830",
             StateError::Usage(_) => "E1870",
             StateError::PlainHttp(_) => "E1900",
+            StateError::Locked { .. } => "E1904",
+            StateError::Machine { .. } => "E1830",
             StateError::Journal(e) => e.code(),
         }
     }
@@ -313,6 +325,14 @@ impl fmt::Display for StateError {
                 write!(f, "{} is unreadable or too new: {why}", path.display())
             }
             StateError::Usage(m) | StateError::PlainHttp(m) => f.write_str(m),
+            StateError::Locked { key, source } => write!(
+                f,
+                "`{key}` is locked by {source}; whoever manages this machine set it, and it cannot be changed from here"
+            ),
+            StateError::Machine { source, why } => write!(
+                f,
+                "the machine settings in {source} cannot be used: {why}"
+            ),
             StateError::Journal(e) => e.fmt(f),
         }
     }

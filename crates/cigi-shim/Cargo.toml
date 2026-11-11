@@ -16,6 +16,10 @@ path = "src/lib.rs"
 name = "cigi-shim"
 path = "src/main.rs"
 
+[features]
+# CIGI_TEST_MACHINE_ROOT=<dir> stands in for the system's machine layer. Release builds never enable it.
+test-machine-root = []
+
 [dependencies]
 
 [target.'cfg(windows)'.dependencies]

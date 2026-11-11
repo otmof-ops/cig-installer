@@ -59,7 +59,7 @@ from = "E1900"
 to = "E1999"
 family = "installer"
 kind = "usage"
-meaning = "the installer, second range: the mirror and what travels over it (E1900), the update channel's signatures (E1901), and what a shim refuses to run and why (E1902, E1903); the rest is not assigned yet"
+meaning = "the installer, second range: the mirror and what travels over it (E1900), the update channel's signatures (E1901), what a shim refuses to run and why (E1902, E1903), and the settings the machine locks (E1904); the rest is not assigned yet"
 
 # ----- the four kinds of no (copied verbatim from cig) ------------------------------------
 
@@ -1916,3 +1916,22 @@ remedy = "`ciginstaller repair` checks each file against its receipt's hash and 
 why = "the build was replaced in place by another file"
 probe = "receipt-verify"
 remedy = "`ciginstaller repair` puts the receipt's file back from the store"
+
+[[code]]
+code = "E1904"
+title = "a setting is locked by the machine"
+meaning = "A setting is locked by the machine layer: the file `/etc/cigscript/config.toml` (`locked = [...]`), the managed preferences a configuration profile installs on macOS (a `Locked` array), or `HKLM\\SOFTWARE\\Policies\\otmof-ops\\CigScript` on Windows (a `Locked` REG_MULTI_SZ value). Whoever manages this machine set it, so `config set` and `config unset` refuse, and the environment, your own config file and a flag do not change what is in force. Nothing was written."
+fix = "`ciginstaller config get <setting>` names the store that locks it; ask whoever manages this machine to change it there"
+no = "these-are-mine"
+arises = ["config", "install", "any"]
+tags = ["installer"]
+since = "0.1.0"
+related = ["E1870", "E1875", "E1830"]
+[[code.cause]]
+why = "the machine layer lists the setting in its locks (`ciginstaller config list` shows `locked by <store>`)"
+probe = "none"
+remedy = "ask whoever manages this machine to unlock or change it in the store `config get` names; on a machine you manage, edit that store"
+[[code.cause]]
+why = "an install answer (`--preset`, `--reports`, an `--answers` file) named a locked setting"
+probe = "none"
+remedy = "leave the answer out: the locked value is already in force, and `ciginstaller install` takes it as the answer"

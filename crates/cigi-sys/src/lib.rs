@@ -8,6 +8,7 @@
 //!   write-through rename the journal commits with.
 //! - `env`: the user's `PATH` in `HKCU\Environment`, the broadcast that tells running programs it
 //!   changed, and the Documents folder the PowerShell profiles live under.
+//! - `policy`: the values of one `HKLM` key, read only, for the organization's machine settings.
 //! - `process`: what the self-update and the shim need from the running process.
 //!
 //! Every `unsafe` block carries a `SAFETY:` comment saying why the call is sound.
@@ -18,5 +19,7 @@
 pub mod env;
 #[cfg(windows)]
 pub mod fs;
+#[cfg(windows)]
+pub mod policy;
 #[cfg(windows)]
 pub mod process;

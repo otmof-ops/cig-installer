@@ -15,6 +15,10 @@ publish.workspace = true
 # Lets CIGI_FAULT=<phase>:<n> abort the process after the n-th journal line of a
 # phase. Release builds never enable it.
 fault-injection = []
+# Lets CIGI_TEST_MACHINE_ROOT=<dir> stand in for the system's machine-layer store (<dir>/config.toml)
+# so tests never read the real one. Release builds never enable it: with it, a person could point
+# the installer away from the organization's locks.
+test-machine-root = ["cigi-shim/test-machine-root"]
 
 [dependencies]
 cig-compat = { path = "../cig-compat" }
@@ -25,6 +29,7 @@ sha2 = "0.10"
 hex = "0.4"
 fs4 = "0.13"
 time = "0.3"
+toml_edit = "0.22"
 
 [target.'cfg(windows)'.dependencies]
 cigi-sys = { workspace = true }
@@ -33,4 +38,4 @@ cigi-sys = { workspace = true }
 tempfile = "3"
 # Turns the fault-injection hook on for this crate's own test builds only
 # (the process-kill tests need it); release builds never see it.
-cigi-home = { path = ".", features = ["fault-injection"] }
+cigi-home = { path = ".", features = ["fault-injection", "test-machine-root"] }
