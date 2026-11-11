@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: 2026 Jay Taylor (https://github.com/otmof-ops/cig-installer)
 // SPDX-License-Identifier: FSL-1.1-ALv2
 //! `bench [--runs N] [--strict] [--scratch DIR] [--from DIR]` (#35): the installer's own budgets,
-//! measured here and compared with `bench/bench.toml`. The views that wait on other work
+//! measured here and compared with `bench/budgets.toml`. The views that wait on other work
 //! (the family, cartons against cartons, `--watch`, the window) say so with `E1867`.
 
 use cigi_ui::{Align, Cell, Icon, InstallerError, Report, Table, EXIT_USAGE};

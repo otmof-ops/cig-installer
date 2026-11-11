@@ -1286,7 +1286,7 @@ Related: [`E1862`](#e1862-a-profile-block-was-edited-and-is-left-alone), [`E1831
 
 **Kind of no:** not one of the four (a mistake in the text, in the arithmetic, or in CigScript; syntax, type or logic error; an internal error).
 
-bench --strict measured something on this machine that is over its budget in bench/bench.toml (#20, #32), so it stopped. Nothing was changed: bench only reads, and it works in a scratch home.
+bench --strict measured something on this machine that is over its budget in bench/budgets.toml (#20, #32), so it stopped. Nothing was changed: bench only reads, and it works in a scratch home.
 
 **What to type next:** `ciginstaller bench`
 

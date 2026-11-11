@@ -1,0 +1,27 @@
+# SPDX-FileCopyrightText: 2026 Jay Taylor (https://github.com/otmof-ops/cig-installer)
+# SPDX-License-Identifier: FSL-1.1-ALv2
+name: bench-nightly
+
+# The nightly family benchmark (#35, otmof-ops/cig-script#179 step 6): cig-script's reusable
+# bench.yml runs bench/bench.toml on a schedule and appends one line per run to
+# `history/ciginstaller.jsonl` on the `bench-history` branch, which `cig bench history` reads. A
+# timing never fails it (timings are reported, never gated: cig-script#153); a wrong answer does.
+# This repository is public, so the minutes cost nothing. The workflow waits on cig-script#197,
+# which adds bench.yml. The installer's own budgets (bench/budgets.toml) stay in bench.yml, called
+# by ci.yml on every pull request.
+on:
+  schedule:
+    - cron: "41 3 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  bench:
+    uses: otmof-ops/cig-script/.github/workflows/bench.yml@main
+    with:
+      cig-version: "1.20.0"
+    permissions:
+      contents: write
+      pull-requests: write

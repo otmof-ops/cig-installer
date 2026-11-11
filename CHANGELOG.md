@@ -6,6 +6,12 @@ All notable changes to cig-installer. The format follows Keep a Changelog; the
 project follows semantic versioning. Nothing is released yet, so everything
 below is under Unreleased, and the first version will take it as its section.
 
+### `cig bench` on the installer: bench/bench.toml, the phases and the nightly (#35)
+
+- `bench/bench.toml` is now the installer's suite in `cig bench`'s format (start-up: `--version`, `status` and `list` on an empty home, each checked against its output), so `cig bench --family` reads it. The embedded budgets that `ciginstaller bench` compares with moved to `bench/budgets.toml`; nothing about them changed.
+- With `CIG_TIMINGS_FD` set, the installer writes its phases (`start`, `home`, `command`, `output`) to that descriptor as timings lines (format 1), and only then. `docs/BENCH.md` says what is measured and what waits: the cross-product cases, `ciginstaller bench --watch`, `--carton`, `--with`, `--matrix`, the window's Bench view and the check after an update.
+- `.github/workflows/bench-nightly.yml` runs the suite nightly through cig-script's reusable `bench.yml`.
+
 ### Shims know their home, and a moved home never runs the old one (#46, #47)
 
 - A shim finds its home from where it sits (`<home>/bin/<name>`); `CIGSCRIPT_HOME` still overrides, and `CIGI_SHIM_VERBOSE=1` and `doctor` name both when they differ. The shim passes the home it found to the installer and the tool, so `export PATH=<home>/bin:$PATH` is the whole of the advice and cigo finds cig through the same home. `ciginstaller` run from `<home>/bin` works on that home too.
