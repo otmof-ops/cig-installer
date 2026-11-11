@@ -32,6 +32,10 @@ below is under Unreleased, and the first version will take it as its section.
 Installing, pinning, switching, updating and rolling back the family, on
 Linux, with every build checked first and every change one undoable step.
 
+### One ashtray for the family: CigCompile and cigar crashes (#10)
+
+- A crash in CigCompile (origin `cig-compile`) and in `cigar` (origin `cigar-script`) lands in cig's ashtray, is shown by `crash list` beside every other tool's reports, and `crash send` files each in its own repository: by the `repo` the tool wrote, else by the frames, else by the origin. No installer code changed; `tests/a9_family_crash.rs` proves it with the reports as the two tools write them, against the fake tracker, including the older origin spellings through `crash submit`.
+- The tools read one answer before they save anything, `ciginstaller config get reports --json` (`data.value`, `data.source`); a `never` that is not the default (the file, or a machine lock) saves nothing. The test pins that shape.
 ### A cigar pin picks the compiler (cig-compile #15)
 
 - `cigar = "1.0"` at the top of `cigar.toml` is read as a pin on cigar, like `.cigar-version`, by the shim (which sends the project to the resolver) and by the installer. A `carton` key in the same file still wins, and a `cigar` key inside a table pins nothing.
