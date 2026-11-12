@@ -7,7 +7,7 @@ records the history and says where to ask for anything else.
 | Versions | License | Notes |
 |---|---|---|
 | Commits `5571157` through `39a9b00` (31 commits, 2026-11-10); tagged `apache-2.0-last` | Apache-2.0 | No release or tag other than `apache-2.0-last`. Copies taken in this range stay under Apache-2.0. |
-| From the licensing commit on, including every release | FSL-1.1-ALv2 | Each version converts to Apache-2.0 on the second anniversary of the date it is made available. |
+| From the licensing commit on; every release from 0.1.0 on | FSL-1.1-ALv2 | Each version converts to Apache-2.0 on the second anniversary of the date it is made available. |
 | Documentation, all versions | CC-BY-4.0 | [REUSE.toml](REUSE.toml) maps every path. |
 
 ## The Apache-2.0 period

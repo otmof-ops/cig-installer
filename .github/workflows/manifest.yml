@@ -20,6 +20,9 @@ on:
       cigcompile:
         description: "cigcompile version"
         required: false
+      cigar:
+        description: "cigar version (CigarScript; empty: not in this carton)"
+        required: false
       installer:
         description: "ciginstaller version"
         required: false
@@ -51,6 +54,7 @@ jobs:
       IN_CIG: ${{ inputs.cig }}
       IN_CIGO: ${{ inputs.cigo }}
       IN_CIGCOMPILE: ${{ inputs.cigcompile }}
+      IN_CIGAR: ${{ inputs.cigar }}
       IN_INSTALLER: ${{ inputs.installer }}
       IN_PACKS: ${{ inputs.packs }}
       IN_NOTES: ${{ inputs.notes }}
@@ -79,6 +83,7 @@ jobs:
           [[ -n "$IN_CIG" ]]        && args+=(--cig "$IN_CIG")
           [[ -n "$IN_CIGO" ]]       && args+=(--cigo "$IN_CIGO")
           [[ -n "$IN_CIGCOMPILE" ]] && args+=(--cigcompile "$IN_CIGCOMPILE")
+          [[ -n "$IN_CIGAR" ]]      && args+=(--cigar "$IN_CIGAR")
           [[ -n "$IN_INSTALLER" ]]  && args+=(--installer "$IN_INSTALLER")
           [[ -n "${PREVIOUS:-}" ]]  && args+=(--previous "$PREVIOUS")
           while IFS= read -r pack; do
