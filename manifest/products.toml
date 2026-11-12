@@ -85,3 +85,11 @@ requires = {}
 license = "FSL-1.1-ALv2"
 # otmof-ops/cigar-script, LICENSE at tag v0.1.0: FSL-1.1-ALv2 (its first release; the repository's
 # own `apache-2.0-last` marks its own Apache-2.0 period, and every release from v0.1.0 on is FSL).
+
+[product.ciginstaller."0.1.0"]
+# The installer is a carton member that updates itself first (SPEC 12.4, tools.toml). It runs on
+# its own: it needs no other product of the family on the machine.
+requires = {}
+license = "FSL-1.1-ALv2"
+# otmof-ops/cig-installer, LICENSE at tag v0.1.0: FSL-1.1-ALv2 (its first release; every release
+# from v0.1.0 on is FSL).
