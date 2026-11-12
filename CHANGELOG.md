@@ -3,19 +3,85 @@
 # Changelog
 
 All notable changes to cig-installer. The format follows Keep a Changelog; the
-project follows semantic versioning. Nothing is released yet, so everything
-below is under Unreleased, and the first version will take it as its section.
+project follows semantic versioning.
 
-### One archive, two shims: cigar packs its language server beside it (#1, cigar-script#16)
+## 0.1.0 — 2026-11-12
 
-- `cigar` and `cigar-lsp` ship in one archive per machine, `cigar-vX.Y.Z-<os>-<arch>.tar.gz`, holding `bin/cigar` and `bin/cigar-lsp`. The manifest's `[tool.cigar]` is an archive with `strip = 0` and a shim for each program, so the installer places both in `bin/`. The shim index gains a row per shim keyed by the shim's name: a `cigar-lsp` run is decided by the fast path from that row, without a slow path, so an editor that starts `cigar-lsp` in a project gets the server of the cigar the project resolves to.
-- `cigi-shim`'s `SHIMS` table names every shim and the tool it serves. A name not in the table is still refused (E1844). The per-tool pin files (`.cigar-version`, `cigar.toml`) send a `cigar-lsp` run to the slow path exactly as they send `cigar`; `ciginstaller __resolve cigar-lsp` resolves cigar for the project and runs the shim's own target in that toolchain. `ciginstaller shims`, `uninstall cigar` and `repair` all follow: a cigar carton places `bin/cigar-lsp`, uninstall takes it, repair puts it back.
+The first release. Installing, pinning, switching, updating and rolling back
+the family, on Linux, with every build checked first and every change one
+undoable step. Each line below names the issue it closes.
 
-### `cig bench` on the installer: bench/bench.toml, the phases and the nightly (#35)
+### The foundation (#36)
 
-- `bench/bench.toml` is now the installer's suite in `cig bench`'s format (start-up: `--version`, `status` and `list` on an empty home, each checked against its output), so `cig bench --family` reads it. The embedded budgets that `ciginstaller bench` compares with moved to `bench/budgets.toml`; nothing about them changed.
-- With `CIG_TIMINGS_FD` set, the installer writes its phases (`start`, `home`, `command`, `output`) to that descriptor as timings lines (format 1), and only then. `docs/BENCH.md` says what is measured and what waits: the cross-product cases, `ciginstaller bench --watch`, `--carton`, `--with`, `--matrix`, the window's Bench view and the check after an update.
-- `.github/workflows/bench-nightly.yml` runs the suite nightly through cig-script's reusable `bench.yml`.
+- **The carton manifest** and the checks that say whether a combination fits
+  (the marry-up matrix, #4): a product that needs a newer `cig`, a stick
+  outside its carton, a yanked build, an advisory.
+- **The home.** One directory (`~/.cigscript`, or `--home`, or
+  `CIGSCRIPT_HOME`), the installer's own content-addressed store, receipts
+  for every installed file, and a lock.
+- **Transactions.** Every change is journaled and ends in one atomic switch
+  of the shim index. A kill before the switch rolls back and a kill after it
+  rolls forward, and the next run recovers either.
+- **Verified downloads.** One HTTPS client with no identifiers, a manifest
+  admitted before anything it names, and three levels for a build: `pinned`,
+  `attested` where `gh` can verify, and `checksummed` where two sources agree.
+- **The shim** that runs the version a project pins, with a median of 0.24 ms
+  from start to `exec` on the shim's own clock.
+- **Output.** One grammar (a headline, the detail, the next step) in the
+  voice and in `plain`, truecolor with 256 and 16-color fallbacks, `NO_COLOR`,
+  and `--json` with one object per result ([docs/JSON.md](docs/JSON.md)).
+- **Errors.** A registry of codes `E1800` to `E1899`, each with its kind of
+  no, its ranked causes and the command to type next, and
+  `ciginstaller explain <code>`.
+- **No telemetry** as a tested property (#19): the HTTP client and the
+  fixture server check that requests carry no identifier, no cookie and no
+  query string.
+
+### Install, pin and resolve (#37, #38)
+
+- **`install carton`, `install pack <name>`, `install pack --pick a,b` and
+  `install stick <tool>`**, each from one carton, as one transaction, with
+  the PATH block shown before it is written (`--no-path` skips it).
+- **`carton`, `carton list`, `carton show`, `channel`, `use`, `list`.**
+- **`pin carton <pin>`, `pin cig <pin>` and `which <tool> [--why]`.** A
+  project pins a carton in `.cig-carton`, or a key in `cig-tasks.json` or
+  `cigar.toml`; the resolver says which step chose the build.
+- **`cargo xtask manifest assemble` and `cargo xtask pins`**, which assemble
+  the next manifest from the products' own releases and write the compiled-in
+  pins.
+
+### Old pins keep working on their words (#6, #25)
+
+- A script whose header pins cig (`# cig >=1.6.2`, or `# cig: X`, read by
+  cig's own rule) gets a build that satisfies it: the shim peeks at the
+  script only when the first argument is a readable file, at most 16 KiB of
+  it, and hands a pinned script to the resolver, which takes the project's
+  or machine's carton, then the newest installed cig that fits, then (under
+  `pin_fetch`) the newest carton whose cig fits, else E1809 with a command
+  that works. A header beats `.cig-version`, as cig reads them.
+- `cig-tasks.json`'s `"cig"` key, the cig a project is written for, is a
+  project pin on cig.
+- A machine with no carton at all falls back to the channel's latest
+  (E1819 when it is not fetched). `which cig --script FILE --why` explains
+  every step, and the shim's budget still holds.
+
+### Update, roll back and tidy (#39)
+
+- **`update`:** check, choose, verify, trial and switch, in that order. The
+  trial runs the new `cig` against the project's scripts and shows what it
+  plans differently. `--check` only looks, and `--exit-code` exits 10 when a
+  newer carton exists.
+- **`rollback [tool]`** to the previous carton, or one tool's previous build.
+- **`self update`**, **`gc`** and **`check`**.
+- **The release workflow:** a `v*` tag builds ciginstaller and its shim for
+  Linux x86_64 and aarch64, with a checksum and a build attestation for each,
+  and creates a draft release. Publishing it is a human act.
+
+### One update flow, finished (#7)
+
+- The update trial covers `cigo` and `cigcompile`. cigo's runs `cigo check` and `cigo --dry-run run` of the `ci` chain and of each task in the project's `cig-tasks.json`; CigCompile's runs `cigcompile test` on the project's `.cig` programs, built in a scratch folder. Each runs with the old and the new build, each with the cig of its own carton first on `PATH`, and the differences are shown before the switch.
+- `auto_update = security` installs the newest carton that clears a security advisory of the manifest, and `all` installs the newest carton. Both are `ciginstaller update --auto`: the trial and the rollback of an update, at most one attempt a day, none on battery power, none outside a `rollout` share. A carton that fails is rolled back, the next terminal says so once, and the same carton is not tried again for seven days. A machine-locked `auto_update` is obeyed.
+- A daily schedule for those two values, written through the journal and removed by `auto_update = off`, `notify` and `uninstall --all`: a systemd user timer, a launchd agent or a Task Scheduler task, with a random delay of up to two hours and the OS's own mains-power and idle conditions. Turning it on in the system goes through one seam; the tests record the command and never run it.
 
 ### cig can undo an update too, and the journal is a documented contract (#7)
 
@@ -25,90 +91,24 @@ below is under Unreleased, and the first version will take it as its section.
 - docs/JOURNAL.md: the journal's lines, ops and before-states, which `ciginstaller rollback` and
   `cig runs adopt` both read.
 
-### A bug you reported is told to you when a carton fixes it, for every tool (#12)
+### Offline: bundle, mirror and install from a file (#16)
 
-- After an update, a report this machine filed against cigo, cigcompile, cigar or the installer
-  whose fix the new carton carries is said once: "the bug you reported (cig-orchestrator#12,
-  <title>) is fixed in cigo 1.18.0, which this update installed with carton 0.2.0". cig's own
-  reports stay cig's (`cig crash announce-fixed`).
-- The daily notice that a newer carton is out also says which of your reported bugs it fixes, in
-  the issue's words: "... is fixed in cigo 1.4.2, which is in carton 1.1.3. update: ciginstaller
-  update". Each report is told once: `announced` and `fixed_in` are written into it.
-- The fixed version comes from the manifest's advisories: one whose `url` is the issue's, or whose
-  `id` is `owner/repo#N` or `repo#N`, with `fixed_in`. `cargo xtask manifest assemble` writes them
-  from each new build's release notes (`Fixes #12`, `closes owner/repo#7`, GitHub's closing
-  keywords), with no `affects`, so they reach the reporter and nobody else.
-
-### Shims know their home, and a moved home never runs the old one (#46, #47)
-
-- A shim finds its home from where it sits (`<home>/bin/<name>`); `CIGSCRIPT_HOME` still overrides, and `CIGI_SHIM_VERBOSE=1` and `doctor` name both when they differ. The shim passes the home it found to the installer and the tool, so `export PATH=<home>/bin:$PATH` is the whole of the advice and cigo finds cig through the same home. `ciginstaller` run from `<home>/bin` works on that home too.
-- E1840 names the home it searched and the shim's own folder, and no longer says "missing" when `ciginstaller` is beside the shim.
-- The shim index is `cigi-index 2`: paths relative to the home, each with the `(dev, inode, size, mtime)` its receipt recorded. The older absolute form is still read.
-- New E1902: the shim refuses a target that resolves outside its home. New E1903: it refuses a target that no longer matches its receipt (one `stat` per run, no hashing). `ciginstaller repair` checks the files against their receipts, records them again and rewrites the index; `doctor` names "moved from <old home>".
-
-## Unreleased
-
-Installing, pinning, switching, updating and rolling back the family, on
-Linux, with every build checked first and every change one undoable step.
-
-### One ashtray for the family: CigCompile and cigar crashes (#10)
-
-- A crash in CigCompile (origin `cig-compile`) and in `cigar` (origin `cigar-script`) lands in cig's ashtray, is shown by `crash list` beside every other tool's reports, and `crash send` files each in its own repository: by the `repo` the tool wrote, else by the frames, else by the origin. No installer code changed; `tests/a9_family_crash.rs` proves it with the reports as the two tools write them, against the fake tracker, including the older origin spellings through `crash submit`.
-- The tools read one answer before they save anything, `ciginstaller config get reports --json` (`data.value`, `data.source`); a `never` that is not the default (the file, or a machine lock) saves nothing. The test pins that shape.
-### A cigar pin picks the compiler (cig-compile #15)
-
-- `cigar = "1.0"` at the top of `cigar.toml` is read as a pin on cigar, like `.cigar-version`, by the shim (which sends the project to the resolver) and by the installer. A `carton` key in the same file still wins, and a `cigar` key inside a table pins nothing.
-- cigcompile comes with the carton that holds the pinned cigar, so a project pinned to 1.0 builds with cigcompile 1.0 after 1.1 is installed. When no installed carton fits, the whole carton is fetched under `pin_fetch` (not a stick of cigar beside the machine's cigcompile), and a refusal names `ciginstaller install carton --carton <c>`.
-- The installer stays the only place that picks: cigcompile never reads pins. `cigcompile trial <new>` asks it where the new version is.
-
-### One update flow, finished (#7)
-
-- The update trial covers `cigo` and `cigcompile`. cigo's runs `cigo check` and `cigo --dry-run run` of the `ci` chain and of each task in the project's `cig-tasks.json`; CigCompile's runs `cigcompile test` on the project's `.cig` programs, built in a scratch folder. Each runs with the old and the new build, each with the cig of its own carton first on `PATH`, and the differences are shown before the switch.
-- `auto_update = security` installs the newest carton that clears a security advisory of the manifest, and `all` installs the newest carton. Both are `ciginstaller update --auto`: the trial and the rollback of an update, at most one attempt a day, none on battery power, none outside a `rollout` share. A carton that fails is rolled back, the next terminal says so once, and the same carton is not tried again for seven days. A machine-locked `auto_update` is obeyed.
-- A daily schedule for those two values, written through the journal and removed by `auto_update = off`, `notify` and `uninstall --all`: a systemd user timer, a launchd agent or a Task Scheduler task, with a random delay of up to two hours and the OS's own mains-power and idle conditions. Turning it on in the system goes through one seam; the tests record the command and never run it.
-
-### The humidor is the shared store (#1)
-
-- The store moved from `store/` to `humidor/store/`, so one shelf holds every version of every tool and the objects behind them. cig's index and its `humidor/<ver>/cig` links are untouched, and cig skips the `store/` directory because it is not a version.
-- A home made by the old layout is migrated once, at the first command that writes, as the journaled transaction `migrate store`: the objects directory is renamed (nothing is copied, hard links stay), and an interruption or a failure restores the old home byte for byte. Commands that only read use either layout.
-- `gc`, `repair`, `doctor` and `uninstall --all` follow the new layout; `uninstall --all` removes `humidor/` only when nothing of anyone else's is in it.
-- ADR 0001 is accepted. Section 3 is rewritten for the shared store, and the decision on reusing cig's crates is recorded as it stands: parity tests hold it, and the extraction waits on cig-compile#1.
-
-### Quick closes (#49, #11, #48)
-
-- `update --no-trial` says `trial: skipped (--no-trial)` once, in the voice, plain and `--json` forms (#49).
-- A report another tool queued (cig, cigo, cigcompile, cigar) carries the installer's version block when it is shown or sent, marked as taken at send time; `crash show` and `crash send` make the same object (#11).
-- Plain `http://` mirrors are refused (E1900, the installer's second range, E1900-E1999) unless they are on a loopback address, and over loopback only builds a pin vouches for are accepted, whatever `allow_single_source` says. `config set mirror` refuses a non-loopback `http://`, and `doctor` reports one already set (#48).
-- Certificates are checked against the system's trust store, which honors `SSL_CERT_FILE` and `SSL_CERT_DIR`, and the bundled Mozilla roots only on a system with none; an unpinned build over loopback http is refused before anything is asked for. Tests run their mirror over HTTPS with a throwaway certificate, and `https_to_http_redirect_refused` now redirects for real (#48).
-
-### One doctor for the whole family (#13, all but the TUF root line)
-
-- **`ciginstaller doctor`** now includes each installed tool's own doctor (`<tool> __doctor --json`,
-  60 s limit each, cigcompile included); **`--tools`** shows only those.
-- **The guard's kernel features:** the kernel against the guard's minimum (5.12, which cig's contained box needs), user namespaces
-  (`max_user_namespaces`) and `bpf` among the active security modules, each read-only and each
-  ending with its one fix command. They are notes, never actions. `CIGI_DOCTOR_PROBE_ROOT` points
-  the probes at a folder for tests and changes nothing but where doctor reads from.
-- **The tin's disk use** beside the store, with `cig tin gc` as the fix (a note above 1 GiB).
-
-### Performance budgets on a release build, on every platform (#20)
-
-- **The `bench` workflow** (called by `ci.yml` on pull requests and on `main`) builds
-  release and runs `ciginstaller bench --strict` against a fixture carton on Linux and
-  macOS (`ci/bench-release.sh`), then the budget tests at their real limits. A row the
-  job must measure that was not measured fails it; nothing "not measured" counts as
-  passing.
-- **Windows** runs the rows that need no shell-script product (shim dispatch, binary
-  sizes, the atomic switch, disk for five cigo versions); every other row is printed as
-  not measured.
-- **`crates/cigi-budgets`** runs the budget tests (`budget_20`, `budget`, `a3_shim_perf`,
-  a new `release_install`, and `budget_20_neutral`, which has no unix-only fixtures) on a
-  release build. They could not be built in release from `ciginstaller`, whose
-  fault-injection test feature refuses to compile there on purpose. `a3_shim_perf` now
-  asserts the 2 ms budget itself on a release build (5 ms headroom on a debug build).
-- `bench` names the line that says what failed when an install it times fails, not the
-  `note:` before it.
-- README: the budget table says where each row is measured.
+- **`bundle --carton <v> [--targets a,b] --out <file.tar>`** writes one file
+  holding the manifest and its checksum, every build of the carton for those
+  targets with its checksum, and a small index. Only builds admitted at the
+  usual levels go in, and the bytes are checked again as they are written. The
+  same inputs give the same file.
+- **`install --from <file.tar>`** unpacks the bundle into a private directory in
+  the home, installs from it with no network, and removes it. A bundle is one
+  source, so it is `pinned` or refused exactly as a mirror directory is, and
+  nothing lowers the floor. Bundles are unsigned until #9, and the output says
+  so. The doctor names installs that came from one source, a bundle by name.
+- **`mirror <dir>`** fills a directory with the manifest and every build, each
+  admitted, laid out for `install --from <dir>` and `mirror = ...`. Running it
+  again only adds, repairs a damaged file, and removes nothing. The manifest
+  goes in last, and a manifest older than the one already there is refused.
+- New codes: E1837 (a bundle that cannot be unpacked), E1838 (a mirror
+  directory that is refused), E1839 (a bundle that cannot be written).
 
 ### Signed update channel (#9)
 
@@ -130,25 +130,58 @@ Linux, with every build checked first and every change one undoable step.
 - **A `tuf` workflow** signs the online roles daily and on request from secrets
   (`TUF_RELEASES_KEY`, `TUF_SNAPSHOT_KEY`, `TUF_TIMESTAMP_KEY`) and publishes to the `tuf` release,
   timestamp last. The compiled-in root is a placeholder until the key ceremony.
+- **E1822 names all four trust levels** (checksummed, attested, signed, pinned), with causes for
+  `trust = signed` and no compiled root and for `trust = pinned` with no pin; it points at E1821
+  and E1901. `TrustError::Tuf` is E1901. `ci/size-check.sh` holds the installer to 14 MB, so the
+  signed update channel's code fits when it is turned on. `docs/ERRORS.md` is regenerated.
 
-### Compiled programs (#30, the unblocked part)
+### Beta and nightly cartons (#3)
 
-- **`ciginstaller programs [--project DIR] [--json]`** lists the compiled programs
-  on the machine: name, where, the cig it was built for, the cigcompile that made
-  it, and any advisory of the cached manifest that covers that cig, with its
-  severity and fixed-in version. They are found by their trailer (the layout cig
-  documents, read by `cig-compat` with no dependency on cig) on `PATH` and in the
-  project's folders and their `bin/`; the disk is never scanned. A damaged
-  trailer is skipped with a note.
-- **`ciginstaller programs rebuild <name>`** rebuilds a program from its script
-  with the carton's cigcompile (run only from a build that matches its receipt,
-  with a time limit) on the installed cig, checks it with `cigcompile verify` and
-  `cigcompile test`, and swaps it in as one transaction; the old program stays
-  until the new one has passed. With no script on the machine it says so and
-  names the advisory. `--dry-run` builds nothing. E1859.
-- **`status` and `doctor`** say once per program when it is built on a cig an
-  advisory covers; `status --json` carries `waiting.programs` only then.
-- Still blocked: the signed compatibility index ([#9](https://github.com/otmof-ops/cig-installer/issues/9)).
+- **`cargo xtask manifest assemble --candidate beta|nightly --base X.Y.Z`** numbers a candidate
+  `X.Y.Z-beta.N` or `X.Y.Z-nightly.N`, one past the highest of that base in the channel's own
+  previous manifest (each channel keeps its own floor), and `--latest` takes each product's newest
+  published build (prereleases only off stable, yanked builds skipped); stable refuses a candidate
+  number. A semver range does not match a prerelease unless it names one, so a candidate holding a
+  prerelease fails on any `requires` that does not.
+- **`.github/workflows/nightly.yml`** assembles the manifest as an artifact for review and never
+  publishes; it runs when started by hand, and a schedule is the maintainer's decision.
+  `tested = []` for every candidate until the family's integration suites run against a carton's
+  exact builds.
+
+### Release prune and the archive index (#26)
+
+- **`cargo xtask release prune --dry-run`** lists, per product, which
+  releases stay (the three newest, and every version a carton or a `--pin`
+  names, with who pins it) and which would move to the archive, with a reason
+  for each. Moving them (`--yes`) waits for the signed index (#9) and refuses
+  for now.
+- **`archive/index.json`** (format 1), read by `cig-compat`: where each
+  archived version's tag and assets went, with their digests. A manifest names
+  it with `[archive] index = "https://..."`.
+- **Downloads fall back to the archive**: when a build's release is gone from
+  the product's repository, the installer reads the index the manifest names
+  and downloads the archived copy, still at the digest the manifest pins. An
+  index that lists other bytes for a build is refused (E1825), and the index
+  is only read when the release is gone.
+
+### The humidor is the shared store (#1)
+
+- The store moved from `store/` to `humidor/store/`, so one shelf holds every version of every tool and the objects behind them. cig's index and its `humidor/<ver>/cig` links are untouched, and cig skips the `store/` directory because it is not a version.
+- A home made by the old layout is migrated once, at the first command that writes, as the journaled transaction `migrate store`: the objects directory is renamed (nothing is copied, hard links stay), and an interruption or a failure restores the old home byte for byte. Commands that only read use either layout.
+- `gc`, `repair`, `doctor` and `uninstall --all` follow the new layout; `uninstall --all` removes `humidor/` only when nothing of anyone else's is in it.
+- ADR 0001 is accepted. Section 3 is rewritten for the shared store, and the decision on reusing cig's crates is recorded as it stands: parity tests hold it, and the extraction waits on cig-compile#1.
+
+### Shims know their home, and a moved home never runs the old one (#46, #47)
+
+- A shim finds its home from where it sits (`<home>/bin/<name>`); `CIGSCRIPT_HOME` still overrides, and `CIGI_SHIM_VERBOSE=1` and `doctor` name both when they differ. The shim passes the home it found to the installer and the tool, so `export PATH=<home>/bin:$PATH` is the whole of the advice and cigo finds cig through the same home. `ciginstaller` run from `<home>/bin` works on that home too.
+- E1840 names the home it searched and the shim's own folder, and no longer says "missing" when `ciginstaller` is beside the shim.
+- The shim index is `cigi-index 2`: paths relative to the home, each with the `(dev, inode, size, mtime)` its receipt recorded. The older absolute form is still read.
+- New E1902: the shim refuses a target that resolves outside its home. New E1903: it refuses a target that no longer matches its receipt (one `stat` per run, no hashing). `ciginstaller repair` checks the files against their receipts, records them again and rewrites the index; `doctor` names "moved from <old home>".
+
+### One ashtray for the family: CigCompile and cigar crashes (#10)
+
+- A crash in CigCompile (origin `cig-compile`) and in `cigar` (origin `cigar-script`) lands in cig's ashtray, is shown by `crash list` beside every other tool's reports, and `crash send` files each in its own repository: by the `repo` the tool wrote, else by the frames, else by the origin. No installer code changed; `tests/a9_family_crash.rs` proves it with the reports as the two tools write them, against the fake tracker, including the older origin spellings through `crash submit`.
+- The tools read one answer before they save anything, `ciginstaller config get reports --json` (`data.value`, `data.source`); a `never` that is not the default (the file, or a machine lock) saves nothing. The test pins that shape.
 
 ### Crash reports (#10, #28 part 1)
 
@@ -243,6 +276,20 @@ Linux, with every build checked first and every change one undoable step.
   `bug withdraw`, the evidence for cigo, the guard, CigCompile and updates, and
   each product's own short way in.
 
+### A bug you reported is told to you when a carton fixes it, for every tool (#12)
+
+- After an update, a report this machine filed against cigo, cigcompile, cigar or the installer
+  whose fix the new carton carries is said once: "the bug you reported (cig-orchestrator#12,
+  <title>) is fixed in cigo 1.18.0, which this update installed with carton 0.2.0". cig's own
+  reports stay cig's (`cig crash announce-fixed`).
+- The daily notice that a newer carton is out also says which of your reported bugs it fixes, in
+  the issue's words: "... is fixed in cigo 1.4.2, which is in carton 1.1.3. update: ciginstaller
+  update". Each report is told once: `announced` and `fixed_in` are written into it.
+- The fixed version comes from the manifest's advisories: one whose `url` is the issue's, or whose
+  `id` is `owner/repo#N` or `repo#N`, with `fixed_in`. `cargo xtask manifest assemble` writes them
+  from each new build's release notes (`Fixes #12`, `closes owner/repo#7`, GitHub's closing
+  keywords), with no `affects`, so they reach the reporter and nobody else.
+
 ### Tripwires (#28, the installer's row)
 
 - **After an update or a rollback the installer reads its work back from
@@ -254,21 +301,63 @@ Linux, with every build checked first and every change one undoable step.
   in the ashtray: high severity after a rollback, medium after an update.
   Nothing is sent.
 
-### Release prune and the archive index (#26)
+### One doctor for the whole family (#13, all but the TUF root line)
 
-- **`cargo xtask release prune --dry-run`** lists, per product, which
-  releases stay (the three newest, and every version a carton or a `--pin`
-  names, with who pins it) and which would move to the archive, with a reason
-  for each. Moving them (`--yes`) waits for the signed index (#9) and refuses
-  for now.
-- **`archive/index.json`** (format 1), read by `cig-compat`: where each
-  archived version's tag and assets went, with their digests. A manifest names
-  it with `[archive] index = "https://..."`.
-- **Downloads fall back to the archive**: when a build's release is gone from
-  the product's repository, the installer reads the index the manifest names
-  and downloads the archived copy, still at the digest the manifest pins. An
-  index that lists other bytes for a build is refused (E1825), and the index
-  is only read when the release is gone.
+- **`ciginstaller doctor`** now includes each installed tool's own doctor (`<tool> __doctor --json`,
+  60 s limit each, cigcompile included); **`--tools`** shows only those.
+- **The guard's kernel features:** the kernel against the guard's minimum (5.12, which cig's contained box needs), user namespaces
+  (`max_user_namespaces`) and `bpf` among the active security modules, each read-only and each
+  ending with its one fix command. They are notes, never actions. `CIGI_DOCTOR_PROBE_ROOT` points
+  the probes at a folder for tests and changes nothing but where doctor reads from.
+- **The tin's disk use** beside the store, with `cig tin gc` as the fix (a note above 1 GiB).
+
+### The family runs through the installer (ADR 0003)
+
+- **`doctor --tools`** calls each installed product's hidden `__doctor --json` (cig, cigo,
+  cigcompile, cigar) and shows its findings as the installer's own, under the tool's heading, with
+  the tool's severities, causes and fixes; it reads the JSON, never the exit code, and never calls
+  a product's doctor, which now hands over here, so nothing loops. A build without a self-check
+  gets a note that it needs a newer build (E1879 when one answers in the wrong shape).
+- **`uninstall --all`** takes the guard down and clears each tool's caches, in one journaled step,
+  so the installer owns the end of the family the same way it owns its start.
+
+### Compiled programs (#30, the unblocked part)
+
+- **`ciginstaller programs [--project DIR] [--json]`** lists the compiled programs
+  on the machine: name, where, the cig it was built for, the cigcompile that made
+  it, and any advisory of the cached manifest that covers that cig, with its
+  severity and fixed-in version. They are found by their trailer (the layout cig
+  documents, read by `cig-compat` with no dependency on cig) on `PATH` and in the
+  project's folders and their `bin/`; the disk is never scanned. A damaged
+  trailer is skipped with a note.
+- **`ciginstaller programs rebuild <name>`** rebuilds a program from its script
+  with the carton's cigcompile (run only from a build that matches its receipt,
+  with a time limit) on the installed cig, checks it with `cigcompile verify` and
+  `cigcompile test`, and swaps it in as one transaction; the old program stays
+  until the new one has passed. With no script on the machine it says so and
+  names the advisory. `--dry-run` builds nothing. E1859.
+- **`status` and `doctor`** say once per program when it is built on a cig an
+  advisory covers; `status --json` carries `waiting.programs` only then.
+- Still blocked: the signed compatibility index ([#9](https://github.com/otmof-ops/cig-installer/issues/9)).
+
+### A cigar pin picks the compiler (cig-compile #15)
+
+- `cigar = "1.0"` at the top of `cigar.toml` is read as a pin on cigar, like `.cigar-version`, by the shim (which sends the project to the resolver) and by the installer. A `carton` key in the same file still wins, and a `cigar` key inside a table pins nothing.
+- cigcompile comes with the carton that holds the pinned cigar, so a project pinned to 1.0 builds with cigcompile 1.0 after 1.1 is installed. When no installed carton fits, the whole carton is fetched under `pin_fetch` (not a stick of cigar beside the machine's cigcompile), and a refusal names `ciginstaller install carton --carton <c>`.
+- The installer stays the only place that picks: cigcompile never reads pins. `cigcompile trial <new>` asks it where the new version is.
+
+### CigarScript in the carton's tools (#1, #3)
+
+- **`[tool.cigar]`** in `manifest/tools.toml`, as CigarScript's release
+  workflow names its builds (`cigar-v{version}-{os}-{arch}{exe}` with a
+  `.sha256`, five targets, attested), with the `cigar` shim, and
+  `cargo xtask manifest assemble --cigar <version>`. No carton names it until
+  CigarScript has a release.
+
+### One archive, two shims: cigar packs its language server beside it (#1, cigar-script#16)
+
+- `cigar` and `cigar-lsp` ship in one archive per machine, `cigar-vX.Y.Z-<os>-<arch>.tar.gz`, holding `bin/cigar` and `bin/cigar-lsp`. The manifest's `[tool.cigar]` is an archive with `strip = 0` and a shim for each program, so the installer places both in `bin/`. The shim index gains a row per shim keyed by the shim's name: a `cigar-lsp` run is decided by the fast path from that row, without a slow path, so an editor that starts `cigar-lsp` in a project gets the server of the cigar the project resolves to.
+- `cigi-shim`'s `SHIMS` table names every shim and the tool it serves. A name not in the table is still refused (E1844). The per-tool pin files (`.cigar-version`, `cigar.toml`) send a `cigar-lsp` run to the slow path exactly as they send `cigar`; `ciginstaller __resolve cigar-lsp` resolves cigar for the project and runs the shim's own target in that toolchain. `ciginstaller shims`, `uninstall cigar` and `repair` all follow: a cigar carton places `bin/cigar-lsp`, uninstall takes it, repair puts it back.
 
 ### The machine layer and locked settings (#17)
 
@@ -293,15 +382,6 @@ Linux, with every build checked first and every change one undoable step.
 - **`status --json`** gains `cartons` and `rollout` (`percent`, `in_share`,
   `reason`) for an organization's own inventory tools. It makes no request.
 
-### CigarScript in the carton's tools (#1, #3)
-
-- **`[tool.cigar]`** in `manifest/tools.toml`, as CigarScript's release
-  workflow names its builds (`cigar-v{version}-{os}-{arch}{exe}` with a
-  `.sha256`, five targets, attested), with the `cigar` shim, and
-  `cargo xtask manifest assemble --cigar <version>`. No carton names it until
-  CigarScript has a release. CigarScript ships one binary, so there is no
-  `cigar-lsp` shim yet.
-
 ### What ciginstaller gives CIG.OS (#22, first slice)
 
 - **The questions as data:** `install --dry-run --json` lists every question
@@ -318,6 +398,82 @@ Linux, with every build checked first and every change one undoable step.
 - Waiting on their own issues: the preset's enforcement
   (cig-orchestrator#66), the guard daemon at level 5 (cig-orchestrator#57),
   the offsite-backup question (cig-orchestrator#65) and Secure Boot (#23).
+
+### Performance budgets on a release build, on every platform (#20)
+
+- **The `bench` workflow** (called by `ci.yml` on pull requests and on `main`) builds
+  release and runs `ciginstaller bench --strict` against a fixture carton on Linux and
+  macOS (`ci/bench-release.sh`), then the budget tests at their real limits. A row the
+  job must measure that was not measured fails it; nothing "not measured" counts as
+  passing.
+- **Windows** runs the rows that need no shell-script product (shim dispatch, binary
+  sizes, the atomic switch, disk for five cigo versions); every other row is printed as
+  not measured.
+- **`crates/cigi-budgets`** runs the budget tests (`budget_20`, `budget`, `a3_shim_perf`,
+  a new `release_install`, and `budget_20_neutral`, which has no unix-only fixtures) on a
+  release build. They could not be built in release from `ciginstaller`, whose
+  fault-injection test feature refuses to compile there on purpose. `a3_shim_perf` now
+  asserts the 2 ms budget itself on a release build (5 ms headroom on a debug build).
+- `bench` names the line that says what failed when an install it times fails, not the
+  `note:` before it.
+- README: the budget table says where each row is measured.
+
+### Bench and the budgets (#35, #20, #19)
+
+- **`bench`** measures the installer's own budgets on this machine, locally and
+  read-only, and compares them with `bench/bench.toml`: shim dispatch, `check`,
+  the switch (in a scratch home), the sizes, the first lines, and, with
+  `--from <mirror>`, the installs. Each shows its median and p95. `--json` has
+  the reserved shape, extended. `--strict` fails with `E1866` when one is over.
+  The family view, cartons against cartons, `--watch` and the window's Bench view
+  are not built: they wait on otmof-ops/cig-script#179, #30, #33 and #29, and
+  say so with `E1867`.
+- **`bench_after_update`** (off by default): after an update, a short local sample
+  against the last one, with a regression shown once. Nothing is sent anywhere.
+- **Budget tests** for `check`, the switch, a whole carton, five cigo versions on
+  disk, the update check and the binary sizes; the no-telemetry test now covers
+  `update`, `doctor --network`, `repair`, `uninstall` and `self update --check`.
+
+### `cig bench` on the installer: bench/bench.toml, the phases and the nightly (#35)
+
+- `bench/bench.toml` is now the installer's suite in `cig bench`'s format (start-up: `--version`, `status` and `list` on an empty home, each checked against its output), so `cig bench --family` reads it. The embedded budgets that `ciginstaller bench` compares with moved to `bench/budgets.toml`; nothing about them changed.
+- With `CIG_TIMINGS_FD` set, the installer writes its phases (`start`, `home`, `command`, `output`) to that descriptor as timings lines (format 1), and only then. `docs/BENCH.md` says what is measured and what waits: the cross-product cases, `ciginstaller bench --watch`, `--carton`, `--with`, `--matrix`, the window's Bench view and the check after an update.
+- `.github/workflows/bench-nightly.yml` runs the suite nightly through cig-script's reusable `bench.yml`.
+
+### Windows and macOS runtimes, multi-distro install fixtures (#5, #8, #21)
+
+- **`ci.yml`** gains test jobs on `windows-latest` and `windows-11-arm` (a build of every target
+  plus the platform-neutral tests, until the Windows runtime lands) and on `macos-latest` and
+  `macos-15-intel` (the full suite and the bootstrap test), and a fresh-install job: the musl
+  build and a fixture mirror are made once (`cargo xtask fixture-mirror <dir>`), then installed as
+  an unprivileged user in debian, ubuntu, parrot, fedora, arch and alpine containers, each proving
+  the single-source refusal first, then install, status, a shim and doctor. Unix-only tests say
+  so.
+- **Windows self-update** (#8) renames the running exe aside into `installer\previous` when the
+  OS refuses to replace it, places the new one, and journals both steps; a kill between them is
+  undone and a failed self-check swaps back (E1853). `cigi.exe` is a shim on Windows, so when a
+  new installer cannot start the shim puts the previous one back. PATH is set in the registry and
+  honored by both PowerShells. The lock sits outside `installer\`, the pid is readable, renames
+  that succeed are proved by the runner, and `install` makes `cigi.exe` from one list of shim
+  names.
+- **macOS**: home is found through `/private/var`, the terminal's 50 ms budget is the reply's not
+  the prompt's, canonical paths are used in the walk's own test, the terminal probe waits for a
+  Mac to prove it, and the shim's timing test finds `true` where macOS keeps it. The shim keeps
+  the #20 budget.
+- The platform packages are still planned (#15).
+
+### Bootstrap script
+
+- **`install.sh` and `install.ps1` templates** (`packaging/bootstrap/`) and
+  `ci/fill-bootstrap.sh`, which writes a release's tarball digests into them.
+  The script downloads its platform's tarball from that release over HTTPS,
+  checks the SHA-256 (and `gh attestation verify` where `gh` exists), refuses
+  on any mismatch with nothing left behind, unpacks under `CIGSCRIPT_HOME` and
+  runs `ciginstaller install` with the arguments it was given. Integrity, not
+  authorship: nothing is signed until #9. The release workflow attaches the
+  filled scripts, with checksums and attestations, to the draft release.
+  `install.ps1` stops until a Windows build exists.
+- `ci/test-bootstrap.sh` runs the filled script against a local fixture in CI.
 
 ### Licenses (#27)
 
@@ -339,18 +495,21 @@ Linux, with every build checked first and every change one undoable step.
   input at a terminal installs nothing (E1876). E1877 and E1878 are the
   `licences` errors.
 
-### Bootstrap script
+### Documentation
 
-- **`install.sh` and `install.ps1` templates** (`packaging/bootstrap/`) and
-  `ci/fill-bootstrap.sh`, which writes a release's tarball digests into them.
-  The script downloads its platform's tarball from that release over HTTPS,
-  checks the SHA-256 (and `gh attestation verify` where `gh` exists), refuses
-  on any mismatch with nothing left behind, unpacks under `CIGSCRIPT_HOME` and
-  runs `ciginstaller install` with the arguments it was given. Integrity, not
-  authorship: nothing is signed until #9. The release workflow attaches the
-  filled scripts, with checksums and attestations, to the draft release. There
-  is no installer release yet. `install.ps1` stops until a Windows build exists.
-- `ci/test-bootstrap.sh` runs the filled script against a local fixture in CI.
+- A README in the family's order, `SECURITY.md` that says what is verified and
+  what is not, `SUPPORT.md`, and this changelog.
+- `docs/ERRORS.md`, generated from `errors/registry.toml` by
+  `cargo xtask errors-doc`, with a test that fails when it is stale.
+- A logo and a social preview in the family's style.
+
+### Quick closes (#49, #11, #48, #32)
+
+- `update --no-trial` says `trial: skipped (--no-trial)` once, in the voice, plain and `--json` forms (#49).
+- A report another tool queued (cig, cigo, cigcompile, cigar) carries the installer's version block when it is shown or sent, marked as taken at send time; `crash show` and `crash send` make the same object (#11).
+- Plain `http://` mirrors are refused (E1900, the installer's second range, E1900-E1999) unless they are on a loopback address, and over loopback only builds a pin vouches for are accepted, whatever `allow_single_source` says. `config set mirror` refuses a non-loopback `http://`, and `doctor` reports one already set (#48).
+- Certificates are checked against the system's trust store, which honors `SSL_CERT_FILE` and `SSL_CERT_DIR`, and the bundled Mozilla roots only on a system with none; an unpinned build over loopback http is refused before anything is asked for. Tests run their mirror over HTTPS with a throwaway certificate, and `https_to_http_redirect_refused` now redirects for real (#48).
+- A manifest whose bytes match the one in the cache is not written again (#32).
 
 ### License
 
@@ -364,97 +523,3 @@ Linux, with every build checked first and every change one undoable step.
 - Documentation is CC-BY-4.0. [TRADEMARKS.md](TRADEMARKS.md), `NOTICE`,
   `THIRD-PARTY-NOTICES.md` and `REUSE.toml` say the rest, and contributions
   come in under the contributor agreement.
-
-### Offline: bundle, mirror and install from a file (#16)
-
-- **`bundle --carton <v> [--targets a,b] --out <file.tar>`** writes one file
-  holding the manifest and its checksum, every build of the carton for those
-  targets with its checksum, and a small index. Only builds admitted at the
-  usual levels go in, and the bytes are checked again as they are written. The
-  same inputs give the same file.
-- **`install --from <file.tar>`** unpacks the bundle into a private directory in
-  the home, installs from it with no network, and removes it. A bundle is one
-  source, so it is `pinned` or refused exactly as a mirror directory is, and
-  nothing lowers the floor. Bundles are unsigned until #9, and the output says
-  so. The doctor names installs that came from one source, a bundle by name.
-- **`mirror <dir>`** fills a directory with the manifest and every build, each
-  admitted, laid out for `install --from <dir>` and `mirror = ...`. Running it
-  again only adds, repairs a damaged file, and removes nothing. The manifest
-  goes in last, and a manifest older than the one already there is refused.
-- New codes: E1837 (a bundle that cannot be unpacked), E1838 (a mirror
-  directory that is refused), E1839 (a bundle that cannot be written).
-
-### Documentation
-
-- A README in the family's order, `SECURITY.md` that says what is verified and
-  what is not, `SUPPORT.md`, and this changelog.
-- `docs/ERRORS.md`, generated from `errors/registry.toml` by
-  `cargo xtask errors-doc`, with a test that fails when it is stale.
-- A logo and a social preview in the family's style.
-
-### The foundation (#36)
-
-- **The carton manifest** and the checks that say whether a combination fits
-  (the marry-up matrix, #4): a product that needs a newer `cig`, a stick
-  outside its carton, a yanked build, an advisory.
-- **The home.** One directory (`~/.cigscript`, or `--home`, or
-  `CIGSCRIPT_HOME`), the installer's own content-addressed store, receipts
-  for every installed file, and a lock.
-- **Transactions.** Every change is journaled and ends in one atomic switch
-  of the shim index. A kill before the switch rolls back and a kill after it
-  rolls forward, and the next run recovers either.
-- **Verified downloads.** One HTTPS client with no identifiers, a manifest
-  admitted before anything it names, and three levels for a build: `pinned`,
-  `attested` where `gh` can verify, and `checksummed` where two sources agree.
-- **The shim** that runs the version a project pins, with a median of 0.24 ms
-  from start to `exec` on the shim's own clock.
-- **Output.** One grammar (a headline, the detail, the next step) in the
-  voice and in `plain`, truecolor with 256 and 16-color fallbacks, `NO_COLOR`,
-  and `--json` with one object per result ([docs/JSON.md](docs/JSON.md)).
-- **Errors.** A registry of codes `E1800` to `E1899`, each with its kind of
-  no, its ranked causes and the command to type next, and
-  `ciginstaller explain <code>`.
-- **No telemetry** as a tested property (#19): the HTTP client and the
-  fixture server check that requests carry no identifier, no cookie and no
-  query string.
-
-### Install, pin and resolve (#37, #38)
-
-- **`install carton`, `install pack <name>`, `install pack --pick a,b` and
-  `install stick <tool>`**, each from one carton, as one transaction, with
-  the PATH block shown before it is written (`--no-path` skips it).
-- **`carton`, `carton list`, `carton show`, `channel`, `use`, `list`.**
-- **`pin carton <pin>`, `pin cig <pin>` and `which <tool> [--why]`.** A
-  project pins a carton in `.cig-carton`, or a key in `cig-tasks.json` or
-  `cigar.toml`; the resolver says which step chose the build.
-- **`cargo xtask manifest assemble` and `cargo xtask pins`**, which assemble
-  the next manifest from the products' own releases and write the compiled-in
-  pins.
-
-### Update, roll back and tidy (#39)
-
-- **`update`:** check, choose, verify, trial and switch, in that order. The
-  trial runs the new `cig` against the project's scripts and shows what it
-  plans differently. `--check` only looks, and `--exit-code` exits 10 when a
-  newer carton exists.
-- **`rollback [tool]`** to the previous carton, or one tool's previous build.
-- **`self update`**, **`gc`** and **`check`**.
-- **The release workflow:** a `v*` tag builds ciginstaller and its shim for
-  Linux x86_64 and aarch64, with a checksum and a build attestation for each,
-  and creates a draft release. Publishing it is a human act.
-
-### Bench and the budgets (#35, #20, #19)
-
-- **`bench`** measures the installer's own budgets on this machine, locally and
-  read-only, and compares them with `bench/bench.toml`: shim dispatch, `check`,
-  the switch (in a scratch home), the sizes, the first lines, and, with
-  `--from <mirror>`, the installs. Each shows its median and p95. `--json` has
-  the reserved shape, extended. `--strict` fails with `E1866` when one is over.
-  The family view, cartons against cartons, `--watch` and the window's Bench view
-  are not built: they wait on otmof-ops/cig-script#179, #30, #33 and #29, and
-  say so with `E1867`.
-- **`bench_after_update`** (off by default): after an update, a short local sample
-  against the last one, with a regression shown once. Nothing is sent anywhere.
-- **Budget tests** for `check`, the switch, a whole carton, five cigo versions on
-  disk, the update check and the binary sizes; the no-telemetry test now covers
-  `update`, `doctor --network`, `repair`, `uninstall` and `self update --check`.

@@ -382,8 +382,7 @@ fn the_tracked_inputs_parse_with_the_clients_parser() {
         assert!(m.tools.contains_key(t), "{t}");
     }
     // cigar's release workflow packs `cigar` and `cigar-lsp` as
-    // `cigar-${GITHUB_REF_NAME}-<os>-<arch>.tar.gz`, and it has no [product.cigar] until it has a
-    // release a carton can name
+    // `cigar-${GITHUB_REF_NAME}-<os>-<arch>.tar.gz`, and cigar 0.1.0 is its first release.
     let cigar = &m.tools["cigar"];
     let n = cigar.names(&v("0.1.0"), "windows-x86_64").unwrap();
     assert_eq!(n.asset, "cigar-v0.1.0-windows-x86_64.tar.gz");
@@ -408,7 +407,14 @@ fn the_tracked_inputs_parse_with_the_clients_parser() {
         "a shim for each program in the archive"
     );
     assert!(cigar.attests);
-    assert!(m.products.keys().all(|(t, _)| t != "cigar"));
+    // cigar 0.1.0 is cigar's first release, standalone (cigscript at tag v1.20.0 as a library),
+    // so a [product.cigar."0.1.0"] exists with no `requires` and FSL-1.1-ALv2 as its licence.
+    let cigar_build = m
+        .products
+        .get(&("cigar".to_string(), v("0.1.0")))
+        .expect("[product.cigar.\"0.1.0\"] is in manifest/products.toml");
+    assert!(cigar_build.requires.is_empty(), "cigar never shells out to cig");
+    assert_eq!(cigar_build.license.as_deref(), Some("FSL-1.1-ALv2"));
     // the real asset names, as the releases have them
     let cig = &m.tools["cig"];
     assert_eq!(

@@ -16,7 +16,7 @@ The family is four products that each install and update themselves a different 
 - **cig** ships one binary per platform (`cig-v<ver>-<os>-<arch>[.exe]`) with a `.sha256` beside it. `cig update` downloads it with `curl` or `gh`, checks the checksum, and replaces the running file with a rename. A second path, the humidor (`~/.cigscript/humidor/<ver>/cig` plus `index.json`), keeps older cigs so a script that says `# cig 1.1` runs on a cig that matches.
 - **cigo** (cig-orchestrator) ships a tarball (`cig-orchestrator-v<ver>.tar.gz`: a shell launcher, `orchestrate.cig`, docs). It needs a cig on `PATH` at or above a floor it checks itself. `cigo update` replaces the files where they sit.
 - **cigcompile** fetches cig runtimes for other targets and accepts only digests compiled into itself (`src/digests.rs`, written by `ci/digests.sh`). It keeps them under `~/.cigscript/cigcompile/runtimes/`.
-- **cigar** (CigarScript) has no release yet.
+- **cigar** (CigarScript) ships an archive (`cigar-v<ver>-<os>-<arch>.tar.gz`) with two binaries, `cigar` and `cigar-lsp`, and a `.sha256` beside it.
 
 Nothing tells a person which cigo goes with which cig, nothing lets two projects use two builds of the same tool, and each updater has its own idea of "verified". Issue #1 asks for one binary that installs, pins, updates, repairs and removes the family, the way rustup and mise do for their ecosystems.
 
@@ -132,7 +132,7 @@ Each is built to its default and can change without touching the rest:
 - **Carton numbers.** `0.N.P` until carton 1.0.0 (#25).
 - **Where the manifest is published.** A rolling release tagged `manifest` on this repository, assembled by hand with `cargo xtask manifest assemble` until a carton release job exists. A separate repository is the alternative. Trust today is integrity, not authorship (section 7).
 - **The `cigscript` parity tests.** Behind a `parity` feature, run by hand and on tags, not on every push.
-- **The first carton's contents.** cig, cigo and cigcompile; cigarscript joins when it has a release, and `tested = []` is written honestly until the integration suites exist.
+- **The first carton's contents.** cig, cigo, cigcompile and cigarscript, named by carton 1.0.0; `tested = []` is written honestly until the integration suites exist.
 
 ## Measured before building (phase 0)
 

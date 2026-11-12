@@ -16,6 +16,13 @@ requires = {}
 license = "Apache-2.0"
 # otmof-ops/cig-script, LICENSE at tag v1.20.0: Apache-2.0.
 
+[product.cig."1.21.0"]
+# otmof-ops/cig-script, LICENSE at tag v1.21.0: FSL-1.1-ALv2 (the licence flipped after v1.20.0;
+# `apache-2.0-last` tags the last Apache-2.0 commit over there, and every release from 1.20.1
+# on is FSL-1.1-ALv2).
+requires = {}
+license = "FSL-1.1-ALv2"
+
 [product.cigo."1.17.0"]
 # bin/cigo checks cig >= 1.16.1 (needs_major/minor/patch), the same floor as orchestrate.cig's
 # `# cig >=1.16.1` pin.
@@ -29,6 +36,15 @@ license = "Apache-2.0"
 requires = { cig = ">=1.20.0, <2" }
 license = "Apache-2.0"
 # otmof-ops/cig-orchestrator, LICENSE at tag v1.18.0: Apache-2.0.
+
+[product.cigo."1.19.0"]
+# orchestrate.cig line 4 at tag v1.19.0 says `# cig >=1.20.0`, and bin/cigo, bin/cigo.launch.ps1
+# and ci.yml (CIG_VERSION: v1.20.0) at that tag all check the same floor (needs_major/minor/patch
+# = 1/20/0).
+requires = { cig = ">=1.20.0, <2" }
+license = "FSL-1.1-ALv2"
+# otmof-ops/cig-orchestrator, LICENSE at tag v1.19.0: FSL-1.1-ALv2 (the licence flipped for this
+# release; every earlier cigo release stays Apache-2.0).
 
 [product.cigcompile."0.2.0"]
 requires = {}
@@ -47,3 +63,25 @@ license = "Apache-2.0"
 # otmof-ops/cig-compile, LICENSE at tag v0.3.0: Apache-2.0.
 # Cargo.toml: cigscript at tag v1.20.0, whose JOURNAL_FORMAT is 3.
 embeds = { cig_runtime = "1.20.0", journal_format = 3 }
+
+[product.cigcompile."0.4.0"]
+# A cigcompile build embeds one cig runtime (`embeds.cig_runtime` below) and makes programs for
+# that cig, so the cig on the machine must be that one. Cargo.toml pins cigscript at tag v1.21.0,
+# and this release regenerates src/digests.rs with cig v1.21.0's asset digests.
+requires = { cig = "=1.21.0" }
+license = "FSL-1.1-ALv2"
+# otmof-ops/cig-compile, LICENSE at tag v0.4.0: FSL-1.1-ALv2 (the licence flipped for this
+# release; every earlier cigcompile release stays Apache-2.0).
+# JOURNAL_FORMAT in cigscript v1.21.0's src/burn/journal.rs is still 3.
+embeds = { cig_runtime = "1.21.0", journal_format = 3 }
+
+[product.cigar."0.1.0"]
+# cigar is a standalone binary: `cigar check`, `cigar run`, `cigar fmt` and `cigar-lsp` use the
+# cigscript crate as a library and never shell out to a cig on `PATH`, so a cigar build needs no
+# cig on the machine; a carton that names cigar and cig picks each on its own. Cargo.toml at tag
+# v0.1.0 pins cigscript at tag v1.20.0; moving that pin needs code changes and gets its own
+# later release.
+requires = {}
+license = "FSL-1.1-ALv2"
+# otmof-ops/cigar-script, LICENSE at tag v0.1.0: FSL-1.1-ALv2 (its first release; the repository's
+# own `apache-2.0-last` marks its own Apache-2.0 period, and every release from v0.1.0 on is FSL).

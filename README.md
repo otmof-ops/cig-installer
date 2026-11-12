@@ -28,29 +28,30 @@
 > no it hit when it refuses, and tells you what to type next.
 
 `ciginstaller` (short: `cigi`) installs [`cig`](https://github.com/otmof-ops/cig-script),
-[`cigo`](https://github.com/otmof-ops/cig-orchestrator) and
-[`cigcompile`](https://github.com/otmof-ops/cig-compile) at the versions a
-project asks for. Everything comes out of a **carton**: one numbered set of
-builds that were checked to work together. You can take the whole carton, a
-named **pack** of it, or one **stick** from it, and whichever you take, it
-matches everything else from the same carton. CigarScript joins the carton
-when it has a release.
+[`cigo`](https://github.com/otmof-ops/cig-orchestrator),
+[`cigcompile`](https://github.com/otmof-ops/cig-compile) and
+[`cigar`](https://github.com/otmof-ops/cigar-script) at the versions a project
+asks for. Everything comes out of a **carton**: one numbered set of builds
+that were checked to work together. You can take the whole carton, a named
+**pack** of it, or one **stick** from it, and whichever you take, it matches
+everything else from the same carton.
 
-Today, `ciginstaller` is built and tested on Linux, and no carton has been
-published yet. [Install](#install) says what you can do now, and
+Today, `ciginstaller` is built and tested on Linux. The first carton is
+carton 1.0.0: `cig 1.21.0`, `cigo 1.19.0`, `CigCompile 0.4.0` and
+`CigarScript 0.1.0`. [Install](#install) says how to get the installer, and
 [Limits, honestly](#limits-honestly) says what is missing.
 
 ## Sixty-second tour
 
-The output below comes from the project's output tests. The carton numbers
-(`0.1.0`, `0.1.1`) are stand-ins until the first carton is published.
+The output below is in the shape of the project's output tests, against the
+first carton.
 
 ```sh
 ciginstaller install carton
 ```
 ```text
-✓ carton 0.1.0 installed: cig 1.20.0, cigo 1.17.0, CigCompile 0.2.0
-  trust: pinned 1, checksummed 2 (two sources agree); PATH block added to ~/.profile
+✓ carton 1.0.0 installed: cig 1.21.0, cigo 1.19.0, CigCompile 0.4.0, CigarScript 0.1.0
+  trust: checksummed 4 (two sources agree); PATH block added to ~/.profile
   → open a new shell, or run: export PATH="$HOME/.cigscript/bin:$PATH"
 ```
 
@@ -62,8 +63,8 @@ and cigo) or `ciginstaller install stick cig`.
 ciginstaller which cigo
 ```
 ```text
-✓ cigo 1.17.0, from carton 0.1.0 (pinned in .cig-carton)
-  /home/u/.cigscript/toolchains/cigo/1.17.0/bin/cigo
+✓ cigo 1.19.0, from carton 1.0.0 (pinned in .cig-carton)
+  /home/u/.cigscript/toolchains/cigo/1.19.0/bin/cigo
 ```
 
 A project says which carton it wants, and the shim in front of every tool picks
@@ -71,24 +72,27 @@ that build. `ciginstaller which cigo --why` prints each step it took to choose.
 
 ```sh
 cd ~/work/site
-ciginstaller pin carton 0.1
+ciginstaller pin carton 1.0
 ```
 ```text
-✓ carton pinned to 0.1 in ~/work/site/.cig-carton
-  no installed carton fits 0.1 yet; the first run fetches one (pin_fetch)
+✓ carton pinned to 1.0 in ~/work/site/.cig-carton
+  no installed carton fits 1.0 yet; the first run fetches one (pin_fetch)
 ```
+
+Here is a hypothetical later update, from carton 1.0.0 to 1.0.1:
 
 ```sh
 ciginstaller update
 ```
 ```text
-· carton 0.1.0 → 0.1.1: cig 1.20.0 → 1.20.1   (cigo, CigCompile unchanged)
-  product      installed   carton 0.1.1   changes
-  cig             1.20.0         1.20.1   programs refuse instead of turning in…
-  cigo            1.17.0         1.17.0   —
-  CigCompile       0.2.0          0.2.0   —
-✓ carton 0.1.1 installed; trial: 14 scripts dry-ran the same on the new cig
-  → nothing to do. ciginstaller rollback puts 0.1.0 back.
+· carton 1.0.0 → 1.0.1: cig 1.21.0 → 1.21.1   (cigo, CigCompile, CigarScript unchanged)
+  product        installed   carton 1.0.1   changes
+  cig               1.21.0         1.21.1   programs refuse instead of turning in…
+  cigo              1.19.0         1.19.0   —
+  CigCompile         0.4.0          0.4.0   —
+  CigarScript        0.1.0          0.1.0   —
+✓ carton 1.0.1 installed; trial: 14 scripts dry-ran the same on the new cig
+  → nothing to do. ciginstaller rollback puts 1.0.0 back.
 ```
 
 `update` checks the manifest, chooses a carton, verifies it, runs the new `cig`
@@ -97,9 +101,9 @@ mind, and `ciginstaller rollback` puts the previous carton back. Run
 `ciginstaller` with no arguments for the one-screen status:
 
 ```text
-✓ carton 0.1.0: cig 1.20.0, cigo 1.17.0, CigCompile 0.2.0
-  channel stable, trust pinned 1, checksummed 2
-  waiting: carton 0.1.1 (cig 1.20.0 → 1.20.1)
+✓ carton 1.0.0: cig 1.21.0, cigo 1.19.0, CigCompile 0.4.0, CigarScript 0.1.0
+  channel stable, trust checksummed 4
+  waiting: carton 1.0.1 (cig 1.21.0 → 1.21.1)
   → ciginstaller update
 ```
 
@@ -151,9 +155,10 @@ Every code is in [docs/ERRORS.md](docs/ERRORS.md).
 
 ## Install
 
-`ciginstaller` has no release yet, and no carton has been published, so there
-is nothing to download. What you can do today is build it from source. You
-need Rust 1.88 or newer.
+The `v0.1.0` release carries the Linux x86_64 and aarch64 tarballs, each with
+a `.sha256` sidecar and a build attestation, and the filled bootstrap scripts
+`install.sh` and `install.ps1`. The bootstrap script is the quick way;
+building from source is the other. You need Rust 1.88 or newer to build.
 
 ```sh
 git clone https://github.com/otmof-ops/cig-installer
@@ -171,19 +176,8 @@ source and so exercises installing, pinning, updating and rolling back:
 cargo test
 ```
 
-Running `install` against the real source ends where it should, because the
-`manifest` release that names the first carton does not exist yet:
-
-```text
-$ ciginstaller install carton
-✗ error[E1820 fetch]: https://github.com/otmof-ops/cig-installer/releases/download/manifest/manifest-stable.toml does not exist (404)
-  = explain: ciginstaller explain E1820
-  = fix: `ciginstaller install carton`, and add `--offline` once a copy is cached
-```
-
-The exit code is 4. Nothing was installed. `--home <dir>` (or `CIGSCRIPT_HOME`)
-points a run at a scratch home instead of `~/.cigscript`, which is the safe way
-to try any command.
+`--home <dir>` (or `CIGSCRIPT_HOME`) points a run at a scratch home instead of
+`~/.cigscript`, which is the safe way to try any command.
 
 A manifest is assembled, never written by hand, from the products' own
 releases: `cargo xtask manifest assemble`, described in
@@ -205,13 +199,13 @@ not asked again.
 
 ### The bootstrap script
 
-For a machine with nothing on it, each ciginstaller release will carry
-`install.sh` (Linux) and `install.ps1` (Windows). **There is no installer
-release yet, so there is no script to download today**; what is in this
-repository are the templates (`packaging/bootstrap/`), and the release
-workflow fills them in with that release's tarball digests, then attaches the
-result, with a `.sha256` and a build attestation for each, to the draft
-release. Windows has no build yet, so `install.ps1` stops and says so.
+For a machine with nothing on it, each ciginstaller release carries
+`install.sh` (Linux) and `install.ps1` (Windows). The `v0.1.0` release is
+the first to carry them; the templates live in `packaging/bootstrap/` and
+the release workflow fills them in with that release's tarball digests,
+then attaches the result, with a `.sha256` and a build attestation for
+each, to the release. Windows has no build yet, so `install.ps1`
+stops and says so.
 
 Download it, read it, then run it. Do not pipe it into a shell.
 
@@ -333,13 +327,9 @@ them with `cargo build --release -p ciginstaller -p cigi-shim` and then
 
 ## Limits, honestly
 
-- **Nothing installs from the network yet.** No installer release and no
-  carton manifest are published. Build from source, and expect `install` to
-  stop at `E1820` until the first carton is out.
-- **Linux first.** It is built and tested there. The bootstrap script exists
-  as a template and has no release to ship with yet; `install.ps1` stops until
-  a Windows build exists. macOS and Windows machines and platform packages are
-  not built
+- **Linux first.** It is built and tested there. The bootstrap script ships
+  with v0.1.0; `install.ps1` stops until a Windows build exists. macOS and
+  Windows machines and platform packages are not built
   ([#5](https://github.com/otmof-ops/cig-installer/issues/5),
   [#15](https://github.com/otmof-ops/cig-installer/issues/15)).
 - **Verified is integrity, not authorship.** There are no signing keys yet, so
@@ -367,10 +357,11 @@ them with `cargo build --release -p ciginstaller -p cigi-shim` and then
   idle (systemd has no idle condition, so on Linux it runs at idle CPU and I/O
   priority). `auto_update = off` or `notify` takes it away, and so does
   `uninstall --all`. A value your administrator locks is the one obeyed.
-- **`cig unburn` cannot undo an update yet.** `ciginstaller rollback` is the
-  undo; the installer's journal is not a run record that cig can read.
-- **The first carton holds `cig`, `cigo` and `cigcompile`.** CigarScript joins
-  it when it has a release.
+- **An update is undone two ways, and only for as long as the transaction is
+  kept.** `ciginstaller rollback` is the installer's own undo; cig can
+  undo the same update for seven days (`cig runs adopt
+  <home>/installer/txn/<id>`, then `cig unburn <run id>`). Past that window,
+  the transaction is swept and rollback is the only undo.
 - **Crash reports file through `gh` or your token, not yet the courier.**
   `ciginstaller crash list|show|send|delete|submit` work over cig's ashtray,
   and a crash in the installer lands there. `crash send` files a report in the
