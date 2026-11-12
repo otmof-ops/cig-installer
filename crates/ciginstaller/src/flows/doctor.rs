@@ -1709,9 +1709,10 @@ fn moved_home(cx: &Cx, v: &mut Vec<Item>) {
     );
 }
 
-/// #46: the home this ciginstaller sits in against the home it works on. A shim in `<home>/bin`
-/// works on that home unless `CIGSCRIPT_HOME` says otherwise; when the two differ the finding names
-/// both.
+/// #46: the home this ciginstaller sits in against the home it works on. A ciginstaller that lives
+/// in a home works on it whatever `CIGSCRIPT_HOME` says (decision 0005), so the two differ only
+/// with `--home`, or when the folder it sits in is not a home and `CIGSCRIPT_HOME` names one; the
+/// finding then names both.
 fn home_anchor(cx: &Cx, v: &mut Vec<Item>) {
     let Some(own) = std::env::current_exe()
         .ok()
@@ -1727,9 +1728,10 @@ fn home_anchor(cx: &Cx, v: &mut Vec<Item>) {
     let env = std::env::var_os("CIGSCRIPT_HOME")
         .filter(|e| !e.is_empty())
         .map(std::path::PathBuf::from);
-    let who = match &env {
-        Some(e) => format!("CIGSCRIPT_HOME is {}", e.display()),
-        None => format!("--home is {}", working.display()),
+    let who = match (&cx.globals.home, &env) {
+        (Some(h), _) => format!("--home is {}", h.display()),
+        (None, Some(e)) => format!("CIGSCRIPT_HOME is {}", e.display()),
+        (None, None) => format!("the home is {}", working.display()),
     };
     v.push(
         note(

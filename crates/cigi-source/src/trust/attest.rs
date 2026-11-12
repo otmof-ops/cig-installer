@@ -39,6 +39,27 @@ impl Attest for StubAttest {
     }
 }
 
+/// A state and cache folder of `gh`'s own for one run of it, removed when this is dropped.
+///
+/// `gh` keeps state (a device id, update checks) and a cache under the user's XDG folders. The
+/// installer's `gh` calls point those at a fresh private folder, so a run leaves nothing in the
+/// user's state or cache folder. `gh`'s configuration and login (`GH_CONFIG_DIR`, the config
+/// folder) are left as they are.
+pub struct GhScratch(PrivateDir);
+
+impl GhScratch {
+    /// A fresh 0700 folder in the system temp directory.
+    pub fn new() -> std::io::Result<GhScratch> {
+        PrivateDir::new(None).map(GhScratch)
+    }
+
+    /// Point `cmd`'s state and cache folders at this one.
+    pub fn apply(&self, cmd: &mut Command) {
+        cmd.env("XDG_STATE_HOME", self.0.path().join("state"))
+            .env("XDG_CACHE_HOME", self.0.path().join("cache"));
+    }
+}
+
 /// Runs `gh attestation verify <file> -R <repo> --owner otmof-ops` with output discarded.
 #[derive(Debug, Clone, Default)]
 pub struct GhAttest;
@@ -62,7 +83,9 @@ impl Attest for GhAttest {
         find_on_path("gh").is_some() || find_on_path("gh.exe").is_some()
     }
     fn verify(&self, file: &Path, repo: &str, bundle: Option<&Path>) -> Result<String, String> {
+        let scratch = GhScratch::new().map_err(|e| format!("could not make gh's folder: {e}"))?;
         let mut cmd = Command::new("gh");
+        scratch.apply(&mut cmd);
         cmd.arg("attestation")
             .arg("verify")
             .arg(file)
@@ -122,6 +145,9 @@ impl PrivateDir {
         b.create(&p)?;
         Ok(PrivateDir(p))
     }
+    pub fn path(&self) -> &Path {
+        &self.0
+    }
     pub fn put(&self, name: &str, bytes: &[u8]) -> std::io::Result<PathBuf> {
         let p = self.0.join(name);
         let mut f = crate::http::create_private(&p)?;
@@ -133,5 +159,39 @@ impl PrivateDir {
 impl Drop for PrivateDir {
     fn drop(&mut self) {
         let _ = std::fs::remove_dir_all(&self.0);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::GhScratch;
+    use std::process::Command;
+
+    #[test]
+    fn gh_gets_a_state_and_cache_folder_of_its_own_that_goes_when_it_is_done() {
+        let s = GhScratch::new().unwrap();
+        let mut cmd = Command::new("gh");
+        s.apply(&mut cmd);
+        let envs: Vec<(String, String)> = cmd
+            .get_envs()
+            .filter_map(|(k, v)| {
+                Some((
+                    k.to_string_lossy().into_owned(),
+                    v?.to_string_lossy().into_owned(),
+                ))
+            })
+            .collect();
+        let dir = s.0.path().to_path_buf();
+        assert!(dir.is_dir());
+        for (k, sub) in [("XDG_STATE_HOME", "state"), ("XDG_CACHE_HOME", "cache")] {
+            let v = envs.iter().find(|(n, _)| n == k).map(|(_, v)| v.clone());
+            assert_eq!(v, Some(dir.join(sub).to_string_lossy().into_owned()), "{k}");
+        }
+        // gh's login and settings are left where they are
+        assert!(envs
+            .iter()
+            .all(|(k, _)| k != "XDG_CONFIG_HOME" && k != "GH_CONFIG_DIR"));
+        drop(s);
+        assert!(!dir.exists());
     }
 }

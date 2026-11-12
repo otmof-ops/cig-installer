@@ -15,7 +15,7 @@ A code never changes meaning. A retired code is never reused. A code marked *pla
 | `E1840`–`E1879` | installer | `usage` | the installer: shims, pins, updates, rollbacks, repair, uninstall, and the command line |
 | `E1880`–`E1889` | installer | `runtime` | reserved for CIG.OS work not built yet: Secure Boot (#23) takes E1880-E1883, the courier (#24) E1884-E1888 |
 | `E1890`–`E1899` | installer | `internal` | internal: a bug in the installer, or a journal it cannot recover |
-| `E1900`–`E1999` | installer | `usage` | the installer, second range: the mirror and what travels over it (E1900), the update channel's signatures (E1901), what a shim refuses to run and why (E1902, E1903), and the settings the machine locks (E1904); the rest is not assigned yet |
+| `E1900`–`E1999` | installer | `usage` | the installer, second range: the mirror and what travels over it (E1900), the update channel's signatures (E1901), what a shim refuses to run and why (E1902, E1903), the settings the machine locks (E1904), and a home that cannot be written where the command runs (E1905); the rest is not assigned yet |
 
 ## The four kinds of no
 
@@ -1532,7 +1532,7 @@ Related: [`E1832`](#e1832-an-interrupted-change-was-recovered), [`E1833`](#e1833
 
 ## installer (`E1900`–`E1999`)
 
-the installer, second range: the mirror and what travels over it (E1900), the update channel's signatures (E1901), what a shim refuses to run and why (E1902, E1903), and the settings the machine locks (E1904); the rest is not assigned yet.
+the installer, second range: the mirror and what travels over it (E1900), the update channel's signatures (E1901), what a shim refuses to run and why (E1902, E1903), the settings the machine locks (E1904), and a home that cannot be written where the command runs (E1905); the rest is not assigned yet.
 
 | code | title | kind of no | what to type next |
 |---|---|---|---|
@@ -1541,6 +1541,7 @@ the installer, second range: the mirror and what travels over it (E1900), the up
 | [`E1902`](#e1902-a-shim-target-is-outside-its-home) | a shim target is outside its home | can't see any ciggies bro | `ciginstaller repair` |
 | [`E1903`](#e1903-a-shim-target-is-not-the-build-its-receipt-recorded) | a shim target is not the build its receipt recorded | can't see any ciggies bro | `ciginstaller repair` |
 | [`E1904`](#e1904-a-setting-is-locked-by-the-machine) | a setting is locked by the machine | these are MY ciggies | `ciginstaller config get <setting>` names the store that locks it; ask whoever manages this machine to change it there |
+| [`E1905`](#e1905-the-family-home-cannot-be-written-here) | the family home cannot be written here | these are MY ciggies | run the same command outside the task, in a terminal |
 
 ### E1900 a mirror over plain http
 
@@ -1627,3 +1628,20 @@ A setting is locked by the machine layer: the file `/etc/cigscript/config.toml` 
 2. an install answer (`--preset`, `--reports`, an `--answers` file) named a locked setting (no probe; a suggestion, not a finding). **Remedy:** leave the answer out: the locked value is already in force, and `ciginstaller install` takes it as the answer
 
 Related: [`E1870`](#e1870-usage), [`E1875`](#e1875-the-setting-is-not-in-the-file), [`E1830`](#e1830-an-owned-file-is-unreadable-or-too-new).
+
+### E1905 the family home cannot be written here
+
+*usage · since 0.1.0 · arises in any*
+
+**Kind of no:** these are MY ciggies (the door: it knows you and said no; 403 Forbidden; permission denied; a lock; a refusal by policy).
+
+This command changes the family home (installs, updates, removes, repairs or sets something), and the home cannot be written where it runs. Inside a task (a cig box, a cigo task) the home is read-only on purpose: a tool there sees the home it lives in, but nothing installs from inside a task. Nothing was written: the command stopped before it took the home's lock.
+
+**What to type next:** run the same command outside the task, in a terminal
+
+**Known causes**, ranked; the doctor checks them in this order:
+
+1. the command ran inside a cig box or a cigo task, where the family home is mounted read-only (no probe; a suggestion, not a finding). **Remedy:** run it in a terminal outside the task; a cigo project's setup stage checks the tools and says this command when one is missing
+2. the home's folder or its file system is read-only, or not yours to write (a mount, a backup, another user's home) (no probe; a suggestion, not a finding). **Remedy:** write to a home you own: `ciginstaller --home <dir> ...`, or fix the folder's permissions
+
+Related: [`E1830`](#e1830-an-owned-file-is-unreadable-or-too-new), [`E1835`](#e1835-home-directory-unsafe-or-unwritable), [`E1840`](#e1840-nothing-installed-for-this-tool).

@@ -48,7 +48,9 @@ Each step prints `ok <step>` or `FAIL <step>: <why>`. The run exits 1 when any s
 | `cig-runs-and-unburn` | a good run is listed `ok` by `cig runs`, and `cig unburn <id>` takes it back |
 | `cigo-run-ci` | a project's `cigo run ci` passes |
 | `cigo-failed-task-rolls-back` | a task that writes a file and fails leaves nothing |
-| `cigo-task-sees-the-family-home` | a cigo task sees the same `HOME`, `CIGSCRIPT_HOME`, `XDG_CONFIG_HOME` and `CIGI_MIRROR`, and `ciginstaller` run inside it reads the same settings (cigarscript's setup stage runs the installer from a task) |
+| `cigo-task-sees-the-family-home` | a cigo task sees the same `HOME`, `XDG_CONFIG_HOME` and `CIGI_MIRROR`. Its `CIGSCRIPT_HOME` is the run's inbox, which is cig's state root there. `ciginstaller` run inside the task answers for the family home: its settings and its toolchains ([decision 0005](decisions/0005-the-home-a-tool-lives-in.md)) |
+| `shims-answer-inside-a-task` | `cig`, `cigo`, `cigcompile`, `cigar` and `ciginstaller` run inside a boxed cigo task each answer with the carton's version |
+| `install-inside-a-task-is-refused` | `ciginstaller install carton` inside a task stops with `E1905`, and the home's `bin/`, `toolchains/`, `installer/` and `humidor/` are byte for byte as before |
 | `cigcompile-build-run-verify` | a hello and a burn are built with `--runtime` set to the carton's cig, run, and pass `cigcompile verify` |
 | `cigcompile-finds-the-cartons-cig` | with no `--runtime` and no network, cigcompile finds the carton's cig by itself |
 | `cigar-check-three-strengths` | `cigar check` on a mild, a medium and a full file |
@@ -58,7 +60,7 @@ Each step prints `ok <step>` or `FAIL <step>: <why>`. The run exits 1 when any s
 | `lifecycle-install` | a second fresh home, for the installer's own lifecycle |
 | `pin-is-honored` | a project pinned to the carton's cig runs it; a project pinned to a cig the carton lacks does not run the carton's |
 | `repair-shim-and-toolchain` | `repair` puts back a deleted shim and a damaged toolchain file |
-| `uninstall-all-leaves-nothing` | `uninstall --all --yes-irreversible` removes everything the installer added. It keeps the user's data and names what stays (cig's `runs/`, `locks/`, `runs-index.*`). Anything else left in the scratch home fails the step, and the log lists every path left |
+| `uninstall-all-leaves-nothing` | `uninstall --all --yes-irreversible` removes everything the installer added. It keeps the user's data and names what stays: cig's `runs/`, `locks/` and `runs-index.*`, and cig's key folder beside the home (`.cigscript-keys/`, the keys to the user's sealed data). The installer's own `gh` calls leave no state behind. Anything else left in the scratch home fails the step, and the log lists every path left |
 
 Every installer call reads the carton's directory (`CIGI_MIRROR=file://<dir>`), including the ones cigo makes itself. The products run with their own test settings: `CIG_SEAL_KEY=file`, `CIG_DOCTOR=0`, `CIG_REPORTS=never`, `CIGCOMPILE_OFFLINE=1`, and cigo's `CIGO_FLOOR_CACHE`, `CIGO_OSV`, `CIGO_REGISTRY_META` and `CIGO_REHEARSE` turned off.
 

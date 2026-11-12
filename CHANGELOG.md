@@ -7,6 +7,23 @@ project follows semantic versioning.
 
 ## Unreleased
 
+### Changed
+
+- **A family tool belongs to the home it lives in** (decision 0005). A shim,
+  the installer's own copy in `bin/` and every installed build work on the
+  home they live in, whatever `CIGSCRIPT_HOME` says; the variable chooses the
+  home only for a binary that lives in none (a development build, the
+  bootstrap installer). Inside a cigo task cig's box points `CIGSCRIPT_HOME`
+  at the run's inbox, and the installer there used to see an empty family.
+  A shim of one home with `CIGSCRIPT_HOME` naming another now runs its own
+  home's build; `CIGI_SHIM_VERBOSE=1` and `doctor` still name both.
+- `uninstall --all` names cig's key folders among what stays
+  (`.cigscript-keys/` beside the home, `CIG_KEYS_DIR`, the config folder's
+  `cigscript/keys`): they hold the keys to the user's sealed data.
+- The installer's own `gh` calls (attestation checks, crash routes) give `gh`
+  a state and cache folder of its own, removed after the call, so they leave
+  nothing in the user's state folder.
+
 ### Fixed
 
 - Reports replace a user or host name where it stands as a token of its own:
@@ -52,6 +69,13 @@ project follows semantic versioning.
 
 ### Added
 
+- `E1905`: a command that changes the family home, run where the home cannot
+  be written (inside a cig box or a cigo task), stops before it takes the
+  lock, with nothing written; the fix is to run it outside the task. The
+  commands that only read answer for the home as before.
+- The carton gate's `shims-answer-inside-a-task` and
+  `install-inside-a-task-is-refused` steps; `cigo-task-sees-the-family-home`
+  now checks that the installer inside a task answers for the family home.
 - `cargo xtask carton-local`: a carton built from local source trees, with
   nothing published. Each product given a tree is built for one target in the
   shape its release workflow publishes (file names, archive layouts, `.sha256`

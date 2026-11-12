@@ -59,7 +59,7 @@ from = "E1900"
 to = "E1999"
 family = "installer"
 kind = "usage"
-meaning = "the installer, second range: the mirror and what travels over it (E1900), the update channel's signatures (E1901), what a shim refuses to run and why (E1902, E1903), and the settings the machine locks (E1904); the rest is not assigned yet"
+meaning = "the installer, second range: the mirror and what travels over it (E1900), the update channel's signatures (E1901), what a shim refuses to run and why (E1902, E1903), the settings the machine locks (E1904), and a home that cannot be written where the command runs (E1905); the rest is not assigned yet"
 
 # ----- the four kinds of no (copied verbatim from cig) ------------------------------------
 
@@ -1939,3 +1939,22 @@ remedy = "ask whoever manages this machine to unlock or change it in the store `
 why = "an install answer (`--preset`, `--reports`, an `--answers` file) named a locked setting"
 probe = "none"
 remedy = "leave the answer out: the locked value is already in force, and `ciginstaller install` takes it as the answer"
+
+[[code]]
+code = "E1905"
+title = "the family home cannot be written here"
+meaning = "This command changes the family home (installs, updates, removes, repairs or sets something), and the home cannot be written where it runs. Inside a task (a cig box, a cigo task) the home is read-only on purpose: a tool there sees the home it lives in, but nothing installs from inside a task. Nothing was written: the command stopped before it took the home's lock."
+fix = "run the same command outside the task, in a terminal"
+no = "these-are-mine"
+arises = ["any"]
+tags = ["installer"]
+since = "0.1.0"
+related = ["E1830", "E1835", "E1840"]
+[[code.cause]]
+why = "the command ran inside a cig box or a cigo task, where the family home is mounted read-only"
+probe = "none"
+remedy = "run it in a terminal outside the task; a cigo project's setup stage checks the tools and says this command when one is missing"
+[[code.cause]]
+why = "the home's folder or its file system is read-only, or not yours to write (a mount, a backup, another user's home)"
+probe = "none"
+remedy = "write to a home you own: `ciginstaller --home <dir> ...`, or fix the folder's permissions"

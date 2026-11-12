@@ -241,7 +241,9 @@ cat > "$cigop/cig-tasks.json" << 'EOF'
   "build": {"shell": "echo built > out.txt", "produces": ["out.txt"]},
   "test": {"shell": "test -f out.txt", "needs": ["build"]},
   "bad": {"shell": "echo half > half.txt && exit 3"},
-  "homes": {"shell": "echo \"HOME=$HOME\"; echo \"CIGSCRIPT_HOME=$CIGSCRIPT_HOME\"; echo \"XDG_CONFIG_HOME=$XDG_CONFIG_HOME\"; echo \"CIGI_MIRROR=$CIGI_MIRROR\"; ciginstaller config get allow_single_source"}
+  "homes": {"shell": "echo \"HOME=$HOME\"; echo \"CIGSCRIPT_HOME=$CIGSCRIPT_HOME\"; echo \"XDG_CONFIG_HOME=$XDG_CONFIG_HOME\"; echo \"CIGI_MIRROR=$CIGI_MIRROR\"; ciginstaller config get allow_single_source; echo \"which=$(ciginstaller which cig --path)\""},
+  "shims": {"shell": "cig --version; cigo --version; cigcompile --version; cigar --version; ciginstaller --version"},
+  "install": {"shell": "ciginstaller install carton --yes"}
  }}
 EOF
 s_cigo_ci() {
@@ -255,17 +257,40 @@ s_cigo_rollback() {
   [ ! -e "$cigop/half.txt" ] || no "the failed run left half.txt behind"
 }
 step cigo-failed-task-rolls-back s_cigo_rollback
-# A task that calls ciginstaller (cigarscript's setup stage does) must reach this home, its
-# settings and its mirror.
+# Inside a task (cig's box) CIGSCRIPT_HOME is the run's inbox, cig's state root there. The family
+# home is where the tools live (decision 0005): ciginstaller run inside the task answers for this
+# home, its settings and its toolchains.
 s_cigo_homes() {
   got="$(cd "$cigop" && T cigo run homes 2>&1)" || { echo "$got"; no "cigo run homes failed"; }
   echo "$got"
-  for v in "HOME=$HOME" "CIGSCRIPT_HOME=$CIGSCRIPT_HOME" "XDG_CONFIG_HOME=$XDG_CONFIG_HOME" "CIGI_MIRROR=$CIGI_MIRROR"; do
+  for v in "HOME=$HOME" "XDG_CONFIG_HOME=$XDG_CONFIG_HOME" "CIGI_MIRROR=$CIGI_MIRROR"; do
     echo "$got" | grep -qF "$v" || no "a cigo task does not see $v"
   done
-  echo "$got" | grep -q true || no "ciginstaller in a cigo task does not see allow_single_source = true"
+  echo "$got" | grep -q 'allow_single_source = true' || no "ciginstaller in a cigo task does not see allow_single_source = true"
+  echo "$got" | grep -qF "which=$(tc cig "$CIG")/bin/cig" || no "ciginstaller in a cigo task does not name this home's cig $CIG"
 }
 step cigo-task-sees-the-family-home s_cigo_homes
+# Every shim run inside a boxed task starts the carton's build.
+s_task_shims() {
+  got="$(cd "$cigop" && T cigo run shims 2>&1)" || { echo "$got"; no "cigo run shims failed"; }
+  echo "$got"
+  for v in "cig $CIG" "cig-orchestrator $CIGO (cig $CIG)" "cigcompile $CIGCOMPILE (makes programs for cig $CIG)" "cigar $CIGAR" "ciginstaller $INSTALLER"; do
+    echo "$got" | grep -qF "$v" || no "inside a cigo task no shim says '$v'"
+  done
+}
+step shims-answer-inside-a-task s_task_shims
+# An install from inside a task is refused with E1905, and the home is as it was.
+family_files() { (cd "$CIGSCRIPT_HOME" && find bin toolchains installer humidor -type f -exec sha256sum {} + 2> /dev/null | sort); }
+s_task_install() {
+  family_files > "$work/family-before.txt"
+  rc=0; got="$(cd "$cigop" && T cigo run install 2>&1)" || rc=$?
+  echo "$got"
+  [ "$rc" != 0 ] || no "an install inside a cigo task passed"
+  echo "$got" | grep -q E1905 || no "an install inside a cigo task was not refused with E1905"
+  family_files > "$work/family-after.txt"
+  diff "$work/family-before.txt" "$work/family-after.txt" || no "the refused install changed the home"
+}
+step install-inside-a-task-is-refused s_task_install
 
 # ---- CigCompile: build, run and verify a hello and a burn, with the carton's cig ----------------
 ccp="$work/proj-cc"
@@ -381,13 +406,22 @@ s_uninstall() {
   left="$(cd "$HOME" && find . -mindepth 1 | sort)"
   [ -n "$left" ] || return 0
   echo "left in the scratch home:"; echo "$left"
-  stays="$(sed -n 's/.*stays in [^:]*: \([^;]*\);.*/\1/p' "$work/uninstall.txt" | head -n 1 | tr ',' '\n' | sed 's/^ *//; s/ *$//; s|/$||')"
-  echo "the installer says these stay: $(echo "$stays" | tr '\n' ' ')"
-  unexplained="$(echo "$left" | while read -r p; do
+  # each named entry, its note in parentheses dropped: a name inside the home (`runs/`), or a
+  # whole path beside it (cig's key folder); as paths relative to $HOME
+  stays="$(sed -n 's/.*stays in [^:]*: \([^;]*\);.*/\1/p' "$work/uninstall.txt" | head -n 1 | tr ',' '\n' |
+    sed 's/ *(.*$//; s/^ *//; s/ *$//; s|/$||' | while IFS= read -r k; do
+      case "$k" in
+        "$HOME"/*) echo "./${k#"$HOME"/}" ;;
+        /*) echo "$k" ;;
+        ?*) echo "./.cigscript/$k" ;;
+      esac
+    done)"
+  echo "the installer says these stay:"; echo "$stays"
+  unexplained="$(echo "$left" | while IFS= read -r p; do
     [ "$p" = ./.cigscript ] && continue
     ok=0
     for k in $stays; do
-      case "$p" in "./.cigscript/$k" | "./.cigscript/$k/"*) ok=1 ;; esac
+      case "$p" in "$k" | "$k"/*) ok=1 ;; esac
     done
     [ "$ok" = 1 ] || echo "$p"
   done)"

@@ -48,6 +48,31 @@ impl Home {
         Ok(Home { root, user_home })
     }
 
+    /// The home a running installer works on (decision 0005): `--home` when given; else the home
+    /// the running file lives in ([`cigi_shim::home_containing`]: its copy in `<home>/bin`, or a
+    /// build under `<home>/toolchains`), whatever `CIGSCRIPT_HOME` says; else `CIGSCRIPT_HOME`,
+    /// `$HOME/.cigscript`, as [`Home::discover`]. The shim takes the same order
+    /// ([`cigi_shim::choose_home`]).
+    pub fn for_running(flag: Option<&Path>) -> Result<Home, HomeError> {
+        let own = std::env::current_exe()
+            .ok()
+            .and_then(|e| cigi_shim::home_containing(&e));
+        Home::resolve_with(flag, own.as_deref(), &|k| std::env::var_os(k))
+    }
+
+    /// As [`Home::for_running`] with the running file's home and the environment given (tests).
+    pub fn resolve_with(
+        flag: Option<&Path>,
+        own: Option<&Path>,
+        env: &dyn Fn(&str) -> Option<OsString>,
+    ) -> Result<Home, HomeError> {
+        let chosen = flag.or(own).map(|p| p.as_os_str().to_os_string());
+        Home::discover_with(&|k| match (k, &chosen) {
+            ("CIGSCRIPT_HOME", Some(h)) => Some(h.clone()),
+            _ => env(k),
+        })
+    }
+
     /// A home rooted at `root` (tests). The user's home is `root`'s parent.
     pub fn at(root: PathBuf) -> Home {
         let user_home = default_user_home(&root);
@@ -346,6 +371,23 @@ fn default_user_home(root: &Path) -> PathBuf {
 mod tests {
     use super::*;
     use std::collections::HashMap;
+
+    #[test]
+    fn home_flag_then_the_running_files_home_then_cigscript_home() {
+        let env = |k: &str| match k {
+            "CIGSCRIPT_HOME" => Some(OsString::from("/inbox/run/home")),
+            "HOME" => Some(OsString::from("/u")),
+            _ => None,
+        };
+        let (flag, own) = (Path::new("/flag"), Path::new("/u/.cigscript"));
+        let r = |f, o| Home::resolve_with(f, o, &env).unwrap().root();
+        assert_eq!(r(Some(flag), Some(own)), PathBuf::from("/flag"));
+        assert_eq!(r(None, Some(own)), PathBuf::from("/u/.cigscript"));
+        assert_eq!(r(None, None), PathBuf::from("/inbox/run/home"));
+        // the user's own home is HOME's, whichever way the root was chosen
+        let h = Home::resolve_with(None, Some(own), &env).unwrap();
+        assert_eq!(h.user_home(), PathBuf::from("/u"));
+    }
 
     fn env(map: HashMap<&'static str, &'static str>) -> impl Fn(&str) -> Option<OsString> {
         move |k| map.get(k).map(OsString::from)

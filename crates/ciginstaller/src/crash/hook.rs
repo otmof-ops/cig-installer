@@ -84,12 +84,9 @@ fn record(message: &str, location: &str, backtrace: &str) {
         .lock()
         .map(|c| (c.home.clone(), c.json, c.command.clone()))
         .unwrap_or_default();
-    let root = cigi_home::Home::discover_with(&|k| match (k, &home) {
-        ("CIGSCRIPT_HOME", Some(h)) => Some(h.clone().into_os_string()),
-        _ => std::env::var_os(k),
-    })
-    .ok()
-    .map(|h| h.root());
+    let root = cigi_home::Home::for_running(home.as_deref())
+        .ok()
+        .map(|h| h.root());
     let mut report = new_report(
         super::ORIGIN,
         env!("CARGO_PKG_VERSION"),

@@ -36,12 +36,7 @@ pub struct Env<'a> {
 /// The home and the config, and nothing else: no installer state, so it works when that is
 /// the problem. `report --send` goes through the same door.
 pub fn open_env<'a>(ui: &'a Ui, home_flag: Option<&PathBuf>) -> Result<Env<'a>, InstallerError> {
-    let over = home_flag.map(|h| h.clone().into_os_string());
-    let home = Home::discover_with(&|k| match (k, &over) {
-        ("CIGSCRIPT_HOME", Some(h)) => Some(h.clone()),
-        _ => std::env::var_os(k),
-    })
-    .map_err(ie)?;
+    let home = Home::for_running(home_flag.map(PathBuf::as_path)).map_err(ie)?;
     let cfg = Config::load(&home).map_err(ie)?;
     Ok(Env {
         ui,

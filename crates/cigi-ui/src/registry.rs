@@ -214,7 +214,7 @@ pub fn area(code: &str) -> &'static str {
         Some(1815) => "platform",
         Some(1820..=1821) => "fetch",
         Some(1822..=1828) => "trust",
-        Some(1830..=1836) => "store",
+        Some(1830..=1836 | 1905) => "store",
         Some(1837 | 1839) => "bundle",
         Some(1838) => "mirror",
         Some(1840..=1841 | 1844..=1845 | 1902..=1903) => "shim",

@@ -243,7 +243,10 @@ The platform packages are still planned
 
 ## Where things live
 
-Everything is under `~/.cigscript` (or `CIGSCRIPT_HOME`):
+Everything is under `~/.cigscript` (or `CIGSCRIPT_HOME`). A shim, the installer's own copy in
+`bin/` and every installed build belong to the home they live in, whatever `CIGSCRIPT_HOME`
+says; the variable chooses the home only for a binary that lives in none, such as a development
+build ([decision 0005](docs/decisions/0005-the-home-a-tool-lives-in.md)):
 
 | Path | What is in it |
 | --- | --- |
