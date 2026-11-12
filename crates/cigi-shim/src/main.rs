@@ -157,8 +157,8 @@ fn pick(index: &str, tool: &str, forced: Option<&str>, pin: &Pin) -> Pick {
         })
 }
 
-/// The home this shim works against: `CIGSCRIPT_HOME`, else the home its own file sits in
-/// (`<home>/bin/<name>`), else `~/.cigscript`.
+/// The home this shim works against: the home its own file lives in, else `CIGSCRIPT_HOME`, else
+/// `~/.cigscript` (decision 0005, [`choose_home`]).
 fn home_choice(exe: Option<&Path>) -> Option<HomeChoice> {
     let var = |k: &str| {
         std::env::var_os(k)
@@ -278,15 +278,21 @@ fn main() {
     };
     let home = choice.home.clone();
     if std::env::var_os("CIGI_SHIM_VERBOSE").is_some_and(|v| v == "1") {
-        match choice.disagreement() {
-            Some((env, own)) => eprintln!(
+        match (choice.disagreement(), choice.owned) {
+            (Some((env, own)), true) => eprintln!(
                 "note: CIGSCRIPT_HOME is {} but this shim is in {}, which belongs to {}; \
-                 CIGSCRIPT_HOME wins",
+                 the home it lives in wins",
                 env.display(),
                 own.join("bin").display(),
                 own.display()
             ),
-            None => eprintln!("note: home is {}", home.display()),
+            (Some((env, own)), false) => eprintln!(
+                "note: CIGSCRIPT_HOME is {} and this shim is in {}, which is not a home; \
+                 CIGSCRIPT_HOME is used",
+                env.display(),
+                own.join("bin").display()
+            ),
+            (None, _) => eprintln!("note: home is {}", home.display()),
         }
     }
     let rest: Vec<OsString> = args.collect();

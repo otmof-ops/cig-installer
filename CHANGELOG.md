@@ -5,6 +5,103 @@
 All notable changes to cig-installer. The format follows Keep a Changelog; the
 project follows semantic versioning.
 
+## Unreleased
+
+### Changed
+
+- **A family tool belongs to the home it lives in** (decision 0005). A shim,
+  the installer's own copy in `bin/` and every installed build work on the
+  home they live in, whatever `CIGSCRIPT_HOME` says; the variable chooses the
+  home only for a binary that lives in none (a development build, the
+  bootstrap installer). Inside a cigo task cig's box points `CIGSCRIPT_HOME`
+  at the run's inbox, and the installer there used to see an empty family.
+  A shim of one home with `CIGSCRIPT_HOME` naming another now runs its own
+  home's build; `CIGI_SHIM_VERBOSE=1` and `doctor` still name both.
+- `uninstall --all` names cig's key folders among what stays
+  (`.cigscript-keys/` beside the home, `CIG_KEYS_DIR`, the config folder's
+  `cigscript/keys`): they hold the keys to the user's sealed data.
+- The installer's own `gh` calls (attestation checks, crash routes) give `gh`
+  a state and cache folder of its own, removed after the call, so they leave
+  nothing in the user's state folder.
+
+### Fixed
+
+- Reports replace a user or host name where it stands as a token of its own:
+  bounded by anything but a letter or a digit (`-`, `_`, `.`, `/`, `@`, `:`,
+  `+`, white space, punctuation), so `sam-notes.txt` and `sam_site` lose the
+  name and `samples` keeps it. On a machine whose host name is part of its
+  kernel's version (a host named `arch` on `6.11.2-arch1-1`), the platform block a queued report carries had
+  `<host>` written inside the kernel and no longer equaled what
+  `report --block` printed. `report --block` now prints the block through the
+  same anonymising pass a queued report gets, so the two agree whatever the
+  names are. `bug`'s marks use the same rule.
+- The functional suite no longer times an install: `a2_perf_install`, which
+  failed when the fastest of three debug-build installs of `pack dev` took
+  over 5 s on a slow machine, is now `a2_install_pack_dev_on_a_fresh_home`
+  and checks what the install leaves. The time was already judged in
+  `cigi-budgets`'s `release_install` (3 s on a release build), which is now
+  the only place it is judged; on a debug build it is printed, not judged
+  (`docs/BENCH.md`).
+- The terminal tests' harness no longer loses a keypress on a busy machine. A
+  question drains the terminal after drawing itself (`sh`, `stty`, `dd`), and
+  the harness typed a fixed 350 ms after the draw; when the drain started
+  later, the key was thrown away and the test waited out its 30 second cap.
+  The harness now types a chunk again while the child has printed nothing
+  but its echo and the output has been quiet for a second (a key typed early
+  is drained by the next question, so it never answers it), and says on a
+  failure which chunk it was waiting on. The rest of the time is the debug
+  install after the last answer, which a busy disk slows several times over:
+  `CIGI_TEST_PTY_SCALE` multiplies the 30 second cap on a slow machine
+  (`docs/BENCH.md`).
+- The `a_silent_terminal_gets_the_neutral_theme_within_the_budget` test's
+  Linux budget (150 ms): after writing the OSC 11 query, `query_background`
+  waited up to 150 ms for the helper shell to exit before falling back to
+  SIGKILL. The shell exits a few milliseconds after SIGTERM to `dd`; the
+  window is now 30 ms, so the silent-terminal path fits the budget on a
+  busy CI runner with margin to spare (Carton 0.2.0 row 2, #32).
+- `detect::tests::a_deadline_already_past_reads_nothing` on macOS: when
+  `Instant::now()` inside `collect` coincided with the test's deadline (two
+  consecutive calls to `Instant::now()` can land on the same nanosecond on
+  a loaded runner), the loop called `rx.recv_timeout(Duration::ZERO)`, which
+  first does a non-blocking `try_recv` and returned the pending chunk.
+  `collect` now exits the loop when `now >= deadline` and never calls
+  `recv_timeout(ZERO)` (Carton 0.2.0 row 3, #32).
+
+### Added
+
+- `E1905`: a command that changes the family home, run where the home cannot
+  be written (inside a cig box or a cigo task), stops before it takes the
+  lock, with nothing written; the fix is to run it outside the task. The
+  commands that only read answer for the home as before.
+- The carton gate's `shims-answer-inside-a-task` and
+  `install-inside-a-task-is-refused` steps; `cigo-task-sees-the-family-home`
+  now checks that the installer inside a task answers for the family home.
+- `cargo xtask carton-local`: a carton built from local source trees, with
+  nothing published. Each product given a tree is built for one target in the
+  shape its release workflow publishes (file names, archive layouts, `.sha256`
+  sidecars); cigar and cigcompile are built against the sibling trees with
+  cargo patch overrides on the command line. The manifest is written by
+  `manifest assemble`'s own code, reading the directory as the release host,
+  and the directory is laid out the way `install --from <dir>` reads a mirror
+  (Carton 0.2.0 row 14, Carton 1.0.0 rows 6, 7 and 12).
+- `ci/carton-gate.sh <carton dir>`: the family gate. It installs the carton
+  with the installer it carries into a scratch home, then proves the installed
+  digests, every shim, `doctor` and `check`, cig's rollback, runs and unburn,
+  cigo's `run ci` and rollback, cigcompile's build, run and verify, cigar's
+  three strengths, programs and language server, cigo's polyglot example with
+  the real tools, a project pin, `repair` and `uninstall --all`. One `ok` or
+  `FAIL` line per step and a `gate.json`. `ci/carton-e2e.sh` builds the carton
+  and runs the gate on a test machine; `docs/CARTON-GATE.md` says how.
+- `cargo xtask fixture-mirror <dir> --candidate <ver> [--candidate-cig <ver>]
+  [--candidate-cigo <ver>]`: the mirror also publishes a second carton
+  alongside the base, for the upgrade matrix. The candidate's members default
+  to the base's.
+- `ci/upgrade.sh` (and its `upgrade-from-0.1.0` job): on each distro of the
+  fresh-install matrix, install carton 0.1.0, update to the candidate, prove
+  `status`, each shim and `doctor`, roll back, and go forward again. Until
+  carton 0.2.0 is tagged the candidate members come from the fixture mirror
+  (Carton 0.2.0 row 14, #21).
+
 ## 0.1.0 — 2026-11-12
 
 The first release. Installing, pinning, switching, updating and rolling back

@@ -162,3 +162,63 @@ fn shim_table_maps_every_shim_to_a_tool_in_tools() {
     assert_eq!(super::tool_of("evil"), None);
     assert!(super::shims_of("ciginstaller").is_empty());
 }
+
+/// A home folder as the installer makes it: `installer/` in it.
+fn a_home(base: &std::path::Path, name: &str) -> std::path::PathBuf {
+    let h = base.join(name);
+    std::fs::create_dir_all(h.join("installer")).unwrap();
+    std::fs::create_dir_all(h.join("bin")).unwrap();
+    h
+}
+
+#[test]
+fn a_tool_belongs_to_the_home_it_lives_in() {
+    let t = std::env::temp_dir().join(format!("cigi-shim-own-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&t);
+    let home = a_home(&t, "home");
+    // a shim in bin/, a build under toolchains/
+    assert_eq!(
+        super::home_containing(&home.join("bin/cig")),
+        Some(home.clone())
+    );
+    let tc = home.join("toolchains/cig/1.21.0/bin");
+    std::fs::create_dir_all(&tc).unwrap();
+    assert_eq!(super::home_containing(&tc.join("cig")), Some(home.clone()));
+    // a bin/ that is not a home's, and a development build: no home of their own
+    std::fs::create_dir_all(t.join("loose/bin")).unwrap();
+    assert_eq!(super::home_containing(&t.join("loose/bin/cig")), None);
+    assert_eq!(
+        super::home_containing(&t.join("target/release/ciginstaller")),
+        None
+    );
+    let _ = std::fs::remove_dir_all(&t);
+}
+
+#[test]
+fn the_home_a_shim_lives_in_wins_over_cigscript_home() {
+    let t = std::env::temp_dir().join(format!("cigi-shim-choose-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&t);
+    let home = a_home(&t, "home");
+    let inbox = t.join("inbox/run/home");
+    let shim = home.join("bin/cig");
+    // CIGSCRIPT_HOME names another folder (cig's box sets it to the run's inbox): the shim's own
+    // home is used, and the disagreement is still visible
+    let c = super::choose_home(Some(&shim), Some(inbox.clone()), Some(t.clone())).unwrap();
+    assert_eq!(c.home, home);
+    assert!(c.owned);
+    assert_eq!(c.env.as_deref(), Some(inbox.as_path()));
+    assert!(c.disagreement().is_some());
+    // a binary in no home follows CIGSCRIPT_HOME, then ~/.cigscript
+    let dev = t.join("target/debug/cig");
+    let c = super::choose_home(Some(&dev), Some(inbox.clone()), Some(t.clone())).unwrap();
+    assert_eq!((c.home.clone(), c.owned), (inbox.clone(), false));
+    let c = super::choose_home(Some(&dev), None, Some(t.clone())).unwrap();
+    assert_eq!(c.home, t.join(".cigscript"));
+    // a bin/ that is not a home yet: CIGSCRIPT_HOME first, else that folder, as before
+    let loose = t.join("loose/bin/cig");
+    let c = super::choose_home(Some(&loose), Some(inbox.clone()), None).unwrap();
+    assert_eq!(c.home, inbox);
+    let c = super::choose_home(Some(&loose), None, None).unwrap();
+    assert_eq!(c.home, t.join("loose"));
+    let _ = std::fs::remove_dir_all(&t);
+}

@@ -258,9 +258,13 @@ pub fn client_for(route: Route) -> Result<Client, String> {
     match route {
         Route::Gh => {
             let gh = find_gh().ok_or("gh was not found on PATH")?;
+            // gh's state and cache go to a folder of its own for this call, not the user's
+            let scratch = cigi_source::GhScratch::new()
+                .map_err(|e| format!("could not make gh's folder: {e}"))?;
+            let mut auth = Command::new(&gh);
+            scratch.apply(&mut auth);
             let ok = run_timed(
-                Command::new(&gh)
-                    .args(["auth", "status", "--hostname", "github.com"])
+                auth.args(["auth", "status", "--hostname", "github.com"])
                     .env("GH_PROMPT_DISABLED", "1")
                     .env("NO_COLOR", "1")
                     .stdin(Stdio::null())
@@ -524,6 +528,10 @@ fn gh_call(
     if body.is_some() {
         cmd.args(["--input", "-"]);
     }
+    // gh's state and cache go to a folder of its own for this call, not the user's
+    let scratch = cigi_source::GhScratch::new()
+        .map_err(|e| Fail::plain(format!("could not make gh's folder: {e}")))?;
+    scratch.apply(&mut cmd);
     cmd.env("GH_PROMPT_DISABLED", "1")
         .env("GH_NO_UPDATE_NOTIFIER", "1")
         .env("NO_COLOR", "1")

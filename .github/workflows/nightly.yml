@@ -84,8 +84,7 @@ jobs:
           persist-credentials: false
       - name: Install Rust (stable)
         run: |
-          rustup update stable --no-self-update
-          rustup default stable
+          rustup show active-toolchain || rustup toolchain install
       - name: the channel's current manifest
         run: |
           [[ "$IN_CANDIDATE" == "nightly" || "$IN_CANDIDATE" == "beta" ]] || { echo "::error::candidate is nightly or beta"; exit 1; }

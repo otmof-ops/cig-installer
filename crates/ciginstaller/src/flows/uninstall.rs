@@ -655,6 +655,74 @@ fn stays(home: &Home) -> Vec<String> {
         }
     }
     out.sort();
+    for k in cig_key_dirs(home, &|k| std::env::var_os(k)) {
+        out.push(format!("{}/ (cig's keys to your sealed data)", k.display()));
+    }
+    out
+}
+
+/// cig's key folders that exist for this home, by cig's own rule (cig-script `seal::keys_dir`):
+/// `CIG_KEYS_DIR` when set; beside the home, `.cigscript-keys` or `.cigscript-keys-<uid>` under a
+/// shared parent; and the OS config folder's `cigscript/keys` for a home that is not named by
+/// `CIGSCRIPT_HOME`. They hold the keys to the user's sealed data, so they are never removed;
+/// `uninstall --all` names the ones that are there.
+pub(crate) fn cig_key_dirs(
+    home: &cigi_home::Home,
+    env: &dyn Fn(&str) -> Option<std::ffi::OsString>,
+) -> Vec<std::path::PathBuf> {
+    let mut out: Vec<std::path::PathBuf> = Vec::new();
+    let mut add = |p: std::path::PathBuf| {
+        if p.is_dir() && !out.contains(&p) {
+            out.push(p);
+        }
+    };
+    if let Some(d) = env("CIG_KEYS_DIR").filter(|v| !v.is_empty()) {
+        add(std::path::PathBuf::from(d));
+    }
+    if let Some(parent) = home.root().parent() {
+        if let Ok(rd) = std::fs::read_dir(parent) {
+            let mut names: Vec<std::path::PathBuf> = rd
+                .flatten()
+                .filter(|e| {
+                    let n = e.file_name().to_string_lossy().into_owned();
+                    n == ".cigscript-keys"
+                        || n.strip_prefix(".cigscript-keys-")
+                            .is_some_and(|u| !u.is_empty() && u.bytes().all(|b| b.is_ascii_digit()))
+                })
+                .map(|e| e.path())
+                .collect();
+            names.sort();
+            for n in names {
+                add(n);
+            }
+        }
+    }
+    // cig's OS configuration folder, as cig's `seal::os_config_dir` names it
+    let user = env("HOME")
+        .or_else(|| env("USERPROFILE"))
+        .filter(|v| !v.is_empty())
+        .map(std::path::PathBuf::from);
+    let config = if cfg!(target_os = "macos") {
+        user.map(|h| {
+            h.join("Library")
+                .join("Application Support")
+                .join("CigScript")
+        })
+    } else if cfg!(windows) {
+        env("APPDATA")
+            .filter(|v| !v.is_empty())
+            .map(std::path::PathBuf::from)
+            .or_else(|| user.map(|h| h.join("AppData").join("Roaming")))
+            .map(|d| d.join("CigScript"))
+    } else {
+        env("XDG_CONFIG_HOME")
+            .map(std::path::PathBuf::from)
+            .filter(|p| p.is_absolute())
+            .or_else(|| user.map(|h| h.join(".config")))
+    };
+    if let Some(c) = config {
+        add(c.join("cigscript").join("keys"));
+    }
     out
 }
 
@@ -746,4 +814,61 @@ fn remove_family(
         }
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::cig_key_dirs;
+    use std::ffi::OsString;
+
+    #[test]
+    fn cigs_key_folders_beside_the_home_and_in_the_config_folder_are_named() {
+        let t = tempfile::tempdir().unwrap();
+        let home = cigi_home::Home::at(t.path().join(".cigscript"));
+        std::fs::create_dir_all(home.root()).unwrap();
+        for d in [
+            ".cigscript-keys",
+            ".cigscript-keys-1000",
+            ".cigscript-keys-x",
+            "other",
+        ] {
+            std::fs::create_dir_all(t.path().join(d)).unwrap();
+        }
+        let cfg = t.path().join("cfg");
+        let keys = if cfg!(target_os = "macos") {
+            t.path()
+                .join("Library/Application Support/CigScript/cigscript/keys")
+        } else if cfg!(windows) {
+            cfg.join("CigScript").join("cigscript").join("keys")
+        } else {
+            cfg.join("cigscript").join("keys")
+        };
+        std::fs::create_dir_all(&keys).unwrap();
+        let (h, c) = (t.path().to_path_buf(), cfg.clone());
+        let env = move |k: &str| -> Option<OsString> {
+            match k {
+                "HOME" => Some(h.clone().into_os_string()),
+                "XDG_CONFIG_HOME" | "APPDATA" => Some(c.clone().into_os_string()),
+                _ => None,
+            }
+        };
+        let got = cig_key_dirs(&home, &env);
+        assert_eq!(
+            got,
+            vec![
+                t.path().join(".cigscript-keys"),
+                t.path().join(".cigscript-keys-1000"),
+                keys
+            ]
+        );
+    }
+
+    #[test]
+    fn no_key_folder_names_nothing() {
+        let t = tempfile::tempdir().unwrap();
+        let home = cigi_home::Home::at(t.path().join(".cigscript"));
+        let h = t.path().to_path_buf();
+        let env = move |k: &str| (k == "HOME").then(|| h.clone().into_os_string());
+        assert!(cig_key_dirs(&home, &env).is_empty());
+    }
 }

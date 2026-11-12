@@ -5,7 +5,6 @@
 mod common;
 
 use std::path::Path;
-use std::time::Instant;
 
 use cigi_home::platform::ino;
 use cigi_testkit::{Fixture, Snapshot};
@@ -553,23 +552,22 @@ fn a2_no_telemetry() {
     }
 }
 
+/// `install pack dev` on a fresh home: the pack's two tools, one transaction, working shims. How
+/// long it takes is a budget, judged on a release build in `cigi-budgets/tests/release_install.rs`
+/// (`docs/BENCH.md`), never here: a slow machine is not a failing install.
 #[test]
-fn a2_perf_install() {
-    // The best of three fresh installs: another test fsyncing the same disk in parallel can
-    // slow one run, but a real regression slows all three.
-    let mut best = f64::MAX;
-    for _ in 0..3 {
-        let mut fx = fixture();
-        fx.carton("0.1.0", &[("cig", "1.20.0"), ("cigo", "1.17.0")]);
-        fx.publish("stable");
-        let t = Instant::now();
-        ok(&cigi(&fx, &["install", "pack", "dev"]));
-        best = best.min(t.elapsed().as_secs_f64());
-        if best < 5.0 {
-            break;
-        }
-    }
-    assert!(best < 5.0, "the fastest of three installs took {best:.2} s");
+fn a2_install_pack_dev_on_a_fresh_home() {
+    let mut fx = fixture();
+    fx.carton("0.1.0", &[("cig", "1.20.0"), ("cigo", "1.17.0")]);
+    fx.publish("stable");
+    ok(&cigi(&fx, &["install", "pack", "dev"]));
+    assert_eq!(tool_dirs(&fx), ["cig", "cigo"]);
+    no_partials(&fx);
+    assert_eq!(committed_txns(&fx), 1);
+    assert_eq!(
+        shim_out(&fx, "cigo", &fx.project),
+        "cigo 1.17.0 uses cig 1.20.0"
+    );
 }
 
 #[test]

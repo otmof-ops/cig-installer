@@ -5,7 +5,6 @@
 //! transaction, a lock wait).
 
 use std::cell::OnceCell;
-use std::ffi::OsString;
 use std::path::PathBuf;
 
 use cig_compat::{Host, Manifest, Target};
@@ -73,28 +72,8 @@ fn floor_of(cfg: &Config) -> TrustLevel {
 
 impl Cx {
     pub fn new(ui: Ui, globals: Globals, cwd: Option<PathBuf>) -> Result<Cx, InstallerError> {
-        let override_home: Option<OsString> =
-            globals.home.as_ref().map(|h| h.clone().into_os_string());
-        let home = Home::discover_with(&|k| {
-            if k == "CIGSCRIPT_HOME" {
-                if let Some(h) = &override_home {
-                    return Some(h.clone());
-                }
-            }
-            let v = std::env::var_os(k).filter(|v| !v.is_empty());
-            // Run from `<home>/bin` with no `--home` and no CIGSCRIPT_HOME, ciginstaller works on
-            // the home it sits in, as the shims do (an install made with `--home <dir>` followed
-            // by `export PATH=<dir>/bin:$PATH` then needs nothing else).
-            if k == "CIGSCRIPT_HOME" && v.is_none() {
-                return std::env::current_exe()
-                    .ok()
-                    .and_then(|e| cigi_shim::home_of_exe(&e))
-                    .filter(|h| h.join("installer").is_dir())
-                    .map(PathBuf::into_os_string);
-            }
-            v
-        })
-        .map_err(ie)?;
+        // decision 0005: --home, else the home this ciginstaller lives in, else CIGSCRIPT_HOME
+        let home = Home::for_running(globals.home.as_deref()).map_err(ie)?;
         let cfg = Config::load(&home).map_err(ie)?;
         let state = State::load(&home).map_err(ie)?;
         let source = source_from_config(&cfg);
@@ -157,6 +136,9 @@ impl Cx {
             self.state = State::load(&self.home).map_err(ie)?;
             return Ok(());
         }
+        // a home that cannot be written here (inside a task) is refused before anything is
+        // written, the lock included (E1905)
+        refuse_unwritable(&self.home)?;
         // permissions are checked before anything is written, and again once the layout exists
         self.home.check_permissions().map_err(ie)?;
         self.home.ensure_layout().map_err(ie)?;
@@ -541,4 +523,58 @@ impl CacheCopy {
             }
         }
     }
+}
+
+/// E1905: every command that changes the family home takes its lock first, and this runs before
+/// that. The home is tried with one empty file made and removed in its nearest folder that exists
+/// (`installer/`, else the home, else the folder it would be made in). A home that cannot be
+/// written there (a read-only mount inside a cig box or a cigo task, or a folder that is not the
+/// user's) stops the command with one error and nothing written.
+pub fn refuse_unwritable(home: &Home) -> Result<(), InstallerError> {
+    let root = home.root();
+    let at = [home.installer(), root.clone()]
+        .into_iter()
+        .chain(root.parent().map(std::path::Path::to_path_buf))
+        .find(|d| d.is_dir());
+    let Some(at) = at else {
+        return Ok(());
+    };
+    let probe = at.join(format!(
+        ".cigi-write-probe-{}",
+        cigi_source::digest::random_suffix()
+    ));
+    let made = std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(&probe);
+    match made {
+        Ok(f) => {
+            drop(f);
+            let _ = std::fs::remove_file(&probe);
+            Ok(())
+        }
+        Err(e)
+            if matches!(
+                e.kind(),
+                std::io::ErrorKind::ReadOnlyFilesystem | std::io::ErrorKind::PermissionDenied
+            ) =>
+        {
+            Err(unwritable(&root, &e))
+        }
+        // anything else (a full disk, a name that exists) is the command's own to report
+        Err(_) => Ok(()),
+    }
+}
+
+/// The E1905 error for `root`.
+pub fn unwritable(root: &std::path::Path, e: &std::io::Error) -> InstallerError {
+    InstallerError::new(
+        "E1905",
+        format!(
+            "the family home {} cannot be written here ({e}); inside a task (a cig box, a cigo task) the home is read-only, and nothing installs from there",
+            root.display()
+        ),
+    )
+    .with_fix("run the same command outside the task, in a terminal")
+    .with_exit(cigi_ui::EXIT_REFUSED)
 }

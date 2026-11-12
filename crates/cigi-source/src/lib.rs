@@ -39,8 +39,8 @@ pub use source::{
     source_from_config, try_source_from_config, FetchInfo, GithubSource, MirrorSource, Source,
 };
 pub use trust::{
-    Admitted, Attest, DigestTrust, GhAttest, NoAttest, SeenState, StubAttest, Trust, TrustLevel,
-    Verified,
+    Admitted, Attest, DigestTrust, GhAttest, GhScratch, NoAttest, SeenState, StubAttest, Trust,
+    TrustLevel, Verified,
 };
 #[cfg(feature = "tuf")]
 pub use trust::{TufConfig, TufTrust};

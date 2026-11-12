@@ -10,26 +10,80 @@ on:
 permissions:
   contents: read
 
+# A new push to a pull request cancels its earlier run. A push to main (or a tag) finishes.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
+  # A docs-only change (docs/** and *.md where the job does not build or test docs) skips the heavy
+  # jobs: macOS, Windows, the musl release build and the six-distro fresh-install matrix. The Linux
+  # `check` job and the bootstrap script shellcheck still run because they lint files the docs can
+  # cite. One `ci-ok` verdict always reports. Plain `git`, no third-party action.
+  changes:
+    name: what changed
+    runs-on: ubuntu-latest
+    outputs:
+      code_changed: ${{ steps.filter.outputs.code_changed }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - id: filter
+        name: are any non-docs paths touched
+        env:
+          GH_EVENT: ${{ github.event_name }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          set -euo pipefail
+          case "$GH_EVENT" in
+            pull_request)
+              base="$BASE_SHA"
+              git fetch --no-tags --prune --depth=50 origin "+refs/heads/*:refs/remotes/origin/*" >/dev/null 2>&1 || true
+              files=$(git diff --name-only "$base"...HEAD)
+              ;;
+            *)
+              # push to main or elsewhere: compare with parent (first parent of HEAD)
+              if git rev-parse HEAD^ >/dev/null 2>&1; then
+                files=$(git diff --name-only HEAD^ HEAD)
+              else
+                files=$(git ls-tree -r --name-only HEAD)
+              fi
+              ;;
+          esac
+          echo "changed files:"
+          printf '%s\n' "$files"
+          code_changed=false
+          while IFS= read -r f; do
+            [ -z "$f" ] && continue
+            case "$f" in
+              docs/*|*.md) ;;
+              *) code_changed=true; break ;;
+            esac
+          done <<EOF
+          $files
+          EOF
+          echo "code_changed=$code_changed" >> "$GITHUB_OUTPUT"
+          echo "code_changed=$code_changed"
+
   check:
     name: fmt, clippy, test
+    needs: changes
     runs-on: ubuntu-latest
     env:
       CARGO_TERM_COLOR: always
     steps:
       - uses: actions/checkout@v4
-      - name: Install Rust (stable)
+      - name: Install Rust (pinned by rust-toolchain.toml)
         run: |
-          rustup update stable --no-self-update
-          rustup default stable
-          rustup component add rustfmt clippy
+          rustup show active-toolchain || rustup toolchain install
       - uses: actions/cache@v4
         with:
           path: |
             ~/.cargo/registry
             ~/.cargo/git
             target
-          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock', '**/Cargo.toml') }}
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock', '**/Cargo.toml', 'rust-toolchain.toml') }}
           restore-keys: |
             ${{ runner.os }}-cargo-
       - name: cargo fmt
@@ -45,14 +99,18 @@ jobs:
   # minutes, so it runs on pull requests and on main, not nightly.
   bench:
     name: release bench
+    needs: changes
+    if: needs.changes.outputs.code_changed == 'true'
     uses: ./.github/workflows/bench.yml
     permissions:
       contents: read
 
   # The bootstrap scripts (#5): shellcheck, then the fill and install tests against a local fixture.
-  # Cheap and Linux only; nothing leaves the runner.
+  # Cheap and Linux only; nothing leaves the runner. Always runs: the install.sh.in template cites
+  # the README, and we want the shellcheck pass every time.
   bootstrap:
     name: bootstrap scripts
+    needs: changes
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -64,6 +122,8 @@ jobs:
   # The declared rust-version (Cargo.toml) must really build.
   msrv:
     name: cargo +1.88 check
+    needs: changes
+    if: needs.changes.outputs.code_changed == 'true'
     runs-on: ubuntu-latest
     env:
       CARGO_TERM_COLOR: always
@@ -86,12 +146,14 @@ jobs:
   # The static release build, on pull requests too: the release workflow builds the same way.
   musl:
     name: musl release build and size budget
+    needs: changes
+    if: needs.changes.outputs.code_changed == 'true'
     runs-on: ubuntu-latest
     env:
       CARGO_TERM_COLOR: always
     steps:
       - uses: actions/checkout@v4
-      - name: Install Rust (stable) and the musl toolchain
+      - name: Install Rust (pinned by rust-toolchain.toml) and the musl toolchain
         run: |
           # Canonical's names can stop resolving for hours (2026-11-11: the runner's mirror list and
           # archive.ubuntu.com alike, while public resolvers still answered). Each try is time-bound; after
@@ -121,16 +183,14 @@ jobs:
             done
             sleep $((i * 15))
           done
-          rustup update stable --no-self-update
-          rustup default stable
-          rustup target add x86_64-unknown-linux-musl
+          rustup show active-toolchain || rustup toolchain install
       - uses: actions/cache@v4
         with:
           path: |
             ~/.cargo/registry
             ~/.cargo/git
             target
-          key: ${{ runner.os }}-musl-${{ hashFiles('**/Cargo.lock', '**/Cargo.toml') }}
+          key: ${{ runner.os }}-musl-${{ hashFiles('**/Cargo.lock', '**/Cargo.toml', 'rust-toolchain.toml') }}
           restore-keys: |
             ${{ runner.os }}-musl-
       - name: cargo build --release (musl)
@@ -166,7 +226,8 @@ jobs:
   # as the cargo tests do) before installing from it.
   fresh-install:
     name: fresh install (${{ matrix.name }})
-    needs: musl
+    needs: [changes, musl]
+    if: needs.changes.outputs.code_changed == 'true'
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -190,12 +251,91 @@ jobs:
           docker run --rm --user 1001:1001 -v "$PWD/dist:/dist:ro" "${{ matrix.image }}" \
             sh /dist/fresh-install.sh /dist
 
+  # #21 and Carton 0.2.0 row 14: build the upgrade dist on the runner. Same static binaries the
+  # fresh-install job uses (download the artifact), plus a two-carton fixture mirror produced by
+  # `cargo xtask fixture-mirror --candidate <v>`: 0.1.0 is the base, and the candidate stands in
+  # for carton 0.2.0 until it is tagged. When that tag lands, this step moves to the real carton
+  # by dropping `--candidate` and pointing the script at the published manifest release.
+  upgrade-dist:
+    name: build upgrade dist
+    needs: musl
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Rust (pinned by rust-toolchain.toml)
+        run: |
+          rustup show active-toolchain || rustup toolchain install
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-upgrade-${{ hashFiles('**/Cargo.lock', '**/Cargo.toml', 'rust-toolchain.toml') }}
+          restore-keys: |
+            ${{ runner.os }}-upgrade-
+            ${{ runner.os }}-cargo-
+      - uses: actions/download-artifact@v4
+        with:
+          name: fresh-install-dist
+          path: upgrade-dist
+      - name: write a mirror that carries carton 0.1.0 and the candidate
+        run: |
+          # fresh-install-dist held a one-carton mirror; the upgrade mirror holds two cartons.
+          rm -rf upgrade-dist/mirror
+          cargo xtask fixture-mirror upgrade-dist/mirror \
+            --candidate 0.2.0 --candidate-cig 1.21.0 --candidate-cigo 1.17.0
+      - name: attach the script
+        run: |
+          cp ci/upgrade.sh upgrade-dist/
+          chmod +x upgrade-dist/upgrade.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: upgrade-dist
+          path: upgrade-dist
+          retention-days: 3
+          if-no-files-found: error
+
+  # #21 and Carton 0.2.0 row 14: the upgrade matrix. On each distro of the fresh-install matrix,
+  # install carton 0.1.0 as a user does, update to the candidate, rollback and go forward again,
+  # checking status, each shim and doctor at every step. Candidate versions move with the mirror
+  # above; when the real carton 0.2.0 is tagged they become the real numbers.
+  upgrade-from-0_1_0:
+    name: upgrade 0.1.0 (${{ matrix.name }})
+    needs: upgrade-dist
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { name: debian, image: "debian:stable-slim" }
+          - { name: ubuntu, image: "ubuntu:latest" }
+          - { name: parrot, image: "parrotsec/core:latest" }
+          - { name: fedora, image: "fedora:latest" }
+          - { name: arch,   image: "archlinux:latest" }
+          - { name: alpine, image: "alpine:latest" }
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: upgrade-dist
+          path: dist
+      - name: upgrade in ${{ matrix.image }}
+        run: |
+          docker run --rm --user 1001:1001 -v "$PWD/dist:/dist:ro" "${{ matrix.image }}" \
+            sh /dist/upgrade.sh /dist
+
   # Windows (#21): every target compiles, tests included, and the platform-neutral tests run. The
   # Windows runtime (self-update rename-aside, registry PATH, the journal's Windows rules) is not
   # built yet, so the rest of the suite waits on those drafts; its unix-only tests are gated with
   # `#[cfg(unix)]` and a comment saying what each proves. x86_64 and ARM, as #21 asks.
   test-windows:
     name: windows (${{ matrix.os }})
+    needs: changes
+    if: needs.changes.outputs.code_changed == 'true'
     runs-on: ${{ matrix.os }}
     permissions:
       contents: read
@@ -213,24 +353,23 @@ jobs:
       - name: no line-ending conversion
         run: git config --global core.autocrlf false
       - uses: actions/checkout@v4
-      - name: Install Rust (stable)
+      - name: Install Rust (pinned by rust-toolchain.toml)
         run: |
           if (-not (Get-Command rustup -ErrorAction SilentlyContinue)) {
             $arch = if ($env:PROCESSOR_ARCHITECTURE -eq 'ARM64') { 'aarch64' } else { 'x86_64' }
             Invoke-WebRequest "https://win.rustup.rs/$arch" -OutFile rustup-init.exe
-            ./rustup-init.exe -y --default-toolchain stable --profile minimal --no-modify-path
+            ./rustup-init.exe -y --default-toolchain none --profile minimal --no-modify-path
             "$env:USERPROFILE\.cargo\bin" | Out-File -Append -Encoding utf8 $env:GITHUB_PATH
             $env:PATH = "$env:USERPROFILE\.cargo\bin;$env:PATH"
           }
-          rustup update stable --no-self-update
-          rustup default stable
+          rustup show active-toolchain
       - uses: actions/cache@v4
         with:
           path: |
             ~/.cargo/registry
             ~/.cargo/git
             target
-          key: ${{ matrix.os }}-cargo-${{ hashFiles('**/Cargo.lock', '**/Cargo.toml') }}
+          key: ${{ matrix.os }}-cargo-${{ hashFiles('**/Cargo.lock', '**/Cargo.toml', 'rust-toolchain.toml') }}
           restore-keys: |
             ${{ matrix.os }}-cargo-
       - name: cargo build (every target, tests included)
@@ -258,6 +397,8 @@ jobs:
   # macos-13 is retired; macos-15-intel is the Intel runner.
   test-macos:
     name: macos (${{ matrix.os }})
+    needs: changes
+    if: needs.changes.outputs.code_changed == 'true'
     runs-on: ${{ matrix.os }}
     permissions:
       contents: read
@@ -269,17 +410,16 @@ jobs:
       CARGO_TERM_COLOR: always
     steps:
       - uses: actions/checkout@v4
-      - name: Install Rust (stable)
+      - name: Install Rust (pinned by rust-toolchain.toml)
         run: |
-          rustup update stable --no-self-update
-          rustup default stable
+          rustup show active-toolchain || rustup toolchain install
       - uses: actions/cache@v4
         with:
           path: |
             ~/.cargo/registry
             ~/.cargo/git
             target
-          key: ${{ matrix.os }}-cargo-${{ hashFiles('**/Cargo.lock', '**/Cargo.toml') }}
+          key: ${{ matrix.os }}-cargo-${{ hashFiles('**/Cargo.lock', '**/Cargo.toml', 'rust-toolchain.toml') }}
           restore-keys: |
             ${{ matrix.os }}-cargo-
       - name: cargo test
@@ -287,3 +427,24 @@ jobs:
         run: cargo test --workspace --locked --no-fail-fast
       - name: bootstrap script tests
         run: bash ci/test-bootstrap.sh
+
+  # The one verdict every pull request reports: did every needed job pass or skip. A merge can
+  # depend on this job alone, so adding a job to the matrix does not need the branch rule changed.
+  ci-ok:
+    name: ci
+    if: always()
+    needs: [changes, check, bootstrap, bench, msrv, musl, fresh-install, test-windows, test-macos]
+    runs-on: ubuntu-latest
+    steps:
+      - name: every needed job passed or was skipped
+        env:
+          NEEDS: ${{ toJSON(needs) }}
+        run: |
+          set -euo pipefail
+          printf '%s\n' "$NEEDS"
+          failed=$(printf '%s' "$NEEDS" | jq -r 'to_entries | map(select(.value.result != "success" and .value.result != "skipped")) | map(.key) | join(" ")')
+          if [ -n "$failed" ]; then
+            echo "::error::failed or cancelled: $failed"
+            exit 1
+          fi
+          echo "every needed job passed or was skipped"

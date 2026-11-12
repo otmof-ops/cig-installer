@@ -178,28 +178,32 @@ fn cigo_finds_cig_through_the_same_home() {
 }
 
 #[test]
-fn env_home_overrides_and_is_reported() {
+fn a_shim_runs_its_own_homes_build_whatever_cigscript_home_says() {
     let fx = setup();
     let (a, b) = (dir(&fx, "a"), dir(&fx, "b"));
     install_in(&fx, &a, "0.1.0");
     install_in(&fx, &b, "0.2.0");
-    // a's shim with CIGSCRIPT_HOME at b: b wins, and the shim says both when asked
+    // a's shim with CIGSCRIPT_HOME at b (decision 0005): a's build runs, and the shim says both
+    // homes when asked
     let o = shim(&fx, &a, "cig", &[("CIGSCRIPT_HOME", &b)], true);
     let t = text(&o);
     assert_eq!(o.status.code(), Some(0), "{t}");
-    assert!(t.contains("cig 1.21.0"), "b's build runs: {t}");
+    assert!(t.contains("cig 1.20.0"), "a's build runs: {t}");
     let (sa, sb) = (a.display().to_string(), b.display().to_string());
     assert!(t.contains(&sa) && t.contains(&sb), "names both homes: {t}");
+    assert!(t.contains("the home it lives in wins"), "{t}");
+    // CIGSCRIPT_HOME at an empty folder (cig's box points it at the run's inbox): the same
+    let empty = dir(&fx, "empty");
+    std::fs::create_dir_all(&empty).unwrap();
+    let o = shim(&fx, &a, "cig", &[("CIGSCRIPT_HOME", &empty)], false);
+    assert_eq!(o.status.code(), Some(0), "{}", text(&o));
+    assert!(text(&o).contains("cig 1.20.0"), "{}", text(&o));
     // without the variable a's own build runs, and nothing is said about a disagreement
     let o = shim(&fx, &a, "cig", &[], true);
     assert!(text(&o).contains("cig 1.20.0"), "{}", text(&o));
     assert!(!text(&o).contains("CIGSCRIPT_HOME is"), "{}", text(&o));
-    // doctor names both: a ciginstaller that sits in a's bin, told to work on b
-    let x = dir(&fx, "x");
-    std::fs::create_dir_all(x.join("bin")).unwrap();
-    let real = x.join("bin/ciginstaller");
-    std::fs::copy(cigi_testkit::binary_path("ciginstaller"), &real).unwrap();
-    let mut c = Command::new(&real);
+    // the installer's own copy in a's bin works on a, with CIGSCRIPT_HOME at the empty folder
+    let mut c = Command::new(a.join("bin/ciginstaller"));
     c.env_clear()
         .env("HOME", &fx.user_home)
         .env("LANG", "C")
@@ -207,11 +211,48 @@ fn env_home_overrides_and_is_reported() {
         .env("TERM", "dumb")
         .env("CIGI_ROUTES", "none")
         .env("CIGI_NO_REGISTRY_PATH", "1")
-        .env("CIGSCRIPT_HOME", &b)
+        .env("CIGSCRIPT_HOME", &empty)
         .env("CIGI_MIRROR", fx.mirror_file_url())
-        .args(["--plain", "doctor"])
+        .args(["--plain", "status"])
         .current_dir(&fx.project);
-    let t = text(&timed(c));
+    let o = timed(c);
+    assert_eq!(o.status.code(), Some(0), "{}", text(&o));
+    assert!(text(&o).contains("0.1.0"), "a's carton: {}", text(&o));
+    assert!(
+        std::fs::read_dir(&empty).unwrap().next().is_none(),
+        "nothing was written to CIGSCRIPT_HOME's folder"
+    );
+}
+
+#[test]
+fn a_binary_in_no_home_follows_cigscript_home_and_doctor_names_both() {
+    let fx = setup();
+    let b = dir(&fx, "b");
+    install_in(&fx, &b, "0.2.0");
+    let sb = b.display().to_string();
+    // a ciginstaller in a `bin` that is not a home, told to work on b
+    let x = dir(&fx, "x");
+    std::fs::create_dir_all(x.join("bin")).unwrap();
+    let real = x.join("bin/ciginstaller");
+    std::fs::copy(cigi_testkit::binary_path("ciginstaller"), &real).unwrap();
+    let run = |args: &[&str]| {
+        let mut c = Command::new(&real);
+        c.env_clear()
+            .env("HOME", &fx.user_home)
+            .env("LANG", "C")
+            .env("NO_COLOR", "1")
+            .env("TERM", "dumb")
+            .env("CIGI_ROUTES", "none")
+            .env("CIGI_NO_REGISTRY_PATH", "1")
+            .env("CIGSCRIPT_HOME", &b)
+            .env("CIGI_MIRROR", fx.mirror_file_url())
+            .args(args)
+            .current_dir(&fx.project);
+        text(&timed(c))
+    };
+    let t = run(&["--plain", "status"]);
+    assert!(t.contains("0.2.0"), "b's carton: {t}");
+    let t = run(&["--plain", "doctor"]);
     assert!(
         t.contains(&x.display().to_string()) && t.contains(&sb),
         "doctor names both: {t}"
@@ -224,10 +265,15 @@ fn e1840_never_says_missing_when_it_is_beside_the_shim() {
     let fx = setup();
     let home = dir(&fx, "custom");
     install_in(&fx, &home, "0.1.0");
+    // a copy of the shim and the installer in a `bin` that is not a home: CIGSCRIPT_HOME chooses,
+    // and it names an empty folder
+    let y = dir(&fx, "y");
+    std::fs::create_dir_all(y.join("bin")).unwrap();
+    std::fs::copy(home.join("bin/cig"), y.join("bin/cig")).unwrap();
+    std::fs::copy(home.join("bin/ciginstaller"), y.join("bin/ciginstaller")).unwrap();
     let empty = dir(&fx, "empty");
     std::fs::create_dir_all(&empty).unwrap();
-    assert!(home.join("bin/ciginstaller").is_file());
-    let o = shim(&fx, &home, "cig", &[("CIGSCRIPT_HOME", &empty)], false);
+    let o = shim(&fx, &y, "cig", &[("CIGSCRIPT_HOME", &empty)], false);
     let t = text(&o);
     assert_eq!(o.status.code(), Some(127), "{t}");
     assert!(t.contains("E1840"), "{t}");
@@ -237,12 +283,12 @@ fn e1840_never_says_missing_when_it_is_beside_the_shim() {
         "the home searched: {t}"
     );
     assert!(
-        t.contains(&home.join("bin").display().to_string()),
+        t.contains(&y.join("bin").display().to_string()),
         "the shim's own folder: {t}"
     );
     // and when there truly is no ciginstaller, it says so
-    std::fs::remove_file(home.join("bin/ciginstaller")).unwrap();
-    let o = shim(&fx, &home, "cig", &[("CIGSCRIPT_HOME", &empty)], false);
+    std::fs::remove_file(y.join("bin/ciginstaller")).unwrap();
+    let o = shim(&fx, &y, "cig", &[("CIGSCRIPT_HOME", &empty)], false);
     assert!(text(&o).contains("no ciginstaller"), "{}", text(&o));
 }
 

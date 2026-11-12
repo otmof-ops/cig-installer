@@ -99,11 +99,15 @@ fn owner_ok(_md: &fs::Metadata, _t: Trusted) -> bool {
     true
 }
 
-/// Where a shim's home comes from, in the order the shim trusts them.
+/// Where a shim's home comes from, in the order the shim trusts them (decision 0005).
 ///
-/// A shim lives at `<home>/bin/<name>`, so the home is the parent of `bin` (the running file's
-/// resolved location, so a link to the shim from another folder still finds its own home).
-/// `CIGSCRIPT_HOME` overrides it; when the two name different folders the shim can say so.
+/// A family tool belongs to the home it lives in: a shim at `<home>/bin/<name>`, or a build under
+/// `<home>/toolchains/`, works against that home whatever `CIGSCRIPT_HOME` says (the running file's
+/// resolved location, so a link to the shim from another folder still finds its own home). A
+/// folder counts as a home when it holds `installer/`. `CIGSCRIPT_HOME` (or `~/.cigscript`)
+/// chooses the home only for a binary that is not inside one: a development build, the bootstrap
+/// installer, a test's binary. `CIGSCRIPT_HOME` stays cig's state root, which cig's box moves to
+/// the run's inbox; the installer's settings, toolchains and shims do not move with it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct HomeChoice {
     /// The home the shim works against.
@@ -112,6 +116,8 @@ pub struct HomeChoice {
     pub anchored: Option<PathBuf>,
     /// `CIGSCRIPT_HOME`, when it is set and not empty.
     pub env: Option<PathBuf>,
+    /// The home was chosen because the running file lives in it ([`home_containing`]).
+    pub owned: bool,
 }
 
 impl HomeChoice {
@@ -140,22 +146,52 @@ pub fn home_of_exe(exe: &Path) -> Option<PathBuf> {
     (named_bin && !home.as_os_str().is_empty()).then(|| home.to_path_buf())
 }
 
-/// The home a shim works against: `CIGSCRIPT_HOME`, else the home its own file sits in, else
-/// `~/.cigscript`.
+/// The family home a running file lives in (decision 0005): the nearest folder above `exe` that
+/// holds `installer/` and has `exe` under its `bin/` or its `toolchains/`. A shim, the
+/// installer's own copy in `bin/` and every installed build answer their home; a development
+/// build or a test's binary answers `None`.
+pub fn home_containing(exe: &Path) -> Option<PathBuf> {
+    let mut dir = exe.parent();
+    while let Some(d) = dir {
+        let name = d.file_name()?;
+        let is = |want: &str| {
+            if cfg!(windows) {
+                name.eq_ignore_ascii_case(want)
+            } else {
+                name == want
+            }
+        };
+        if is("bin") || is("toolchains") {
+            if let Some(home) = d.parent().filter(|h| !h.as_os_str().is_empty()) {
+                if home.join("installer").is_dir() {
+                    return Some(home.to_path_buf());
+                }
+            }
+        }
+        dir = d.parent();
+    }
+    None
+}
+
+/// The home a shim works against: the home it lives in, else `CIGSCRIPT_HOME`, else the folder
+/// above its `bin` when that is not a home yet, else `~/.cigscript`.
 pub fn choose_home(
     exe: Option<&Path>,
     env: Option<PathBuf>,
     user_home: Option<PathBuf>,
 ) -> Option<HomeChoice> {
     let anchored = exe.and_then(home_of_exe);
-    let home = env
-        .clone()
+    let own = exe.and_then(home_containing);
+    let owned = own.is_some();
+    let home = own
+        .or_else(|| env.clone())
         .or_else(|| anchored.clone())
         .or_else(|| user_home.map(|h| h.join(".cigscript")))?;
     Some(HomeChoice {
         home,
         anchored,
         env,
+        owned,
     })
 }
 

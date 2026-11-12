@@ -702,7 +702,7 @@ fn results_go_to_stdout_and_chatter_to_stderr() {
 
 // ---- the registry -----------------------------------------------------------------------
 
-const SPEC_CODES: [(u32, &str); 87] = [
+const SPEC_CODES: [(u32, &str); 88] = [
     (1800, "combination refused"),
     (1801, "a product needs another"),
     (1802, "a stick does not fit its carton"),
@@ -805,6 +805,7 @@ const SPEC_CODES: [(u32, &str); 87] = [
     (1902, "a shim target is outside its home"),
     (1903, "a shim target is not the build its receipt recorded"),
     (1904, "a setting is locked by the machine"),
+    (1905, "the family home cannot be written here"),
 ];
 
 #[test]

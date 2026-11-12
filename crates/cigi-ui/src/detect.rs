@@ -240,15 +240,21 @@ mod unix {
     }
 
     /// Append what arrives on `rx` to `got` until `done(got)` or `deadline`, whichever is first.
-    /// The deadline is hard: a quiet channel returns at it, not after it.
+    /// The deadline is hard: a quiet channel returns at it, not after it, and a deadline already
+    /// reached reads nothing (`recv_timeout(Duration::ZERO)` is specified to try a non-blocking
+    /// receive first, which would read a chunk that arrived before the deadline expired).
     pub(super) fn collect(
         rx: &std::sync::mpsc::Receiver<Vec<u8>>,
         got: &mut Vec<u8>,
         deadline: Instant,
         done: impl Fn(&[u8]) -> bool,
     ) {
-        while let Some(left) = deadline.checked_duration_since(Instant::now()) {
-            match rx.recv_timeout(left) {
+        loop {
+            let now = Instant::now();
+            if now >= deadline {
+                break;
+            }
+            match rx.recv_timeout(deadline - now) {
                 Ok(chunk) => {
                     got.extend_from_slice(&chunk);
                     if done(got) {
@@ -343,7 +349,12 @@ mod unix {
             }
         };
         stop("-TERM");
-        let end = Instant::now() + Duration::from_millis(150);
+        // The shell wakes from `wait $dpid` as soon as SIGTERM reaches dd, drains stty and dd
+        // (both non-blocking at this point), then runs its EXIT trap to restore stty and exits:
+        // a few milliseconds under load. A 30 ms window keeps the critical path of a silent
+        // query well inside #32's budget; SIGKILL is the safety net for the pathological case
+        // where the shell has not exited by then, and the Restore drop restores stty either way.
+        let end = Instant::now() + Duration::from_millis(30);
         while child.try_wait().ok().flatten().is_none() {
             if Instant::now() >= end {
                 stop("-KILL");

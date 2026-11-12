@@ -9,7 +9,7 @@ mod digest_trust;
 #[cfg(feature = "tuf")]
 mod tuf;
 
-pub use attest::{Attest, GhAttest, NoAttest, StubAttest};
+pub use attest::{Attest, GhAttest, GhScratch, NoAttest, StubAttest};
 pub use digest_trust::DigestTrust;
 #[cfg(feature = "tuf")]
 pub use tuf::{compiled_root, TufConfig, TufTrust};

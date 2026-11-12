@@ -405,11 +405,7 @@ fn command_name(cmd: &Option<Command>) -> &'static str {
 
 /// The global flags, with `theme` and `voice` read from `installer/config` (#31, #32).
 fn flags_of(cli: &Cli) -> GlobalFlags {
-    let over = cli.home.clone().map(std::path::PathBuf::into_os_string);
-    let home = cigi_home::Home::discover_with(&|k| match (k, &over) {
-        ("CIGSCRIPT_HOME", Some(h)) => Some(h.clone()),
-        _ => std::env::var_os(k),
-    });
+    let home = cigi_home::Home::for_running(cli.home.as_deref());
     let cfg = home.ok().and_then(|h| cigi_home::Config::load(&h).ok());
     let get = |k: &str| cfg.as_ref().map(|c| c.get(k)).unwrap_or_default();
     GlobalFlags {

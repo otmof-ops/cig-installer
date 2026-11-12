@@ -56,7 +56,7 @@ Each row is ticked when the evidence is in place today.
 | the CHANGELOG has a section for this release | [x] | [x] | [x] | [x] | [x] | each repository's `CHANGELOG.md` |
 | the docs match (README, `docs/`, `LANGUAGE.md`, `BURN.md`, `BENCH.md` as applicable) | [x] | [x] | [x] | [x] | [x] | the release's own PR |
 | a `products.toml` entry with `requires`, `license` and (where it applies) `embeds` | [x] | [x] | [x] | [x] | n/a | [`manifest/products.toml`](../manifest/products.toml) |
-| sha256 and attestation on every asset the release carries | [x] | [x] | [x] | [x] | [x] | each release's artefacts and `gh attestation` |
+| sha256 and attestation on every asset the release carries | [x] | [x] | [x] | [x] | [x] | each release's artifacts and `gh attestation` |
 | the release notes are the CHANGELOG section (no new text) | [x] | [x] | [x] | [x] | [x] | the release's body |
 | the bench gate holds, or an accepted exception is in the release notes | [ ] | [ ] | [ ] | [ ] | [ ] | the bench workflow's run; thresholds in each repo's `docs/BENCH.md` or `docs/BENCHMARKS.md` |
 
@@ -68,7 +68,7 @@ installer manages, not the installer.
 | repo | gate file | fail on |
 |---|---|---|
 | cig | [`bench/bench.toml`](https://github.com/otmof-ops/cig-script/blob/main/bench/bench.toml), [`docs/BENCH.md`](https://github.com/otmof-ops/cig-script/blob/main/docs/BENCH.md) | `correctness`; `disk` (bytes per byte burned more than 10% over the case's `reference`). `start-up` and `regression` are reported, not gated, on shared runners (#153) |
-| cigo | `scripts/bench.cig` | there is no `bench/bench.toml` yet; the detection and latency gates are #88 and #90, the hook's cache is #117 |
+| cigo | [`bench/bench.toml`](https://github.com/otmof-ops/cig-orchestrator/blob/main/bench/bench.toml), [`docs/benchmarks.md`](https://github.com/otmof-ops/cig-orchestrator/blob/main/docs/benchmarks.md) | `correctness`; wall times are reported, not gated, on shared runners (#153). The detection and latency gates are #88 and #90, the hook's cache is #117 |
 | CigCompile | [`docs/BENCHMARKS.md`](https://github.com/otmof-ops/cig-compile/blob/main/docs/BENCHMARKS.md) ([#30](https://github.com/otmof-ops/cig-compile/issues/30)) | `correctness`; `regression` (5% median or 2% geomean, non-noisy); the per-stage budgets of [#14](https://github.com/otmof-ops/cig-compile/issues/14); memory 10% over `main` |
 | CigarScript | [`bench/bench.toml`](https://github.com/otmof-ops/cigar-script/blob/main/bench/bench.toml) ([#17](https://github.com/otmof-ops/cigar-script/issues/17)) | `correctness`; the superset no slower than CigScript; strength-check cost (the other groups land with the features they measure) |
 | ciginstaller | [`bench/budgets.toml`](../bench/budgets.toml), [`docs/BENCH.md`](BENCH.md) | the 11 budgets of [#20](https://github.com/otmof-ops/cig-installer/issues/20) and [#32](https://github.com/otmof-ops/cig-installer/issues/32), on Linux and macOS; Windows measures the four that do not need a shell-script product |

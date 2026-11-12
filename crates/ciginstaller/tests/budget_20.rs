@@ -1,7 +1,8 @@
 // SPDX-FileCopyrightText: 2026 Jay Taylor (https://github.com/otmof-ops/cig-installer)
 // SPDX-License-Identifier: FSL-1.1-ALv2
 //! The budgets of #20 that the other budget tests do not cover (the shim is in
-//! `a3_shim_perf.rs`, the first lines in `budget.rs`, `install pack dev` in `a2_perf_install`).
+//! `a3_shim_perf.rs`, the first lines in `budget.rs`, `install pack dev` in `cigi-budgets`'s
+//! `release_install.rs`).
 //! They run on the debug build a test gets, so each limit has a debug figure with headroom and
 //! the budget itself for a release build; timings are the best of several runs, because a busy
 //! disk slows one run and a real regression slows all of them. Every number is printed.
