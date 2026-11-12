@@ -132,7 +132,7 @@ Each is built to its default and can change without touching the rest:
 - **Carton numbers.** `0.N.P` until carton 1.0.0 (#25).
 - **Where the manifest is published.** A rolling release tagged `manifest` on this repository, assembled by hand with `cargo xtask manifest assemble` until a carton release job exists. A separate repository is the alternative. Trust today is integrity, not authorship (section 7).
 - **The `cigscript` parity tests.** Behind a `parity` feature, run by hand and on tags, not on every push.
-- **The first carton's contents.** cig, cigo, cigcompile and cigarscript, named by carton 1.0.0; `tested = []` is written honestly until the integration suites exist.
+- **The first carton's contents.** cig, cigo, cigcompile and cigarscript, named by carton 0.1.0; `tested = []` is written honestly until the integration suites exist.
 
 ## Measured before building (phase 0)
 

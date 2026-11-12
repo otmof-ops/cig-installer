@@ -37,8 +37,9 @@ that were checked to work together. You can take the whole carton, a named
 everything else from the same carton.
 
 Today, `ciginstaller` is built and tested on Linux. The first carton is
-carton 1.0.0: `cig 1.21.0`, `cigo 1.19.0`, `CigCompile 0.4.0` and
-`CigarScript 0.1.0`. [Install](#install) says how to get the installer, and
+carton 0.1.0: `cig 1.21.0`, `cigo 1.19.0`, `CigCompile 0.4.0` and
+`CigarScript 0.1.0`. Cartons stay at `0.N.P` until every product in them
+has reached 1.0; that carton is 1.0.0. [Install](#install) says how to get the installer, and
 [Limits, honestly](#limits-honestly) says what is missing.
 
 ## Sixty-second tour
@@ -50,7 +51,7 @@ first carton.
 ciginstaller install carton
 ```
 ```text
-✓ carton 1.0.0 installed: cig 1.21.0, cigo 1.19.0, CigCompile 0.4.0, CigarScript 0.1.0
+✓ carton 0.1.0 installed: cig 1.21.0, cigo 1.19.0, CigCompile 0.4.0, CigarScript 0.1.0
   trust: checksummed 4 (two sources agree); PATH block added to ~/.profile
   → open a new shell, or run: export PATH="$HOME/.cigscript/bin:$PATH"
 ```
@@ -63,7 +64,7 @@ and cigo) or `ciginstaller install stick cig`.
 ciginstaller which cigo
 ```
 ```text
-✓ cigo 1.19.0, from carton 1.0.0 (pinned in .cig-carton)
+✓ cigo 1.19.0, from carton 0.1.0 (pinned in .cig-carton)
   /home/u/.cigscript/toolchains/cigo/1.19.0/bin/cigo
 ```
 
@@ -72,27 +73,27 @@ that build. `ciginstaller which cigo --why` prints each step it took to choose.
 
 ```sh
 cd ~/work/site
-ciginstaller pin carton 1.0
+ciginstaller pin carton 0.1
 ```
 ```text
-✓ carton pinned to 1.0 in ~/work/site/.cig-carton
-  no installed carton fits 1.0 yet; the first run fetches one (pin_fetch)
+✓ carton pinned to 0.1 in ~/work/site/.cig-carton
+  no installed carton fits 0.1 yet; the first run fetches one (pin_fetch)
 ```
 
-Here is a hypothetical later update, from carton 1.0.0 to 1.0.1:
+Here is a hypothetical later update, from carton 0.1.0 to 0.1.1:
 
 ```sh
 ciginstaller update
 ```
 ```text
-· carton 1.0.0 → 1.0.1: cig 1.21.0 → 1.21.1   (cigo, CigCompile, CigarScript unchanged)
-  product        installed   carton 1.0.1   changes
+· carton 0.1.0 → 0.1.1: cig 1.21.0 → 1.21.1   (cigo, CigCompile, CigarScript unchanged)
+  product        installed   carton 0.1.1   changes
   cig               1.21.0         1.21.1   programs refuse instead of turning in…
   cigo              1.19.0         1.19.0   —
   CigCompile         0.4.0          0.4.0   —
   CigarScript        0.1.0          0.1.0   —
-✓ carton 1.0.1 installed; trial: 14 scripts dry-ran the same on the new cig
-  → nothing to do. ciginstaller rollback puts 1.0.0 back.
+✓ carton 0.1.1 installed; trial: 14 scripts dry-ran the same on the new cig
+  → nothing to do. ciginstaller rollback puts 0.1.0 back.
 ```
 
 `update` checks the manifest, chooses a carton, verifies it, runs the new `cig`
@@ -101,9 +102,9 @@ mind, and `ciginstaller rollback` puts the previous carton back. Run
 `ciginstaller` with no arguments for the one-screen status:
 
 ```text
-✓ carton 1.0.0: cig 1.21.0, cigo 1.19.0, CigCompile 0.4.0, CigarScript 0.1.0
+✓ carton 0.1.0: cig 1.21.0, cigo 1.19.0, CigCompile 0.4.0, CigarScript 0.1.0
   channel stable, trust checksummed 4
-  waiting: carton 1.0.1 (cig 1.21.0 → 1.21.1)
+  waiting: carton 0.1.1 (cig 1.21.0 → 1.21.1)
   → ciginstaller update
 ```
 
