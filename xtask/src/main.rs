@@ -34,7 +34,7 @@ usage:
   cargo xtask release prune [--keep 3] [--product <tool>] [--manifest <file>] [--pin <tool>=<v>:<who>]...
         (prints the plan of #26, a dry run; --yes is blocked until the index is signed)
   cargo xtask errors-doc
-  cargo xtask fixture-mirror <dir>
+  cargo xtask fixture-mirror <dir> [--candidate <ver> [--candidate-cig <ver>] [--candidate-cigo <ver>]]
   cargo xtask tokens [--check]";
 
 fn fail(msg: &str) -> ! {
@@ -76,7 +76,7 @@ fn main() {
         ["tuf", rest @ ..] => tuf_cmd(rest),
         ["pins", manifest] => pins_cmd(Path::new(manifest)),
         ["errors-doc"] => errors_doc_cmd(),
-        ["fixture-mirror", dir] => fixture_mirror_cmd(Path::new(dir)),
+        ["fixture-mirror", dir, rest @ ..] => fixture_mirror_cmd(Path::new(dir), rest),
         ["tokens"] => tokens_cmd(false),
         ["tokens", "--check"] => tokens_cmd(true),
         _ => usage("what to do?"),
@@ -84,9 +84,47 @@ fn main() {
 }
 
 /// Write the testkit's fixture mirror (the one the cargo tests install from) into `dir`, for CI
-/// jobs that install from it on machines that have no Rust.
-fn fixture_mirror_cmd(dir: &Path) {
-    match xtask::fixture_mirror::write(dir) {
+/// jobs that install from it on machines that have no Rust. With `--candidate <ver>` (and
+/// optional `--candidate-cig <ver>`, `--candidate-cigo <ver>`), the mirror also holds a second
+/// carton alongside the base one, for the upgrade matrix (`ci/upgrade.sh`).
+fn fixture_mirror_cmd(dir: &Path, rest: &[&str]) {
+    let mut candidate: Option<String> = None;
+    let mut cig: Option<String> = None;
+    let mut cigo: Option<String> = None;
+    let mut i = 0;
+    while i < rest.len() {
+        match rest[i] {
+            "--candidate" => {
+                i += 1;
+                if i >= rest.len() {
+                    usage("--candidate needs a version");
+                }
+                candidate = Some(rest[i].to_string());
+            }
+            "--candidate-cig" => {
+                i += 1;
+                if i >= rest.len() {
+                    usage("--candidate-cig needs a version");
+                }
+                cig = Some(rest[i].to_string());
+            }
+            "--candidate-cigo" => {
+                i += 1;
+                if i >= rest.len() {
+                    usage("--candidate-cigo needs a version");
+                }
+                cigo = Some(rest[i].to_string());
+            }
+            other => usage(&format!("fixture-mirror: unknown flag {other}")),
+        }
+        i += 1;
+    }
+    let cand = candidate.map(|version| xtask::fixture_mirror::Candidate {
+        cig: cig.unwrap_or_else(|| xtask::fixture_mirror::MEMBERS[0].1.to_string()),
+        cigo: cigo.unwrap_or_else(|| xtask::fixture_mirror::MEMBERS[1].1.to_string()),
+        version,
+    });
+    match xtask::fixture_mirror::write_with(dir, cand.as_ref()) {
         Ok(n) => println!("fixture mirror: {n} files in {}", dir.display()),
         Err(e) => fail(&e),
     }

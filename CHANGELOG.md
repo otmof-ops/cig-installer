@@ -5,6 +5,36 @@
 All notable changes to cig-installer. The format follows Keep a Changelog; the
 project follows semantic versioning.
 
+## Unreleased
+
+### Fixed
+
+- The `a_silent_terminal_gets_the_neutral_theme_within_the_budget` test's
+  Linux budget (150 ms): after writing the OSC 11 query, `query_background`
+  waited up to 150 ms for the helper shell to exit before falling back to
+  SIGKILL. The shell exits a few milliseconds after SIGTERM to `dd`; the
+  window is now 30 ms, so the silent-terminal path fits the budget on a
+  busy CI runner with margin to spare (Carton 0.2.0 row 2, #32).
+- `detect::tests::a_deadline_already_past_reads_nothing` on macOS: when
+  `Instant::now()` inside `collect` coincided with the test's deadline (two
+  consecutive calls to `Instant::now()` can land on the same nanosecond on
+  a loaded runner), the loop called `rx.recv_timeout(Duration::ZERO)`, which
+  first does a non-blocking `try_recv` and returned the pending chunk.
+  `collect` now exits the loop when `now >= deadline` and never calls
+  `recv_timeout(ZERO)` (Carton 0.2.0 row 3, #32).
+
+### Added
+
+- `cargo xtask fixture-mirror <dir> --candidate <ver> [--candidate-cig <ver>]
+  [--candidate-cigo <ver>]`: the mirror also publishes a second carton
+  alongside the base, for the upgrade matrix. The candidate's members default
+  to the base's.
+- `ci/upgrade.sh` (and its `upgrade-from-0.1.0` job): on each distro of the
+  fresh-install matrix, install carton 0.1.0, update to the candidate, prove
+  `status`, each shim and `doctor`, roll back, and go forward again. Until
+  carton 0.2.0 is tagged the candidate members come from the fixture mirror
+  (Carton 0.2.0 row 14, #21).
+
 ## 0.1.0 — 2026-11-12
 
 The first release. Installing, pinning, switching, updating and rolling back

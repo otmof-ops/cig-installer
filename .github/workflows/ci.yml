@@ -251,6 +251,83 @@ jobs:
           docker run --rm --user 1001:1001 -v "$PWD/dist:/dist:ro" "${{ matrix.image }}" \
             sh /dist/fresh-install.sh /dist
 
+  # #21 and Carton 0.2.0 row 14: build the upgrade dist on the runner. Same static binaries the
+  # fresh-install job uses (download the artifact), plus a two-carton fixture mirror produced by
+  # `cargo xtask fixture-mirror --candidate <v>`: 0.1.0 is the base, and the candidate stands in
+  # for carton 0.2.0 until it is tagged. When that tag lands, this step moves to the real carton
+  # by dropping `--candidate` and pointing the script at the published manifest release.
+  upgrade-dist:
+    name: build upgrade dist
+    needs: musl
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Rust (pinned by rust-toolchain.toml)
+        run: |
+          rustup show active-toolchain || rustup toolchain install
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-upgrade-${{ hashFiles('**/Cargo.lock', '**/Cargo.toml', 'rust-toolchain.toml') }}
+          restore-keys: |
+            ${{ runner.os }}-upgrade-
+            ${{ runner.os }}-cargo-
+      - uses: actions/download-artifact@v4
+        with:
+          name: fresh-install-dist
+          path: upgrade-dist
+      - name: write a mirror that carries carton 0.1.0 and the candidate
+        run: |
+          # fresh-install-dist held a one-carton mirror; the upgrade mirror holds two cartons.
+          rm -rf upgrade-dist/mirror
+          cargo xtask fixture-mirror upgrade-dist/mirror \
+            --candidate 0.2.0 --candidate-cig 1.21.0 --candidate-cigo 1.17.0
+      - name: attach the script
+        run: |
+          cp ci/upgrade.sh upgrade-dist/
+          chmod +x upgrade-dist/upgrade.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: upgrade-dist
+          path: upgrade-dist
+          retention-days: 3
+          if-no-files-found: error
+
+  # #21 and Carton 0.2.0 row 14: the upgrade matrix. On each distro of the fresh-install matrix,
+  # install carton 0.1.0 as a user does, update to the candidate, rollback and go forward again,
+  # checking status, each shim and doctor at every step. Candidate versions move with the mirror
+  # above; when the real carton 0.2.0 is tagged they become the real numbers.
+  upgrade-from-0_1_0:
+    name: upgrade 0.1.0 (${{ matrix.name }})
+    needs: upgrade-dist
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { name: debian, image: "debian:stable-slim" }
+          - { name: ubuntu, image: "ubuntu:latest" }
+          - { name: parrot, image: "parrotsec/core:latest" }
+          - { name: fedora, image: "fedora:latest" }
+          - { name: arch,   image: "archlinux:latest" }
+          - { name: alpine, image: "alpine:latest" }
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: upgrade-dist
+          path: dist
+      - name: upgrade in ${{ matrix.image }}
+        run: |
+          docker run --rm --user 1001:1001 -v "$PWD/dist:/dist:ro" "${{ matrix.image }}" \
+            sh /dist/upgrade.sh /dist
+
   # Windows (#21): every target compiles, tests included, and the platform-neutral tests run. The
   # Windows runtime (self-update rename-aside, registry PATH, the journal's Windows rules) is not
   # built yet, so the rest of the suite waits on those drafts; its unix-only tests are gated with
