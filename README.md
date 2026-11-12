@@ -472,6 +472,7 @@ do next. The family's other language is
 | every error code | [docs/ERRORS.md](docs/ERRORS.md) |
 | the `--json` shapes | [docs/JSON.md](docs/JSON.md) |
 | why it is built this way | [docs/decisions/](docs/decisions/) |
+| the next tag for every product | [docs/VERSIONS.md](docs/VERSIONS.md) |
 | what changed | [CHANGELOG.md](CHANGELOG.md) |
 | to send a fix | [CONTRIBUTING.md](CONTRIBUTING.md) |
 
