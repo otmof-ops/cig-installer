@@ -40,8 +40,8 @@ pub struct ReleaseInfo {
     pub notes: String,
 }
 
-/// Where releases are read from: GitHub through the maintainer's `gh` ([`crate::gh::Gh`]), or a
-/// fake in the tests.
+/// Where releases are read from: GitHub through the maintainer's `gh` ([`crate::gh::Gh`]), a
+/// directory of local builds ([`crate::carton_local::DirReleases`]), or a fake in the tests.
 pub trait Releases {
     /// The published release `tag` of `repo` (a draft is not published).
     fn release(&self, repo: &str, tag: &str) -> Result<ReleaseInfo, String>;
@@ -123,8 +123,8 @@ fn table_at<'a>(t: &'a mut Table, keys: &[&str]) -> Result<&'a mut Table, String
 }
 
 /// Parse `manifest/tools.toml` and `manifest/products.toml` with the client's parser, by giving
-/// them the header a manifest needs.
-fn definitions(req: &Request, generated: &str, expires: &str) -> Result<Manifest, String> {
+/// them the header a manifest needs. `carton-local` reads its asset names from the same parse.
+pub fn definitions(req: &Request, generated: &str, expires: &str) -> Result<Manifest, String> {
     let text = format!(
         "format = 1\nchannel = \"{}\"\nsequence = 0\ngenerated = {generated}\nexpires = {expires}\n\n{}\n\n{}\n",
         req.channel, req.tools_toml, req.products_toml

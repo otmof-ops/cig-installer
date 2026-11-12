@@ -25,6 +25,22 @@ project follows semantic versioning.
 
 ### Added
 
+- `cargo xtask carton-local`: a carton built from local source trees, with
+  nothing published. Each product given a tree is built for one target in the
+  shape its release workflow publishes (file names, archive layouts, `.sha256`
+  sidecars); cigar and cigcompile are built against the sibling trees with
+  cargo patch overrides on the command line. The manifest is written by
+  `manifest assemble`'s own code, reading the directory as the release host,
+  and the directory is laid out the way `install --from <dir>` reads a mirror
+  (Carton 0.2.0 row 14, Carton 1.0.0 rows 6, 7 and 12).
+- `ci/carton-gate.sh <carton dir>`: the family gate. It installs the carton
+  with the installer it carries into a scratch home, then proves the installed
+  digests, every shim, `doctor` and `check`, cig's rollback, runs and unburn,
+  cigo's `run ci` and rollback, cigcompile's build, run and verify, cigar's
+  three strengths, programs and language server, cigo's polyglot example with
+  the real tools, a project pin, `repair` and `uninstall --all`. One `ok` or
+  `FAIL` line per step and a `gate.json`. `ci/carton-e2e.sh` builds the carton
+  and runs the gate on a test machine; `docs/CARTON-GATE.md` says how.
 - `cargo xtask fixture-mirror <dir> --candidate <ver> [--candidate-cig <ver>]
   [--candidate-cigo <ver>]`: the mirror also publishes a second carton
   alongside the base, for the upgrade matrix. The candidate's members default

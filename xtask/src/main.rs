@@ -35,7 +35,12 @@ usage:
         (prints the plan of #26, a dry run; --yes is blocked until the index is signed)
   cargo xtask errors-doc
   cargo xtask fixture-mirror <dir> [--candidate <ver> [--candidate-cig <ver>] [--candidate-cigo <ver>]]
-  cargo xtask tokens [--check]";
+  cargo xtask tokens [--check]
+  cargo xtask carton-local --carton <v> --out <dir> [--cig <tree>] [--cigo <tree>]
+        [--cigcompile <tree>] [--cigar <tree>] [--installer <tree>] [--work <dir>]
+        [--target <rust-target>] [--channel stable] [--expires-days 30]
+        (builds each product given a tree for one target, as its release workflow does, and
+        writes a directory `ciginstaller install carton <v> --from <dir>` reads; publishes nothing)";
 
 fn fail(msg: &str) -> ! {
     eprintln!("xtask: {msg}");
@@ -77,6 +82,7 @@ fn main() {
         ["pins", manifest] => pins_cmd(Path::new(manifest)),
         ["errors-doc"] => errors_doc_cmd(),
         ["fixture-mirror", dir, rest @ ..] => fixture_mirror_cmd(Path::new(dir), rest),
+        ["carton-local", rest @ ..] => carton_local_cmd(rest),
         ["tokens"] => tokens_cmd(false),
         ["tokens", "--check"] => tokens_cmd(true),
         _ => usage("what to do?"),
@@ -128,6 +134,73 @@ fn fixture_mirror_cmd(dir: &Path, rest: &[&str]) {
         Ok(n) => println!("fixture mirror: {n} files in {}", dir.display()),
         Err(e) => fail(&e),
     }
+}
+
+/// A carton built from local source trees (`xtask/src/carton_local.rs`).
+fn carton_local_cmd(rest: &[&str]) {
+    use xtask::carton_local::{self, Options};
+    let (mut carton, mut out, mut work, mut triple) = (None, None, None, None);
+    let (mut channel, mut expires_days) = ("stable".to_string(), 30i64);
+    let mut trees = BTreeMap::new();
+    let mut it = rest.iter();
+    while let Some(flag) = it.next() {
+        let mut value = || {
+            it.next()
+                .map(|s| s.to_string())
+                .unwrap_or_else(|| usage(&format!("{flag} needs a value")))
+        };
+        match *flag {
+            "--carton" => carton = Some(version(&value(), "--carton")),
+            "--out" => out = Some(PathBuf::from(value())),
+            "--work" => work = Some(PathBuf::from(value())),
+            "--target" => triple = Some(value()),
+            "--channel" => channel = value(),
+            "--expires-days" => {
+                expires_days = value()
+                    .parse()
+                    .unwrap_or_else(|_| usage("--expires-days takes a number"))
+            }
+            "--cig" | "--cigo" | "--cigcompile" | "--cigar" | "--installer" => {
+                let tool = match *flag {
+                    "--installer" => "ciginstaller",
+                    f => &f[2..],
+                };
+                trees.insert(tool.to_string(), PathBuf::from(value()));
+            }
+            other => usage(&format!("carton-local: unknown flag {other}")),
+        }
+    }
+    let triple = triple
+        .or_else(|| carton_local::host_triple().map(str::to_string))
+        .unwrap_or_else(|| usage("this machine has no release target: give --target"));
+    let inputs = root().join("manifest");
+    let o = Options {
+        trees,
+        carton: carton.unwrap_or_else(|| usage("--carton is required")),
+        out: out.unwrap_or_else(|| usage("--out is required")),
+        work: work.unwrap_or_else(|| root().join("target").join("carton-local")),
+        triple,
+        channel,
+        expires_days,
+        tools_toml: read(&inputs.join("tools.toml")),
+        products_toml: read(&inputs.join("products.toml")),
+        now: time::OffsetDateTime::now_utc(),
+    };
+    let (done, built) =
+        carton_local::run(&o, &mut |line| println!("- {line}")).unwrap_or_else(|e| fail(&e));
+    for line in &done.report {
+        println!("- {line}");
+    }
+    for b in &built {
+        println!("{} {}: {}", b.tool, b.version, b.asset);
+    }
+    println!(
+        "carton {} in {}: install it with `ciginstaller install carton {} --from {}`",
+        o.carton,
+        o.out.display(),
+        o.carton,
+        o.out.display()
+    );
 }
 
 /// Build `crates/cigi-ui/src/tokens.rs` and `design/generated/` from `design/tokens.json`.
