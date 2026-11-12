@@ -44,8 +44,7 @@ jobs:
       - uses: actions/checkout@v4
       - name: Install Rust (stable)
         run: |
-          rustup update stable --no-self-update
-          rustup default stable
+          rustup show active-toolchain || rustup toolchain install
       - name: the metadata published so far
         run: |
           mkdir -p meta

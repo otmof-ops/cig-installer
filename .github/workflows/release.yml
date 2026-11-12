@@ -17,8 +17,51 @@ permissions:
   contents: read
 
 jobs:
+  # Row 7 of carton 0.2.0: the release reuses the tagged SHA's green CI instead of rebuilding and
+  # retesting. This job reads the tag commit's own ci.yml run through the Actions API with the
+  # workflow's own token, and fails with a clear message when none is green. Nothing publishes if
+  # CI did not pass on this exact commit.
+  ci-green:
+    name: CI was green for this commit
+    runs-on: ubuntu-latest
+    timeout-minutes: 100
+    permissions:
+      actions: read
+    steps:
+      - name: find and check the CI run for the tag's SHA
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SHA: ${{ github.sha }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          # The tag's commit must have a green ci.yml run. A run still in progress is waited for
+          # (a tag pushed straight after a merge), up to 90 minutes. Nothing publishes otherwise.
+          deadline=$(( $(date +%s) + 5400 ))
+          while :; do
+            runs="$(gh api --paginate \
+              "repos/$REPO/actions/workflows/ci.yml/runs?head_sha=$SHA&per_page=100" \
+              --jq '.workflow_runs[] | [.id, .status, .conclusion, .event, .html_url] | @tsv')"
+            printf 'ci.yml runs for %s:\n%s\n' "$SHA" "${runs:-none yet}"
+            if printf '%s\n' "$runs" | awk -F '\t' '$2 == "completed" && $3 == "success" { print "green run:", $5; found = 1 } END { exit found ? 0 : 1 }'; then
+              echo "ci.yml is green for $SHA"
+              exit 0
+            fi
+            if [ -n "$runs" ] && ! printf '%s\n' "$runs" | awk -F '\t' '$2 != "completed" { live = 1 } END { exit live ? 0 : 1 }'; then
+              echo "::error::ci.yml finished on $SHA without a success: get it green on main, then tag that commit"
+              exit 1
+            fi
+            if [ "$(date +%s)" -ge "$deadline" ]; then
+              echo "::error::no green ci.yml run for $SHA after 90 minutes: let CI finish, then rerun this workflow"
+              exit 1
+            fi
+            echo "waiting for ci.yml on $SHA"
+            sleep 60
+          done
+
   build:
     name: build (${{ matrix.asset }})
+    needs: ci-green
     runs-on: ${{ matrix.os }}
     # This job compiles dependencies' build scripts: it holds no token beyond reading the code.
     # The attestation is signed in its own job, below, which runs nothing it downloads.
@@ -72,8 +115,7 @@ jobs:
             done
             sleep $((i * 15))
           done
-          rustup update stable --no-self-update
-          rustup default stable
+          rustup show active-toolchain || rustup toolchain install
           rustup target add ${{ matrix.target }}
       - name: cargo build --release
         run: cargo build --release --locked -p ciginstaller -p cigi-shim --target ${{ matrix.target }}
@@ -175,6 +217,7 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           ls -l assets
+          # shellcheck disable=SC2012
           [[ "$(ls assets/*.tar.gz | wc -l)" == 2 ]] || { echo "::error::expected two tarballs"; exit 1; }
           for f in install.sh install.sh.sha256 install.ps1 install.ps1.sha256; do
             [[ -s "assets/$f" ]] || { echo "::error::assets/$f is missing"; exit 1; }
