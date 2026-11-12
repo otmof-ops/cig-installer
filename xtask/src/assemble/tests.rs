@@ -413,7 +413,10 @@ fn the_tracked_inputs_parse_with_the_clients_parser() {
         .products
         .get(&("cigar".to_string(), v("0.1.0")))
         .expect("[product.cigar.\"0.1.0\"] is in manifest/products.toml");
-    assert!(cigar_build.requires.is_empty(), "cigar never shells out to cig");
+    assert!(
+        cigar_build.requires.is_empty(),
+        "cigar never shells out to cig"
+    );
     assert_eq!(cigar_build.license.as_deref(), Some("FSL-1.1-ALv2"));
     // the real asset names, as the releases have them
     let cig = &m.tools["cig"];
