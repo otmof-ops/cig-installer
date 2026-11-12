@@ -10,13 +10,13 @@ Both are changed by pull request, like code. `cargo xtask manifest assemble` rea
 
 ```sh
 gh release download manifest -R otmof-ops/cig-installer -p manifest-stable.toml   # the current one, if any
-cargo xtask manifest assemble --carton 1.0.0 --cig 1.21.0 --cigo 1.19.0 --cigcompile 0.4.0 \
-  --installer 0.1.0 \
+cargo xtask manifest assemble --carton 0.1.0 --cig 1.21.0 --cigo 1.19.0 --cigcompile 0.4.0 \
+  --cigar 0.1.0 --installer 0.1.0 \
   --pack dev=cig,cigo --pack builder=cig,cigo,cigcompile \
-  --notes "first carton: cig, cigo, cigcompile, ciginstaller" [--previous manifest-stable.toml]
+  --notes "first carton: cig, cigo, cigcompile, cigar, ciginstaller" [--previous manifest-stable.toml]
 ```
 
-`--cigar <version>` names a CigarScript build the same way; `tools.toml` already describes it, and [product.cigar."0.1.0"] is in `products.toml` for the first release.
+`--cigar <version>` names a CigarScript build the same way as the other products; `tools.toml` says how it is fetched, and `products.toml` has `[product.cigar."0.1.0"]`, its first release. Cartons are numbered `0.N.P` until every product in them has reached 1.0.
 
 It refuses in any of these cases:
 - a sidecar is missing, or disagrees with GitHub's own digest of the asset;
