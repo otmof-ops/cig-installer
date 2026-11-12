@@ -110,9 +110,13 @@ fn json_of(o: &Output) -> Value {
 }
 
 fn data(fx: &Fixture, args: &[&str]) -> Value {
+    data_with(fx, &[], args)
+}
+
+fn data_with(fx: &Fixture, env: &[(&str, &str)], args: &[&str]) -> Value {
     let mut a = vec!["--json"];
     a.extend_from_slice(args);
-    let o = run(fx, &[], &a);
+    let o = run(fx, env, &a);
     assert_eq!(o.status.code(), Some(0), "{}", text(&o));
     json_of(&o)["data"].clone()
 }
@@ -661,11 +665,15 @@ fn queued_by(fx: &Fixture, origin: &str, version: &str, id: &str) {
 
 /// `crash show` and `crash send --via file` of one report: the object each makes.
 fn shown_and_sent(fx: &Fixture, id: &str) -> (Value, Value) {
-    let shown = data(fx, &["crash", "show", id])["report"].clone();
+    shown_and_sent_with(fx, &[], id)
+}
+
+fn shown_and_sent_with(fx: &Fixture, env: &[(&str, &str)], id: &str) -> (Value, Value) {
+    let shown = data_with(fx, env, &["crash", "show", id])["report"].clone();
     let out = fx.user_home.join(format!("{id}.export.json"));
     let o = run(
         fx,
-        &[],
+        env,
         &[
             "--json",
             "crash",
@@ -710,6 +718,84 @@ fn a_report_each_tool_queued_carries_the_version_block_when_it_is_sent() {
     let saved = std::fs::read_to_string(fx.cigscript().join("ashtray/20261109T101500-cig001.json"))
         .unwrap();
     assert!(!saved.contains("version_matrix"), "{saved}");
+}
+
+/// Host names to try against this machine's kernel version: every run of three or more letters
+/// in it, whether it is a whole part of the version (`oem` in `6.17.0-1033-oem`) or inside a
+/// longer one (`arch` in `6.11.2-arch1-1`), and one that is in no kernel's version.
+fn host_names_for_this_kernel() -> Vec<String> {
+    let kernel = std::fs::read_to_string("/proc/sys/kernel/osrelease").unwrap_or_default();
+    let mut names: Vec<String> = kernel
+        .trim()
+        .split(|c: char| !c.is_ascii_alphabetic())
+        .filter(|w| w.len() >= 3 && !matches!(*w, "root" | "user" | "home"))
+        .map(str::to_string)
+        .collect();
+    names.dedup();
+    names.push(HOST.to_string());
+    names
+}
+
+#[test]
+fn report_block_prints_what_a_queued_report_carries_whatever_the_host_is_named() {
+    let fx = installed_one(fixture());
+    for (n, name) in host_names_for_this_kernel().iter().enumerate() {
+        let env = [("HOSTNAME", name.as_str())];
+        let block = data_with(&fx, &env, &["report", "--block"]);
+        let id = format!("20261109T1015{n:02}-cig003");
+        queued_by(&fx, "cig", "1.20.0", &id);
+        let (shown, sent) = shown_and_sent_with(&fx, &env, &id);
+        assert_eq!(shown, sent);
+        let got = &shown["details"]["version_matrix"];
+        assert_eq!(got["platform"], block["platform"], "host {name}: {got:#}");
+        let mut plain = got.clone();
+        plain.as_object_mut().unwrap().remove("taken");
+        assert_eq!(plain, block, "host {name}");
+        // the block printed is the one that travels: the name is not in it
+        let printed = block.to_string();
+        let whole = printed
+            .split(|c: char| !c.is_alphanumeric())
+            .any(|w| w == name);
+        assert!(!whole, "host {name} in {printed}");
+    }
+}
+
+#[test]
+fn a_block_a_product_embeds_from_report_block_travels_unchanged() {
+    let fx = installed_one(fixture());
+    let block = data(&fx, &["report", "--block"]);
+    let dir = fx.cigscript().join("ashtray");
+    std::fs::create_dir_all(&dir).unwrap();
+    let id = "20261109T101800-own002";
+    let r = json!({
+        "id": id, "fingerprint": "abc12345", "version": "1.20.0", "os": "linux",
+        "arch": "x86_64", "timestamp": "2026-11-09T10:18:00Z", "command": [], "cwd": "", "panic_message": "x",
+        "panic_location": "", "backtrace": [], "kind": "crash", "origin": "cig",
+        "details": {"version_matrix": block.clone()}
+    });
+    std::fs::write(dir.join(format!("{id}.json")), r.to_string()).unwrap();
+    let (shown, sent) = shown_and_sent(&fx, id);
+    assert_eq!(shown, sent);
+    assert_eq!(shown["details"]["version_matrix"], block);
+}
+
+#[test]
+fn a_host_name_standing_on_its_own_still_leaves_the_report() {
+    let fx = installed_one(fixture());
+    let dir = fx.cigscript().join("ashtray");
+    std::fs::create_dir_all(&dir).unwrap();
+    let id = "20261109T101500-cig004";
+    let r = json!({
+        "id": id, "fingerprint": "abc12345", "version": "1.20.0", "os": "linux", "arch": "x86_64",
+        "timestamp": "2026-11-09T10:15:00Z", "command": ["cig", "run", "<script>"], "cwd": "~/d1",
+        "panic_message": format!("lost {USER}@{HOST} on {HOST}: see /srv/{HOST}/log ({USER})"),
+        "panic_location": "src/run.rs:1:1", "backtrace": [], "kind": "crash", "origin": "cig"
+    });
+    std::fs::write(dir.join(format!("{id}.json")), r.to_string()).unwrap();
+    let (shown, _) = shown_and_sent(&fx, id);
+    let all = shown.to_string();
+    assert!(!all.contains(USER) && !all.contains(HOST), "{all}");
+    assert!(all.contains("<user>@<host>"), "{all}");
 }
 
 #[test]

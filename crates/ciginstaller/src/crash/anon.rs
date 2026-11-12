@@ -9,13 +9,26 @@
 //!   `/d1/d2/d3/.f1.lock` in a title (cig-script#127). Own paths are the installer's list below,
 //!   whatever a product registers (`register_own_paths`), anything under a family folder
 //!   (`.cigscript`) and anything under this run's own home.
-//! - The person's user name and this machine's host name never travel, wherever they are written.
+//! - The person's user name and this machine's host name never travel where they stand as a token
+//!   of their own (see "Names are tokens" below).
 //! - A token-shaped word, a URL, an address and an e-mail address are replaced by what they are.
 //! - Ordinary words are never touched.
 //!
 //! Nothing here reads a file's contents or an environment variable's value into a report: the
 //! home directory, user and host names are read only to be removed.
-
+//!
+//! # Names are tokens
+//!
+//! A user or host name is replaced only where it is a whole token: the characters on each side of
+//! it are not letters or digits, or it starts or ends the text. Everything else bounds a token:
+//! white space, a path separator (`/`, `\`), `-`, `_`, `@`, `:`, `.`, `+`, quotes, brackets and the
+//! other punctuation around a word. So `/home/sam/x`, `sam@anvil`, `on anvil.`, `sam-notes.txt`,
+//! `projects/sam_site/main.cig` and `anvil-01` lose the names, and `samples`, `isambard`, `anvil2`
+//! and a kernel version such as `6.11.2-arch1-1` on a host named `arch` stay as they are. A name
+//! that itself holds a `-`, `_` or `.` is matched whole. `report --block` prints its block through
+//! the same pass a queued report gets (`flows::report::as_it_travels`), so the two agree whatever
+//! the names are.
+//!
 use std::collections::HashSet;
 use std::path::Path;
 use std::sync::{Mutex, OnceLock};
@@ -446,12 +459,47 @@ fn word(w: &str, env: &Env, absolute_only: bool) -> String {
     w.to_string()
 }
 
+/// A character that continues a token (see "Names are tokens" in the module's documentation).
+fn in_token(c: char) -> bool {
+    c.is_alphanumeric()
+}
+
+/// Where `name` stands in `text` as a whole token, by byte offset, left to right.
+fn token_starts(text: &str, name: &str) -> Vec<usize> {
+    if name.is_empty() {
+        return Vec::new();
+    }
+    text.match_indices(name)
+        .map(|(i, _)| i)
+        .filter(|&i| {
+            let before = text[..i].chars().next_back();
+            let after = text[i + name.len()..].chars().next();
+            !before.is_some_and(in_token) && !after.is_some_and(in_token)
+        })
+        .collect()
+}
+
+/// `text` with `name` replaced by `with` wherever it stands as a whole token.
+fn replace_token(text: &str, name: &str, with: &str) -> String {
+    let starts = token_starts(text, name);
+    if starts.is_empty() {
+        return text.to_string();
+    }
+    let mut out = String::with_capacity(text.len());
+    let mut from = 0;
+    for i in starts {
+        out.push_str(&text[from..i]);
+        out.push_str(with);
+        from = i + name.len();
+    }
+    out.push_str(&text[from..]);
+    out
+}
+
 fn scrub_names(s: String, env: &Env) -> String {
     let mut out = s;
     for (n, what) in &env.names {
-        if out.contains(n.as_str()) {
-            out = out.replace(n.as_str(), what);
-        }
+        out = replace_token(&out, n, what);
     }
     out
 }
@@ -526,14 +574,17 @@ impl Mark {
 /// Every span of `text` shaped like a path, an address, a token or an e-mail address, and this
 /// user's and host's names, each once, in the order they first appear.
 pub fn marks(text: &str, cig_home: Option<&Path>) -> Vec<Mark> {
-    let env = Env::read(cig_home);
+    marks_with(text, &Env::read(cig_home))
+}
+
+fn marks_with(text: &str, env: &Env) -> Vec<Mark> {
     let mut out: Vec<Mark> = Vec::new();
     for w in text.split_whitespace() {
         let (_, core, _) = split_word(w);
         if core.is_empty() || out.iter().any(|m| m.text == core) {
             continue;
         }
-        let shown = word(core, &env, false);
+        let shown = word(core, env, false);
         if shown == core {
             continue;
         }
@@ -557,7 +608,7 @@ pub fn marks(text: &str, cig_home: Option<&Path>) -> Vec<Mark> {
         rest = rest.replace(&m.text, " ");
     }
     for (n, what) in &env.names {
-        if rest.contains(n.as_str()) && !out.iter().any(|m| m.text == *n) {
+        if !token_starts(&rest, n).is_empty() && !out.iter().any(|m| m.text == *n) {
             out.push(Mark {
                 kind: "name",
                 text: n.clone(),
@@ -575,7 +626,11 @@ pub fn apply_marks(text: &str, marks: &[Mark], keep: &dyn Fn(&Mark) -> bool) -> 
     order.sort_by_key(|m| std::cmp::Reverse(m.text.len()));
     let mut out = text.to_string();
     for m in order {
-        out = out.replace(&m.text, &m.replace);
+        out = if m.kind == "name" {
+            replace_token(&out, &m.text, &m.replace)
+        } else {
+            out.replace(&m.text, &m.replace)
+        };
     }
     out
 }
@@ -761,9 +816,9 @@ mod tests {
 
     fn env() -> Env {
         Env {
-            homes: vec!["/home/jay".into()],
-            cig_home: Some("/home/jay/.cigscript".into()),
-            names: vec![("jay".into(), "<user>"), ("workhorsey".into(), "<host>")],
+            homes: vec!["/home/sam".into()],
+            cig_home: Some("/home/sam/.cigscript".into()),
+            names: vec![("sam".into(), "<user>"), ("anvil".into(), "<host>")],
             own: OWN_PATHS
                 .iter()
                 .map(|p| p.split('/').map(str::to_string).collect())
@@ -774,7 +829,7 @@ mod tests {
     #[test]
     fn a_persons_path_is_its_shape() {
         assert_eq!(
-            shape_path("/home/jay/work/secret/Notes.txt", &env(), false),
+            shape_path("/home/sam/work/secret/Notes.txt", &env(), false),
             "~/d1/d2/F3.txt"
         );
         assert_eq!(shape_path("/srv/data/.hidden", &env(), false), "/d1/d2/.f3");
@@ -783,7 +838,7 @@ mod tests {
             "/D1/d2/f3.cig"
         );
         assert_eq!(
-            shape_path("/home/jay/work/a.rs:12:5", &env(), false),
+            shape_path("/home/sam/work/a.rs:12:5", &env(), false),
             "~/d1/f2.rs:12:5"
         );
     }
@@ -791,7 +846,7 @@ mod tests {
     #[test]
     fn own_paths_stay_readable() {
         assert_eq!(
-            shape_path("/home/jay/.cigscript/ashtray/.flush.lock", &env(), false),
+            shape_path("/home/sam/.cigscript/ashtray/.flush.lock", &env(), false),
             "$CIGSCRIPT_HOME/ashtray/.flush.lock"
         );
         assert_eq!(
@@ -815,6 +870,112 @@ mod tests {
         ] {
             assert_eq!(shape_path(p, &e, false), p, "{p}");
         }
+    }
+
+    fn named(user: &str, host: &str) -> Env {
+        Env {
+            names: vec![(user.into(), "<user>"), (host.into(), "<host>")],
+            ..env()
+        }
+    }
+
+    #[test]
+    fn a_host_name_inside_a_kernel_version_is_left_alone() {
+        let e = named("sam", "arch");
+        for kernel in ["6.11.2-arch1-1", "7.2.11+arch7.1-amd64", "6.1.0-1033-xarch"] {
+            assert_eq!(scrub_names(kernel.into(), &e), kernel);
+            assert!(marks_with(kernel, &e).is_empty(), "{kernel}");
+        }
+        // a whole part of the version is the name, and goes (`report --block` says the same)
+        assert_eq!(
+            scrub_names("6.1.0-arch-amd64".into(), &e),
+            "6.1.0-<host>-amd64"
+        );
+    }
+
+    #[test]
+    fn a_name_beside_a_dash_or_an_underscore_is_replaced() {
+        let e = env();
+        for (text, want) in [
+            ("sam-notes.txt", "<user>-notes.txt"),
+            ("sam_site", "<user>_site"),
+            (
+                "projects/sam_site/main.cig",
+                "projects/<user>_site/main.cig",
+            ),
+            ("anvil-01", "<host>-01"),
+        ] {
+            assert_eq!(scrub_names(text.into(), &e), want, "{text}");
+        }
+    }
+
+    #[test]
+    fn a_second_pass_over_names_changes_nothing() {
+        let e = env();
+        for text in [
+            "sam@anvil on anvil-01",
+            "6.1.0-anvil-amd64",
+            "samples of sam_site",
+        ] {
+            let once = scrub_names(text.into(), &e);
+            assert_eq!(scrub_names(once.clone(), &e), once, "{text}");
+        }
+    }
+
+    #[test]
+    fn a_name_standing_on_its_own_is_replaced() {
+        let e = env();
+        for (text, want) in [
+            ("/srv/sam/anvil/x", "/srv/<user>/<host>/x"),
+            ("C:\\Users\\sam\\x", "C:\\Users\\<user>\\x"),
+            ("failed on anvil", "failed on <host>"),
+            ("failed on anvil.", "failed on <host>."),
+            ("sam@anvil", "<user>@<host>"),
+            ("(user sam on anvil)", "(user <user> on <host>)"),
+            ("anvil:8080 refused", "<host>:8080 refused"),
+            ("\"sam\", 'anvil'", "\"<user>\", '<host>'"),
+            ("sam", "<user>"),
+        ] {
+            assert_eq!(scrub_names(text.into(), &e), want, "{text}");
+        }
+    }
+
+    #[test]
+    fn a_name_inside_a_longer_word_is_left_alone() {
+        let e = env();
+        for text in [
+            "samples",
+            "the sams2 folder",
+            "anvil2 and anvils",
+            "isambard",
+        ] {
+            assert_eq!(scrub_names(text.into(), &e), text);
+            assert!(marks_with(text, &e).is_empty(), "{text}");
+        }
+    }
+
+    #[test]
+    fn a_name_mark_is_applied_as_a_token() {
+        let e = env();
+        let text = "samples from sam";
+        let ms = marks_with(text, &e);
+        assert_eq!(ms.len(), 1, "{ms:?}");
+        assert_eq!(ms[0].kind, "name");
+        assert_eq!(apply_marks(text, &ms, &|_| false), "samples from <user>");
+    }
+
+    #[test]
+    fn a_name_with_a_dash_or_a_dot_is_matched_whole() {
+        let e = named("sam-q", "anvil.lan");
+        assert_eq!(
+            scrub_names("sam-q at anvil.lan, not sam-quinn".into(), &e),
+            "<user> at <host>, not sam-quinn"
+        );
+        let e = named("sam_q", "anvil-01");
+        assert_eq!(
+            scrub_names("sam_q on anvil-01, not anvil-012".into(), &e),
+            "<user> on <host>, not anvil-012"
+        );
     }
 
     #[test]
@@ -862,7 +1023,7 @@ mod tests {
                 "/usr/bin/ciginstaller",
                 "install",
                 "--home",
-                "/home/jay/x",
+                "/home/sam/x",
                 "--channel=beta",
                 "--token=abc",
                 "0.1.2",

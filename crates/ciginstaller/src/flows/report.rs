@@ -690,6 +690,15 @@ pub fn bundle(
     b
 }
 
+/// The version block as it travels: every string through the anonymising pass a queued report
+/// gets (`crash::route::travel`), with the same home. `report --block` prints this, so what it
+/// shows is what a report carries whatever the user and host are named. The pass is idempotent:
+/// a block a product embeds, anonymised again by the queue, is unchanged.
+pub fn as_it_travels(mut block: Value, root: &Path) -> Value {
+    anon::anonymise_value(&mut block, Some(root));
+    block
+}
+
 /// One line for the ashtray: what the report is about.
 pub fn what(b: &Value) -> String {
     if let Some(l) = b["operation"]["label"].as_str() {

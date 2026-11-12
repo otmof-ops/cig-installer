@@ -9,6 +9,33 @@ project follows semantic versioning.
 
 ### Fixed
 
+- Reports replace a user or host name where it stands as a token of its own:
+  bounded by anything but a letter or a digit (`-`, `_`, `.`, `/`, `@`, `:`,
+  `+`, white space, punctuation), so `sam-notes.txt` and `sam_site` lose the
+  name and `samples` keeps it. On a machine whose host name is part of its
+  kernel's version (a host named `arch` on `6.11.2-arch1-1`), the platform block a queued report carries had
+  `<host>` written inside the kernel and no longer equaled what
+  `report --block` printed. `report --block` now prints the block through the
+  same anonymising pass a queued report gets, so the two agree whatever the
+  names are. `bug`'s marks use the same rule.
+- The functional suite no longer times an install: `a2_perf_install`, which
+  failed when the fastest of three debug-build installs of `pack dev` took
+  over 5 s on a slow machine, is now `a2_install_pack_dev_on_a_fresh_home`
+  and checks what the install leaves. The time was already judged in
+  `cigi-budgets`'s `release_install` (3 s on a release build), which is now
+  the only place it is judged; on a debug build it is printed, not judged
+  (`docs/BENCH.md`).
+- The terminal tests' harness no longer loses a keypress on a busy machine. A
+  question drains the terminal after drawing itself (`sh`, `stty`, `dd`), and
+  the harness typed a fixed 350 ms after the draw; when the drain started
+  later, the key was thrown away and the test waited out its 30 second cap.
+  The harness now types a chunk again while the child has printed nothing
+  but its echo and the output has been quiet for a second (a key typed early
+  is drained by the next question, so it never answers it), and says on a
+  failure which chunk it was waiting on. The rest of the time is the debug
+  install after the last answer, which a busy disk slows several times over:
+  `CIGI_TEST_PTY_SCALE` multiplies the 30 second cap on a slow machine
+  (`docs/BENCH.md`).
 - The `a_silent_terminal_gets_the_neutral_theme_within_the_budget` test's
   Linux budget (150 ms): after writing the OSC 11 query, `query_background`
   waited up to 150 ms for the helper shell to exit before falling back to

@@ -428,7 +428,10 @@ This is a promise, and it is tested:
   and never when `reports` is `never` (`CIG_REPORTS=never` counts too).
   `crash show` prints exactly what would be sent: the fields of
   [schemas/report.schema.json](schemas/report.schema.json), with your paths as
-  shapes and your user and host names removed. Through `gh` or
+  shapes and your user and host names removed wherever they are not part of
+  a longer word or number (`sam-notes` loses `sam`, `samples` keeps it);
+  `report --block` prints the version block exactly as a report carries it.
+  Through `gh` or
   `CIG_GITHUB_TOKEN` the issue is filed under your own GitHub login, after a
   search that carries only the report's fingerprint and the repository;
   through `CIGI_REPORT_ROUTE` it is one plain `POST` with no query string,

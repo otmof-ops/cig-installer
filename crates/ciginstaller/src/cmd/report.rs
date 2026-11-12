@@ -2,8 +2,8 @@
 // SPDX-License-Identifier: FSL-1.1-ALv2
 //! `report [<run>]` (#11): what a bug report needs, in one redacted bundle.
 //!
-//! - `--block` prints the version block alone (and `--block --json` is the machine form a
-//!   product embeds in its own reports);
+//! - `--block` prints the version block alone, anonymised as a report carries it (and
+//!   `--block --json` is the machine form a product embeds in its own reports);
 //! - with a run, the bundle also carries the installer's journal for that operation (redacted),
 //!   the trial's differences and the metadata versions it saw; for a cig run, cig's own bundle;
 //! - `--out FILE` writes it, `--send` files it through the crash route under the crash
@@ -44,7 +44,7 @@ pub fn run(
         .map(flow::version_block)
         .unwrap_or_else(|| Value::Null);
     if c.block {
-        return Ok(block_report(&block));
+        return finish(&env, c, block, None, None, None);
     }
     let (operation, cig, run_id) = match &cx {
         Some(cx) => gather(cx, c)?,
@@ -90,7 +90,8 @@ fn finish(
     run_id: Option<String>,
 ) -> Result<Report, InstallerError> {
     if c.block {
-        return Ok(block_report(&block));
+        // what a report carries, not the raw block (`flows::report::as_it_travels`)
+        return Ok(block_report(&flow::as_it_travels(block, &env.root)));
     }
     let bundle = flow::bundle(block, operation, cig, run_id.as_deref(), &env.root);
     if c.send {
