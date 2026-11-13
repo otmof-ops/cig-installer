@@ -1,0 +1,858 @@
+{
+ "format": 1,
+ "kind": "baseline",
+ "date": "2026-11-13",
+ "product": "ciginstaller",
+ "measured": "ciginstaller 0.1.0 (carton 0.1.0, the released binaries)",
+ "manifest_tree": "main at 9b11198",
+ "notes": [],
+ "conditions": {
+  "cpu": "Intel(R) Core(TM) i5-8265U CPU @ 1.60GHz",
+  "cores_physical": 4,
+  "cores_logical": 8,
+  "memory_gib": 7.4,
+  "os": "Parrot Security 7.4 (echo)",
+  "kernel": "7.2.11+parrot7.1-amd64",
+  "governor": "powersave",
+  "power_profile": "balanced",
+  "power": "mains",
+  "filesystem": "btrfs",
+  "storage": "NVMe SSD",
+  "page_cache": "warm (one untimed warm-up per case), except the `cold` group, which drops the page cache before every sample",
+  "machine": "a 2018 laptop: Intel Core i5-8265U (4 cores, 8 threads, 1.6 to 3.9 GHz), 7.4 GiB RAM, NVMe SSD",
+  "rounds": [
+   {
+    "round": "r1",
+    "job": "startup",
+    "date": "2026-11-13T08:33:41+00:00",
+    "battery_percent": "77",
+    "power": "mains",
+    "loadavg_at_start": "0.15 1.09 1.27"
+   },
+   {
+    "round": "r1",
+    "job": "cig",
+    "date": "2026-11-13T08:36:19+00:00",
+    "battery_percent": "77",
+    "power": "mains",
+    "loadavg_at_start": "1.19 1.18 1.27"
+   },
+   {
+    "round": "r1",
+    "job": "cigo",
+    "date": "2026-11-13T08:37:03+00:00",
+    "battery_percent": "77",
+    "power": "mains",
+    "loadavg_at_start": "1.05 1.14 1.25"
+   },
+   {
+    "round": "r1",
+    "job": "cigcompile",
+    "date": "2026-11-13T08:37:55+00:00",
+    "battery_percent": "77",
+    "power": "mains",
+    "loadavg_at_start": "1.02 1.11 1.24"
+   },
+   {
+    "round": "r1",
+    "job": "cigar",
+    "date": "2026-11-13T08:41:32+00:00",
+    "battery_percent": "77",
+    "power": "mains",
+    "loadavg_at_start": "1.11 1.10 1.20"
+   },
+   {
+    "round": "r1",
+    "job": "installer",
+    "date": "2026-11-13T08:46:33+00:00",
+    "battery_percent": "77",
+    "power": "mains",
+    "loadavg_at_start": "1.00 1.02 1.13"
+   },
+   {
+    "round": "r1",
+    "job": "compute",
+    "date": "2026-11-13T08:35:15+00:00",
+    "battery_percent": "77",
+    "power": "mains",
+    "loadavg_at_start": "1.39 1.20 1.29"
+   },
+   {
+    "round": "r1",
+    "job": "instr",
+    "date": "2026-11-13T08:36:13+00:00",
+    "battery_percent": "77",
+    "power": "mains",
+    "loadavg_at_start": "1.21 1.18 1.27"
+   },
+   {
+    "round": "r2",
+    "job": "startup",
+    "date": "2026-11-13T08:58:14+00:00",
+    "battery_percent": "77",
+    "power": "mains",
+    "loadavg_at_start": "5.21 2.62 1.65"
+   },
+   {
+    "round": "r2",
+    "job": "cig",
+    "date": "2026-11-13T09:00:52+00:00",
+    "battery_percent": "77",
+    "power": "mains",
+    "loadavg_at_start": "1.32 1.95 1.55"
+   },
+   {
+    "round": "r2",
+    "job": "cigo",
+    "date": "2026-11-13T09:01:38+00:00",
+    "battery_percent": "77",
+    "power": "mains",
+    "loadavg_at_start": "1.15 1.82 1.52"
+   },
+   {
+    "round": "r2",
+    "job": "cigcompile",
+    "date": "2026-11-13T09:02:30+00:00",
+    "battery_percent": "77",
+    "power": "mains",
+    "loadavg_at_start": "1.06 1.69 1.49"
+   },
+   {
+    "round": "r2",
+    "job": "cigar",
+    "date": "2026-11-13T09:06:08+00:00",
+    "battery_percent": "77",
+    "power": "mains",
+    "loadavg_at_start": "1.03 1.34 1.39"
+   },
+   {
+    "round": "r2",
+    "job": "installer",
+    "date": "2026-11-13T09:11:08+00:00",
+    "battery_percent": "77",
+    "power": "mains",
+    "loadavg_at_start": "1.01 1.14 1.28"
+   },
+   {
+    "round": "r2",
+    "job": "compute",
+    "date": "2026-11-13T08:59:49+00:00",
+    "battery_percent": "77",
+    "power": "mains",
+    "loadavg_at_start": "1.97 2.19 1.59"
+   },
+   {
+    "round": "r2",
+    "job": "instr",
+    "date": "2026-11-13T09:00:46+00:00",
+    "battery_percent": "77",
+    "power": "mains",
+    "loadavg_at_start": "1.38 1.99 1.55"
+   }
+  ],
+  "versions": {
+   "cig": "cig 1.21.0",
+   "cigo": "cig-orchestrator 1.19.0 (cig 1.21.0)",
+   "cigcompile": "cigcompile 0.4.0 (makes programs for cig 1.21.0)",
+   "cigar": "cigar 0.1.0",
+   "ciginstaller": "ciginstaller 0.1.0",
+   "python3": "Python 3.13.5",
+   "node": "v20.19.2",
+   "go": "go version go1.27.3 linux/amd64",
+   "make": "GNU Make 4.4.1",
+   "bash": "GNU bash, version 5.2.37(1)-release (x86_64-pc-linux-gnu)",
+   "just": "just 1.40.0",
+   "tsc": "Version 4.9.5",
+   "rustc": "rustc 1.99.1 (58cf8f9c3 2026-10-13)",
+   "rustup": "rustup 1.29.3 (edbc831ce 2026-11-02)",
+   "perf": "perf version 7.2.11",
+   "task": "not installed",
+   "mise": "not installed"
+  },
+  "sizes_bytes": {
+   "cig": 15799128,
+   "cigcompile": 16644096,
+   "cigar": 14439720,
+   "cigo": 10609,
+   "cigo orchestrate.cig": 933043,
+   "ciginstaller": 8169728,
+   "shim (cigi-shim)": 455344
+  },
+  "load": "the test laptop ran one job at a time under a lock; nothing else ran during a timing job",
+  "versions_round_2_same": true
+ },
+ "suites": [
+  {
+   "suite": "bench/bench.toml",
+   "harness": "cig bench (cig 1.21.0), --json",
+   "exit_round_1": 0,
+   "exit_round_2": 0,
+   "cases": [
+    {
+     "name": "version",
+     "group": "start-up",
+     "budget": null,
+     "outcome": {
+      "state": "timed",
+      "median_ms": 3.2655091999999994,
+      "p10_ms": 1.627299,
+      "p90_ms": 3.2977513000000003,
+      "cv": 0.270385806981495,
+      "noisy": true,
+      "samples": 9,
+      "rss_bytes": 13524992,
+      "metrics": []
+     },
+     "outcome_round_2": {
+      "state": "timed",
+      "median_ms": 1.2510506,
+      "p10_ms": 1.2301739,
+      "p90_ms": 1.2539664,
+      "cv": 0.04425918324861308,
+      "noisy": false,
+      "samples": 9,
+      "rss_bytes": 13529088,
+      "metrics": []
+     },
+     "spread_between_rounds": 1.6102,
+     "noisy_between_rounds": true
+    },
+    {
+     "name": "status, nothing installed",
+     "group": "start-up",
+     "budget": null,
+     "outcome": {
+      "state": "timed",
+      "median_ms": 3.957756,
+      "p10_ms": 3.9376846999999997,
+      "p90_ms": 4.003514300000001,
+      "cv": 0.03405498524748091,
+      "noisy": false,
+      "samples": 9,
+      "rss_bytes": 13524992,
+      "metrics": []
+     },
+     "outcome_round_2": {
+      "state": "timed",
+      "median_ms": 1.8082131000000001,
+      "p10_ms": 1.7860897999999998,
+      "p90_ms": 1.8236552,
+      "cv": 0.008852529573124475,
+      "noisy": false,
+      "samples": 9,
+      "rss_bytes": 13529088,
+      "metrics": []
+     },
+     "spread_between_rounds": 1.1888,
+     "noisy_between_rounds": true
+    },
+    {
+     "name": "list, nothing installed",
+     "group": "start-up",
+     "budget": null,
+     "outcome": {
+      "state": "timed",
+      "median_ms": 3.8702699000000003,
+      "p10_ms": 3.8616016,
+      "p90_ms": 3.8778089000000002,
+      "cv": 0.0025587564990181026,
+      "noisy": false,
+      "samples": 9,
+      "rss_bytes": 13524992,
+      "metrics": []
+     },
+     "outcome_round_2": {
+      "state": "timed",
+      "median_ms": 1.7735253999999998,
+      "p10_ms": 1.7490337,
+      "p90_ms": 1.7899156999999999,
+      "cv": 0.009546697562927298,
+      "noisy": false,
+      "samples": 9,
+      "rss_bytes": 13529088,
+      "metrics": []
+     },
+     "spread_between_rounds": 1.1822,
+     "noisy_between_rounds": true
+    }
+   ]
+  }
+ ],
+ "budgets": {
+  "command": "ciginstaller bench --json --offline --runs 100 (scratch home)",
+  "shape": "ciginstaller bench --json's own",
+  "exit_round_1": 0,
+  "exit_round_2": 0,
+  "round_1": {
+   "ok": true,
+   "command": "bench",
+   "headline": "6 budget(s) measured here, none over",
+   "detail": [
+    "100 run(s) of the shim; measured here, read-only, and nothing is sent anywhere",
+    "not built yet: the family view, cartons against cartons, --watch and the window's Bench view; ciginstaller explain E1867 says what each waits on"
+   ],
+   "next": "ciginstaller install carton",
+   "code": null,
+   "data": {
+    "shim_dispatch_ns": 146581,
+    "check_ms": null,
+    "switch_ms": 10.83,
+    "shim_bytes": 455344,
+    "installer_bytes": 8169728,
+    "shim_dispatch_p95_ns": 306044,
+    "check_p95_ms": null,
+    "switch_p95_ms": 11.48,
+    "disk_five_cigo_ratio": null,
+    "first_line_status_ms": 3.81,
+    "first_line_list_ms": 4.77,
+    "install_pack_dev_ms": null,
+    "install_carton_ms": null,
+    "build": "release",
+    "runs": 100,
+    "over_budget": 0,
+    "budgets": [
+     {
+      "id": "shim_dispatch",
+      "what": "a shim dispatching to the right version",
+      "source": "#20",
+      "unit": "ms",
+      "limit": 2.0,
+      "median": 0.15,
+      "p95": 0.31,
+      "runs": 100,
+      "status": "ok",
+      "note": "the shim's own time to exec"
+     },
+     {
+      "id": "check",
+      "what": "ciginstaller check (cached metadata)",
+      "source": "#20",
+      "unit": "ms",
+      "limit": 200.0,
+      "median": null,
+      "p95": null,
+      "runs": 0,
+      "status": "not measured",
+      "note": "no cached manifest to check (no manifest for channel stable: nothing cached and no network)"
+     },
+     {
+      "id": "switch",
+      "what": "an atomic switch to a new carton",
+      "source": "#20",
+      "unit": "ms",
+      "limit": 100.0,
+      "median": 10.83,
+      "p95": 11.48,
+      "runs": 20,
+      "status": "ok",
+      "note": "state, index flip and commit, in a scratch home"
+     },
+     {
+      "id": "disk_five_cigo",
+      "what": "disk for five cigo versions, against one",
+      "source": "#20",
+      "unit": "x",
+      "limit": 1.5,
+      "median": null,
+      "p95": null,
+      "runs": 0,
+      "status": "not measured",
+      "note": "needs two or more cigo versions held"
+     },
+     {
+      "id": "installer_bytes",
+      "what": "the ciginstaller binary",
+      "source": "#20",
+      "unit": "bytes",
+      "limit": 10000000.0,
+      "median": 8169728.0,
+      "p95": null,
+      "runs": 1,
+      "status": "ok",
+      "note": ""
+     },
+     {
+      "id": "shim_bytes",
+      "what": "the shim binary",
+      "source": "SPEC 14.4",
+      "unit": "bytes",
+      "limit": 500000.0,
+      "median": 455344.0,
+      "p95": null,
+      "runs": 1,
+      "status": "ok",
+      "note": ""
+     },
+     {
+      "id": "first_line_status",
+      "what": "ciginstaller (the status): first line",
+      "source": "#32",
+      "unit": "ms",
+      "limit": 50.0,
+      "median": 3.81,
+      "p95": 4.28,
+      "runs": 10,
+      "status": "ok",
+      "note": "process start to first byte"
+     },
+     {
+      "id": "first_line_list",
+      "what": "ciginstaller list: first line",
+      "source": "#32",
+      "unit": "ms",
+      "limit": 100.0,
+      "median": 4.77,
+      "p95": 4.94,
+      "runs": 10,
+      "status": "ok",
+      "note": "process start to first byte"
+     },
+     {
+      "id": "install_pack_dev",
+      "what": "installing pack dev",
+      "source": "#20",
+      "unit": "ms",
+      "limit": 30000.0,
+      "median": null,
+      "p95": null,
+      "runs": 0,
+      "status": "not measured",
+      "note": "needs a local mirror: --from <dir>"
+     },
+     {
+      "id": "install_carton",
+      "what": "installing a whole carton",
+      "source": "#20",
+      "unit": "ms",
+      "limit": 60000.0,
+      "median": null,
+      "p95": null,
+      "runs": 0,
+      "status": "not measured",
+      "note": "needs a local mirror: --from <dir>"
+     }
+    ],
+    "not_measured_by_bench": [
+     {
+      "id": "update_check",
+      "what": "a background update check (network)",
+      "limit": 1000.0,
+      "unit": "ms"
+     }
+    ],
+    "not_built": [
+     {
+      "view": "the family view: every installed product's suite in one report",
+      "blocked_by": "wraps `cig bench --family`: depends on otmof-ops/cig-script#179 (the tool), open"
+     },
+     {
+      "view": "cartons against cartons (--carton, --with, --matrix, --product, --only)",
+      "blocked_by": "a suite for each product to run: depends on otmof-ops/cig-script#179 (the tool) and #30 (the resolver), both open"
+     },
+     {
+      "view": "live: --watch",
+      "blocked_by": "reruns a product's suite when its checkout changes (each product's [bench].watch): depends on otmof-ops/cig-script#179 (the tool), open"
+     },
+     {
+      "view": "the window's Bench view",
+      "blocked_by": "built from #33's components and the tokens (#31): depends on #33 (the window), open"
+     },
+     {
+      "view": "the cross-product cases (cigo's hook on each cig, a compiled program against cig run, an update's trial on a 50-script project, the window's timings)",
+      "blocked_by": "each measures another product or the window: depends on otmof-ops/cig-script#179 (the tool) and #33"
+     },
+     {
+      "view": "report it (the third choice after a regression)",
+      "blocked_by": "reporting goes through #29, open"
+     }
+    ]
+   }
+  },
+  "round_2": {
+   "ok": true,
+   "command": "bench",
+   "headline": "6 budget(s) measured here, none over",
+   "detail": [
+    "100 run(s) of the shim; measured here, read-only, and nothing is sent anywhere",
+    "not built yet: the family view, cartons against cartons, --watch and the window's Bench view; ciginstaller explain E1867 says what each waits on"
+   ],
+   "next": "ciginstaller install carton",
+   "code": null,
+   "data": {
+    "shim_dispatch_ns": 202360,
+    "check_ms": null,
+    "switch_ms": 11.26,
+    "shim_bytes": 455344,
+    "installer_bytes": 8169728,
+    "shim_dispatch_p95_ns": 209317,
+    "check_p95_ms": null,
+    "switch_p95_ms": 13.64,
+    "disk_five_cigo_ratio": null,
+    "first_line_status_ms": 4.08,
+    "first_line_list_ms": 4.19,
+    "install_pack_dev_ms": null,
+    "install_carton_ms": null,
+    "build": "release",
+    "runs": 100,
+    "over_budget": 0,
+    "budgets": [
+     {
+      "id": "shim_dispatch",
+      "what": "a shim dispatching to the right version",
+      "source": "#20",
+      "unit": "ms",
+      "limit": 2.0,
+      "median": 0.2,
+      "p95": 0.21,
+      "runs": 100,
+      "status": "ok",
+      "note": "the shim's own time to exec"
+     },
+     {
+      "id": "check",
+      "what": "ciginstaller check (cached metadata)",
+      "source": "#20",
+      "unit": "ms",
+      "limit": 200.0,
+      "median": null,
+      "p95": null,
+      "runs": 0,
+      "status": "not measured",
+      "note": "no cached manifest to check (no manifest for channel stable: nothing cached and no network)"
+     },
+     {
+      "id": "switch",
+      "what": "an atomic switch to a new carton",
+      "source": "#20",
+      "unit": "ms",
+      "limit": 100.0,
+      "median": 11.26,
+      "p95": 13.64,
+      "runs": 20,
+      "status": "ok",
+      "note": "state, index flip and commit, in a scratch home"
+     },
+     {
+      "id": "disk_five_cigo",
+      "what": "disk for five cigo versions, against one",
+      "source": "#20",
+      "unit": "x",
+      "limit": 1.5,
+      "median": null,
+      "p95": null,
+      "runs": 0,
+      "status": "not measured",
+      "note": "needs two or more cigo versions held"
+     },
+     {
+      "id": "installer_bytes",
+      "what": "the ciginstaller binary",
+      "source": "#20",
+      "unit": "bytes",
+      "limit": 10000000.0,
+      "median": 8169728.0,
+      "p95": null,
+      "runs": 1,
+      "status": "ok",
+      "note": ""
+     },
+     {
+      "id": "shim_bytes",
+      "what": "the shim binary",
+      "source": "SPEC 14.4",
+      "unit": "bytes",
+      "limit": 500000.0,
+      "median": 455344.0,
+      "p95": null,
+      "runs": 1,
+      "status": "ok",
+      "note": ""
+     },
+     {
+      "id": "first_line_status",
+      "what": "ciginstaller (the status): first line",
+      "source": "#32",
+      "unit": "ms",
+      "limit": 50.0,
+      "median": 4.08,
+      "p95": 4.32,
+      "runs": 10,
+      "status": "ok",
+      "note": "process start to first byte"
+     },
+     {
+      "id": "first_line_list",
+      "what": "ciginstaller list: first line",
+      "source": "#32",
+      "unit": "ms",
+      "limit": 100.0,
+      "median": 4.19,
+      "p95": 4.26,
+      "runs": 10,
+      "status": "ok",
+      "note": "process start to first byte"
+     },
+     {
+      "id": "install_pack_dev",
+      "what": "installing pack dev",
+      "source": "#20",
+      "unit": "ms",
+      "limit": 30000.0,
+      "median": null,
+      "p95": null,
+      "runs": 0,
+      "status": "not measured",
+      "note": "needs a local mirror: --from <dir>"
+     },
+     {
+      "id": "install_carton",
+      "what": "installing a whole carton",
+      "source": "#20",
+      "unit": "ms",
+      "limit": 60000.0,
+      "median": null,
+      "p95": null,
+      "runs": 0,
+      "status": "not measured",
+      "note": "needs a local mirror: --from <dir>"
+     }
+    ],
+    "not_measured_by_bench": [
+     {
+      "id": "update_check",
+      "what": "a background update check (network)",
+      "limit": 1000.0,
+      "unit": "ms"
+     }
+    ],
+    "not_built": [
+     {
+      "view": "the family view: every installed product's suite in one report",
+      "blocked_by": "wraps `cig bench --family`: depends on otmof-ops/cig-script#179 (the tool), open"
+     },
+     {
+      "view": "cartons against cartons (--carton, --with, --matrix, --product, --only)",
+      "blocked_by": "a suite for each product to run: depends on otmof-ops/cig-script#179 (the tool) and #30 (the resolver), both open"
+     },
+     {
+      "view": "live: --watch",
+      "blocked_by": "reruns a product's suite when its checkout changes (each product's [bench].watch): depends on otmof-ops/cig-script#179 (the tool), open"
+     },
+     {
+      "view": "the window's Bench view",
+      "blocked_by": "built from #33's components and the tokens (#31): depends on #33 (the window), open"
+     },
+     {
+      "view": "the cross-product cases (cigo's hook on each cig, a compiled program against cig run, an update's trial on a 50-script project, the window's timings)",
+      "blocked_by": "each measures another product or the window: depends on otmof-ops/cig-script#179 (the tool) and #33"
+     },
+     {
+      "view": "report it (the third choice after a regression)",
+      "blocked_by": "reporting goes through #29, open"
+     }
+    ]
+   }
+  }
+ },
+ "start_up": [
+  {
+   "name": "true",
+   "group": "floor",
+   "budget": null,
+   "outcome": {
+    "state": "timed",
+    "median_ms": 0.5115928,
+    "p10_ms": 0.49481505,
+    "p90_ms": 0.5481612499999999,
+    "cv": 0.05777725161183104,
+    "noisy": true,
+    "samples": 15,
+    "rss_bytes": 9084928,
+    "metrics": []
+   },
+   "outcome_round_2": {
+    "state": "timed",
+    "median_ms": 0.73444705,
+    "p10_ms": 0.5917943,
+    "p90_ms": 0.7427504,
+    "cv": 0.06980133436139116,
+    "noisy": true,
+    "samples": 15,
+    "rss_bytes": 9084928,
+    "metrics": []
+   },
+   "spread_between_rounds": 0.4356,
+   "noisy_between_rounds": true
+  },
+  {
+   "name": "rustup --version",
+   "group": "floor",
+   "budget": null,
+   "outcome": {
+    "state": "timed",
+    "median_ms": 18.0453514,
+    "p10_ms": 11.360389699999999,
+    "p90_ms": 23.1061546,
+    "cv": 0.26540252006309234,
+    "noisy": true,
+    "samples": 15,
+    "rss_bytes": 44404736,
+    "metrics": []
+   },
+   "outcome_round_2": {
+    "state": "timed",
+    "median_ms": 15.427669899999998,
+    "p10_ms": 11.2355139,
+    "p90_ms": 17.9206996,
+    "cv": 0.15173698631567384,
+    "noisy": true,
+    "samples": 15,
+    "rss_bytes": 42225664,
+    "metrics": []
+   },
+   "spread_between_rounds": 0.1697,
+   "noisy_between_rounds": true
+  },
+  {
+   "name": "rustc --version, through rustup's proxy",
+   "group": "floor",
+   "budget": null,
+   "outcome": {
+    "state": "timed",
+    "median_ms": 10.2790517,
+    "p10_ms": 10.170781199999999,
+    "p90_ms": 10.8988006,
+    "cv": 0.04071827907887639,
+    "noisy": false,
+    "samples": 15,
+    "rss_bytes": 44417024,
+    "metrics": []
+   },
+   "outcome_round_2": {
+    "state": "timed",
+    "median_ms": 10.467347499999999,
+    "p10_ms": 10.2829218,
+    "p90_ms": 11.7657143,
+    "cv": 0.09272523542275234,
+    "noisy": true,
+    "samples": 15,
+    "rss_bytes": 42274816,
+    "metrics": []
+   },
+   "spread_between_rounds": 0.0183,
+   "noisy_between_rounds": false
+  },
+  {
+   "name": "rustc --version, the toolchain's binary",
+   "group": "floor",
+   "budget": null,
+   "outcome": {
+    "state": "timed",
+    "median_ms": 6.7071931000000005,
+    "p10_ms": 6.575206999999999,
+    "p90_ms": 6.8819284,
+    "cv": 0.016798951955838328,
+    "noisy": false,
+    "samples": 15,
+    "rss_bytes": 42311680,
+    "metrics": []
+   },
+   "outcome_round_2": {
+    "state": "timed",
+    "median_ms": 6.7848462,
+    "p10_ms": 6.5709611,
+    "p90_ms": 6.873092,
+    "cv": 0.014638532938296693,
+    "noisy": false,
+    "samples": 15,
+    "rss_bytes": 42307584,
+    "metrics": []
+   },
+   "spread_between_rounds": 0.0116,
+   "noisy_between_rounds": false
+  },
+  {
+   "name": "ciginstaller --version",
+   "group": "ciginstaller",
+   "budget": null,
+   "outcome": {
+    "state": "timed",
+    "median_ms": 1.0941674000000001,
+    "p10_ms": 1.0526516,
+    "p90_ms": 1.516681,
+    "cv": 0.15970994714018055,
+    "noisy": true,
+    "samples": 15,
+    "rss_bytes": 13864960,
+    "metrics": []
+   },
+   "outcome_round_2": {
+    "state": "timed",
+    "median_ms": 1.1173269,
+    "p10_ms": 1.1060147500000002,
+    "p90_ms": 1.1389745,
+    "cv": 0.011965163914574518,
+    "noisy": false,
+    "samples": 15,
+    "rss_bytes": 13938688,
+    "metrics": []
+   },
+   "spread_between_rounds": 0.0212,
+   "noisy_between_rounds": false
+  }
+ ],
+ "peak_rss": [
+  {
+   "name": "true",
+   "runs": 5,
+   "median_bytes": 1286144,
+   "max_bytes": 1339392,
+   "how": "ru_maxrss from wait4, forked from a small C parent (harness maxrss.c), five runs",
+   "median_bytes_round_2": 1294336
+  },
+  {
+   "name": "ciginstaller --version",
+   "runs": 5,
+   "median_bytes": 2498560,
+   "max_bytes": 2498560,
+   "how": "ru_maxrss from wait4, forked from a small C parent (harness maxrss.c), five runs",
+   "median_bytes_round_2": 2498560
+  }
+ ],
+ "instructions": [
+  {
+   "name": "true",
+   "tool": "perf stat -e instructions:u",
+   "runs": 5,
+   "median": 146246,
+   "min": 146245,
+   "max": 146248,
+   "exit": [
+    0,
+    0,
+    0,
+    0,
+    0
+   ],
+   "median_round_2": 146248,
+   "spread_between_rounds": 1e-05
+  },
+  {
+   "name": "ciginstaller --version",
+   "tool": "perf stat -e instructions:u",
+   "runs": 5,
+   "median": 798381,
+   "min": 798381,
+   "max": 798381,
+   "exit": [
+    0,
+    0,
+    0,
+    0,
+    0
+   ],
+   "median_round_2": 798381,
+   "spread_between_rounds": 0.0
+  }
+ ]
+}
