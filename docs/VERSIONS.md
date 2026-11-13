@@ -29,7 +29,7 @@ box is ticked.
 
 ## Where things stand
 
-Today, 2026-11-12. The carton is **carton 0.1.0**: cig 1.21.0, cigo
+Today, 2026-11-13. The carton is **carton 0.1.0**: cig 1.21.0, cigo
 1.19.0, CigCompile 0.4.0, CigarScript 0.1.0, ciginstaller 0.1.0.
 
 | product | current | kept on GitHub (from `products.toml`) | next milestone | what the number covers |
@@ -80,17 +80,17 @@ when its evidence is in place today.
 
 | # | condition | evidence | state |
 |---|---|---|:---:|
-| 1 | cig's `run_start_is_constant_in_history` passes on Windows | `cig-script` `src/burn/runs.rs:716`; the test and the run that proves it on `windows-latest` and `windows-11-arm` | [ ] |
-| 2 | the installer's `cigi-ui::terminal::a_silent_terminal_gets_the_neutral_theme_within_the_budget` passes within its Linux budget | `crates/cigi-ui/tests/terminal.rs:282`; the test holds 150 ms on Linux and 500 ms on macOS | [ ] |
-| 3 | the installer's `cigi-ui::detect::tests::a_deadline_already_past_reads_nothing` passes on macOS | `crates/cigi-ui/src/detect.rs:567` | [ ] |
-| 4 | cigo's `rehearse --jobs` race (E759) fixed | the cigo PR that lands the fix. Seen in CI on cig-orchestrator#132 (run 43151999783, both Linux jobs): the test `rehearse --jobs: packages are rehearsed side by side, each in its own box, and print in the order asked (#56)` failed with E759 because a run started earlier in the suite still held the repository's pack; the rerun passed | [ ] |
-| 5 | path filters for docs-only changes on every repo's `ci.yml` | each workflow file's `paths-ignore` for `docs/**` and `*.md` where the job does not build or test docs | [ ] |
-| 6 | `concurrency: cancel-in-progress: true` for pull-request runs on every repo's `ci.yml` | each workflow file's `concurrency` block | [ ] |
-| 7 | release jobs reuse the commit's green CI checks | each `release.yml` reads the pushed tag's SHA's own run and does not rebuild and retest | [ ] |
-| 8 | a pinned toolchain (`rust-toolchain.toml` or a pinned minor in the workflow) in every repo | today only `cig-installer/rust-toolchain.toml` exists (`channel = "stable"`, not pinned); the four others have no file | [ ] |
-| 9 | CigCompile 0.4.1: compiled start-up back to the 0.3.0 level | `cigcompile bench --against main`: median `startup-0` compiled about 3.5 ms (today 4.7 ms, +40.6%); cig-compile run 43167882002 | [ ] |
+| 1 | cig's `run_start_is_constant_in_history` passes on Windows | `cig-script` `src/burn/runs.rs:716`; cig-script run 43391646956 on `main` (b936521): `test (windows-latest)` and `test (windows-11-arm)` both pass it | [x] |
+| 2 | the installer's `cigi-ui::terminal::a_silent_terminal_gets_the_neutral_theme_within_the_budget` passes within its Linux budget | `crates/cigi-ui/tests/terminal.rs:282`; the test holds 150 ms on Linux and 500 ms on macOS; cig-installer run 43243381455 on `main` (9b11198): `fmt, clippy, test`, `macos (macos-latest)` and `macos (macos-15-intel)` pass it. The test needs `script(1)` and returns early without it; the Ubuntu and macOS runners carry it | [x] |
+| 3 | the installer's `cigi-ui::detect::tests::a_deadline_already_past_reads_nothing` passes on macOS | `crates/cigi-ui/src/detect.rs:578`; cig-installer run 43243381455 on `main`: `macos (macos-latest)` and `macos (macos-15-intel)` pass it | [x] |
+| 4 | cigo's `rehearse --jobs` race (E759) fixed | [cig-orchestrator#133](https://github.com/otmof-ops/cig-orchestrator/pull/133): `tests/run.cig` clears the shared home's crash queue and lock notes before each call; and cig's detached flusher inherits no descriptor (cig-script 7485ff9, on `main`, in the next cig release). Seen in CI on cig-orchestrator#132 (run 43151999783, both Linux jobs); green on `main` in run 43257384323, `ci (ubuntu-latest)` and `ci (ubuntu-24.04-arm)` | [x] |
+| 5 | path filters for docs-only changes on every repo's `ci.yml` | not through `paths-ignore` (a workflow that is skipped reports nothing): each workflow's `changes` job ("what changed") marks a change docs-only when every file is under `docs/` or is a `*.md`, and the heavy jobs carry `if: needs.changes.outputs.code_changed == 'true'`; one verdict job always reports | [x] |
+| 6 | `concurrency: cancel-in-progress: true` for pull-request runs on every repo's `ci.yml` | each workflow file's `concurrency` block: `cancel-in-progress: ${{ github.event_name == 'pull_request' }}` | [x] |
+| 7 | release jobs reuse the commit's green CI checks | each `release.yml` starts with a `ci-green` job that reads the pushed tag's SHA's own `ci.yml` run and stops without a green one; the build jobs need it and do not retest. The next tag is the first to run it | [x] |
+| 8 | a pinned toolchain (`rust-toolchain.toml` or a pinned minor in the workflow) in every repo | `rust-toolchain.toml` with `channel = "1.99.1"` in cig-script, cig-compile, cigar-script and cig-installer; cig-orchestrator has no Rust and pins its toolchain, cig, in `ci.yml` (`CIG_VERSION: v1.21.0`). cig-script's fuzz job runs on `nightly`, which cargo-fuzz needs | [x] |
+| 9 | CigCompile 0.4.1: compiled start-up back to the 0.3.0 level | `cigcompile bench --against main`: median `startup-0` compiled about 3.5 ms. Not there: 4.7 ms at the 0.4.0 release (the bench gate of that release's pull request, run 43167882002), 4.0 ms in the newest gate run (43236602446, on cig-compile#83) | [ ] |
 | 10 | CigCompile 0.4.1: the bench gate passes against `main` with no accepted exception | the bench workflow's run; today peak memory is +10% on every program (mimalloc on musl, cig 1.21.0 [#146](https://github.com/otmof-ops/cig-script/issues/146)) and is an accepted exception on 0.4.0 | [ ] |
-| 11 | a new CigarScript release pins cig 1.21.0 | `cigar-script` `Cargo.toml` pins `cigscript` at tag `v1.21.0`. Today CigarScript 0.1.0's `Cargo.toml` pins `v1.20.0` ([`products.toml`](../manifest/products.toml) `[product.cigar."0.1.0"]`), and `main` pins the same; moving it to `v1.21.0` takes the `AssignTarget::Var` change at about eight call sites | [ ] |
+| 11 | a new CigarScript release pins cig 1.21.0 | `cigar-script` `Cargo.toml` pins `cigscript` at tag `v1.21.0`. CigarScript 0.1.0 pins `v1.20.0` ([`products.toml`](../manifest/products.toml) `[product.cigar."0.1.0"]`); `main` pins `v1.21.0` since cigar-script#42, and no release has been cut from it | [ ] |
 | 12 | cig 1.20.0 leaves the ecosystem (rule 2) | once no version in `products.toml` requires it: today CigCompile 0.3.0 requires `cig = "=1.20.0"`, so cig 1.20.0 drops only when CigCompile 0.3.0 drops too. When both go, the tag and release are deleted; `apache-2.0-last` stays | [ ] |
 | 13 | the gate above passes for every product in the carton | the gate rows ticked for cig, cigo, CigCompile, CigarScript and ciginstaller | [ ] |
 | 14 | the install matrix ([#21](https://github.com/otmof-ops/cig-installer/issues/21)) green against carton 0.2.0 on debian, ubuntu, parrot, fedora, arch and alpine | the `fresh-install` job's run; the upgrade-from-0.1.0 job once it lands | [ ] |
