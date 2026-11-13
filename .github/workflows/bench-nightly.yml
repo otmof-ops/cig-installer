@@ -21,7 +21,15 @@ jobs:
   bench:
     uses: otmof-ops/cig-script/.github/workflows/bench.yml@main
     with:
+      mode: nightly
+      # The cig the suite is measured with, sha256 checked.
       cig-version: "1.21.0"
+      # What the suite needs beside cig: this repository's `ciginstaller`,
+      # which bench/bench.toml runs from target/release.
+      prepare: |
+        set -eu
+        cargo build --release --locked -p ciginstaller
+        echo "$PWD/target/release" >> "$GITHUB_PATH"
     permissions:
       contents: write
       pull-requests: write
