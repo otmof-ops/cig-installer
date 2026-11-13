@@ -21,7 +21,7 @@ jobs:
   bench:
     uses: otmof-ops/cig-script/.github/workflows/bench.yml@main
     with:
-      cig-version: "1.20.0"
+      cig-version: "1.21.0"
     permissions:
       contents: write
       pull-requests: write
