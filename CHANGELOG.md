@@ -11,10 +11,11 @@ project follows semantic versioning.
 
 - **cigo's lowering is paid at install, not at its next call**
   (cig-orchestrator#142). From cig 1.25.0, cigo can run on cig's bytecode
-  VM, which starts it in about a quarter of the time once its script has
-  been lowered and the module kept; the lowering itself takes several times
-  a normal start, and cigo's launcher asks for the VM only when a module is
-  already kept for the cig and the cigo it sees. So the installer notes
+  VM, which starts it in about a third of the time once its script has
+  been lowered and the module kept (cigo's `docs/benchmarks.md` has the
+  figures); the lowering itself takes several times a normal start, and
+  cigo's launcher asks for the VM only when a module is already kept for
+  the cig and the cigo it sees. So the installer notes
   what the launcher sees of the two before a transaction (the builds the
   shims choose, the shims, the builds' own files, the shim index) and,
   where that differs once the transaction has committed and a cigo is
