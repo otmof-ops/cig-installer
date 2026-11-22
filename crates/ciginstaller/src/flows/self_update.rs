@@ -412,31 +412,42 @@ fn update_to(
     let _ = prune_txns(&cx.home, cx.lock_ref()?, Duration::from_secs(7 * 24 * 3600));
     let _ = std::fs::remove_file(&staged.path);
     cx.state = State::load(&cx.home).map_err(ie)?;
-    Ok(
-        Report::done(format!("ciginstaller updated {have} -> {want}"))
-            .detail(format!(
-                "trust: {}{}",
-                staged.verified.level.as_str(),
-                if staged.verified.independent {
-                    " (two sources agree)"
-                } else {
-                    " (a mirror: the sources are not independent)"
-                }
-            ))
-            .detail(format!(
-                "{have} is kept at {}",
-                cx.home
-                    .installer()
-                    .join("previous")
-                    .join(exe_name())
-                    .display()
-            ))
-            .next("ciginstaller --version")
-            .data(json!({
-                "from": have.to_string(), "to": want.to_string(), "changed": true, "txn": txn_id,
-                "trust": staged.verified.level.as_str(),
-            })),
-    )
+    // the shims are links to the new `cigi-shim` now, so cigo's launcher no longer sees the cig
+    // it kept a module for: tell cigo to lower itself again (cig-orchestrator#142). The update is
+    // committed; nothing here can fail it.
+    let cigo_lower = if super::family::lower_wanted(&cx.state, true) {
+        super::family::cigo_lower(&cx.home)
+    } else {
+        super::family::LowerOutcome::default()
+    };
+    let mut done = Report::done(format!("ciginstaller updated {have} -> {want}"));
+    if let Some(line) = cigo_lower.line.clone() {
+        done = done.detail(line);
+    }
+    Ok(done
+        .detail(format!(
+            "trust: {}{}",
+            staged.verified.level.as_str(),
+            if staged.verified.independent {
+                " (two sources agree)"
+            } else {
+                " (a mirror: the sources are not independent)"
+            }
+        ))
+        .detail(format!(
+            "{have} is kept at {}",
+            cx.home
+                .installer()
+                .join("previous")
+                .join(exe_name())
+                .display()
+        ))
+        .next("ciginstaller --version")
+        .data(json!({
+            "from": have.to_string(), "to": want.to_string(), "changed": true, "txn": txn_id,
+            "trust": staged.verified.level.as_str(),
+            "cigo_lower": cigo_lower.json,
+        })))
 }
 
 use super::switch::shim_names;

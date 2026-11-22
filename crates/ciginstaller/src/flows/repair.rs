@@ -549,6 +549,15 @@ pub fn run(cx: &mut Cx, a: &RepairArgs) -> Result<Report, InstallerError> {
     store.sweep_tmp();
     cx.state = State::load(&home).map_err(ie)?;
 
+    // a repair restores files and re-links shims, so cigo's launcher no longer sees the cig and
+    // cigo it kept a module for: tell cigo to lower itself again (cig-orchestrator#142). The
+    // repair is committed; nothing here can fail it.
+    let cigo_lower = if super::family::lower_wanted(&cx.state, true) {
+        super::family::cigo_lower(&home)
+    } else {
+        super::family::LowerOutcome::default()
+    };
+
     let mut r = Report::new(
         Icon::Done,
         format!(
@@ -563,10 +572,14 @@ pub fn run(cx: &mut Cx, a: &RepairArgs) -> Result<Report, InstallerError> {
     if path_edited {
         r = r.detail("the PATH block was edited by hand and is left alone (E1862)");
     }
+    if let Some(line) = cigo_lower.line.clone() {
+        r = r.detail(line);
+    }
     Ok(r.data(json!({
         "changed": true,
         "restored": restored,
         "removed": removed,
+        "cigo_lower": cigo_lower.json,
     })))
 }
 

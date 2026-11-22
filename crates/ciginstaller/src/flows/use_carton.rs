@@ -86,10 +86,32 @@ pub fn run_locked(cx: &mut Cx, a: &UseArgs) -> Result<Report, InstallerError> {
     let r = save_and_flip(&mut txn, &home, &state, yanked);
     settle(txn, r)?;
     cx.state = cigi_home::State::load(&cx.home).map_err(ie)?;
-    let mut rep = Report::done(format!("carton {target} is now this machine's carton"))
-        .data(json!({ "carton": target, "previous": old, "changed": true }));
+    // the switch changed which build the shims start when the two cartons differ on cig or cigo;
+    // tell cigo to lower itself (cig-orchestrator#142). It never fails the switch.
+    let old_tools = old.as_deref().and_then(|c| state.cartons.get(c));
+    let new_tools = state.cartons.get(&target);
+    let changed_cig_or_cigo = ["cig", "cigo"].iter().any(|t| {
+        let a = old_tools.and_then(|r| r.tools.get(*t));
+        let b = new_tools.and_then(|r| r.tools.get(*t));
+        a != b
+    });
+    let cigo_lower = if super::family::lower_wanted(&cx.state, changed_cig_or_cigo) {
+        super::family::cigo_lower(&cx.home)
+    } else {
+        super::family::LowerOutcome::default()
+    };
+    let mut rep =
+        Report::done(format!("carton {target} is now this machine's carton")).data(json!({
+            "carton": target,
+            "previous": old,
+            "changed": true,
+            "cigo_lower": cigo_lower.json,
+        }));
     if let Some(o) = old {
         rep = rep.detail(format!("carton {o} stays installed"));
+    }
+    if let Some(line) = cigo_lower.line.clone() {
+        rep = rep.detail(line);
     }
     for w in warnings {
         rep = rep.detail(format!("warning {w}"));

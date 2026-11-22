@@ -7,6 +7,26 @@ project follows semantic versioning.
 
 ## Unreleased
 
+### Added
+
+- **cigo's lowering is paid at install, not at its next call**
+  (cig-orchestrator#142). From cig 1.25.0, cigo can run on cig's bytecode
+  VM, which starts it in about a quarter of the time once its script has
+  been lowered and the module kept; the lowering itself takes several times
+  a normal start, and cigo's launcher asks for the VM only when a module is
+  already kept. So after `install`, `update`, `rollback`, `use`, `repair`
+  and `self update` commit a change to what the `cig` or `cigo` shims
+  start, and a cigo is installed, the installer runs `cigo __lower --json`
+  through cigo's shim, the way the person's next `cigo` will start: in a new
+  empty temporary folder that is removed afterwards, with the home's `bin/`
+  first on PATH, for at most 120 s. The step cannot fail the transaction,
+  which is committed before it runs: a cigo from before `__lower` says it
+  does not know the command and the installer says nothing; a timeout, a
+  crash or an answer it cannot read is one line. What cigo answered is one
+  line of the report and the `cigo_lower` field of `--json`. A dry run,
+  `--check`, a transaction that moved neither cig nor cigo, and a machine
+  with no cigo skip it.
+
 ### Changed
 
 - **A family tool belongs to the home it lives in** (decision 0005). A shim,

@@ -707,6 +707,17 @@ pub fn run_locked(cx: &mut Cx, a: &InstallArgs) -> Result<Report, InstallerError
     }
     cx.state = State::load(&cx.home).map_err(ie)?;
 
+    // after the commit, when this install changed the cig or cigo the shims start and a cigo is
+    // installed: tell cigo to lower itself through its shim, so its next call starts on cig's VM
+    // (cig-orchestrator#142). It never fails the install (the transaction is already done); its
+    // one line and `--json` field tell the person what came of it.
+    let changed_cig_or_cigo = want.iter().any(|(t, _)| t == "cig" || t == "cigo");
+    let cigo_lower = if super::family::lower_wanted(&cx.state, changed_cig_or_cigo) {
+        super::family::cigo_lower(&cx.home)
+    } else {
+        super::family::LowerOutcome::default()
+    };
+
     // the report
     let levels: Vec<TrustLevel> = fetched.iter().map(|f| f.staged.verified.level).collect();
     let mut rep = Report::done(format!("{what_text} installed: {}", list_of(&want)));
@@ -819,6 +830,9 @@ pub fn run_locked(cx: &mut Cx, a: &InstallArgs) -> Result<Report, InstallerError
             ));
         }
     }
+    if let Some(line) = cigo_lower.line.clone() {
+        rep = rep.detail(line);
+    }
     Ok(rep.data(json!({
         "carton": cv.to_string(),
         "changed": true,
@@ -838,6 +852,7 @@ pub fn run_locked(cx: &mut Cx, a: &InstallArgs) -> Result<Report, InstallerError
             _ => "skipped",
         },
         "path_registry": registry_word,
+        "cigo_lower": cigo_lower.json,
     })))
 }
 

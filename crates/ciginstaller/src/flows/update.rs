@@ -363,6 +363,17 @@ pub fn run(cx: &mut Cx, a: &UpdateArgs) -> Result<Updated, InstallerError> {
         .chain(fixed.iter().map(|f| super::fixed::line(f, true)))
         .collect();
 
+    // when the update changed cig or cigo and a cigo is installed: tell cigo to lower itself
+    // through its shim (cig-orchestrator#142). It never fails the update.
+    let changed_cig_or_cigo = changes
+        .iter()
+        .any(|c| (c.tool == "cig" || c.tool == "cigo") && c.from != c.to);
+    let cigo_lower = if super::family::lower_wanted(&cx.state, changed_cig_or_cigo) {
+        super::family::cigo_lower(&cx.home)
+    } else {
+        super::family::LowerOutcome::default()
+    };
+
     // report, with the rollback hint
     let mut r = Report::done(format!("updated carton {cur} to {tv}")).detail(fresh.clone());
     for l in &announced {
@@ -399,6 +410,9 @@ pub fn run(cx: &mut Cx, a: &UpdateArgs) -> Result<Updated, InstallerError> {
     for w in &warnings {
         r = r.detail(w.clone());
     }
+    if let Some(line) = cigo_lower.line.clone() {
+        r = r.detail(line);
+    }
     r = r
         .detail(format!(
             "carton {cur} stays installed until the next update, so you can go back"
@@ -417,6 +431,7 @@ pub fn run(cx: &mut Cx, a: &UpdateArgs) -> Result<Updated, InstallerError> {
         "fetched": fetched.iter().map(|f| json!({"tool": f.tool, "version": f.version.to_string()})).collect::<Vec<_>>(),
         "trial": trial_json(&staged.trial),
         "rollout": rollout,
+        "cigo_lower": cigo_lower.json,
     }));
     // the promises of an update, read back from disk
     done(super::tripwire::finish(

@@ -74,6 +74,20 @@ pub fn run(cx: &mut Cx, a: &RollbackArgs) -> Result<Report, InstallerError> {
     // points at a deleted toolchain
     super::gc::finish_pending(cx, &doomed)?;
     cx.state = State::load(&cx.home).map_err(ie)?;
+    // the rollback changed which cig or cigo the shims start when the two cartons differ on them;
+    // tell cigo to lower itself when a cigo is installed after (cig-orchestrator#142)
+    let cur_rec = before.cartons.get(&cur);
+    let prev_rec = cx.state.cartons.get(&prev);
+    let changed_cig_or_cigo = ["cig", "cigo"].iter().any(|t| {
+        let a = cur_rec.and_then(|r| r.tools.get(*t));
+        let b = prev_rec.and_then(|r| r.tools.get(*t));
+        a != b
+    });
+    let cigo_lower = if super::family::lower_wanted(&cx.state, changed_cig_or_cigo) {
+        super::family::cigo_lower(&cx.home)
+    } else {
+        super::family::LowerOutcome::default()
+    };
     let mut rep = Report::done(format!("rolled back carton {cur} to {prev}"));
     if undo.is_some() {
         rep = rep.detail(format!(
@@ -84,8 +98,16 @@ pub fn run(cx: &mut Cx, a: &RollbackArgs) -> Result<Report, InstallerError> {
             "carton {cur} stays installed; `ciginstaller use {cur}` goes forward again"
         ));
     }
-    let rep =
-        rep.data(json!({ "from": cur, "to": prev, "txn": id, "undone_update": undo.is_some() }));
+    if let Some(line) = cigo_lower.line.clone() {
+        rep = rep.detail(line);
+    }
+    let rep = rep.data(json!({
+        "from": cur,
+        "to": prev,
+        "txn": id,
+        "undone_update": undo.is_some(),
+        "cigo_lower": cigo_lower.json,
+    }));
     Ok(tripwire::finish(
         &cx.home,
         tripwire::Wire::AfterRollback,
@@ -265,13 +287,28 @@ fn tool_back(
     })();
     settle(txn, r)?;
     cx.state = State::load(&cx.home).map_err(ie)?;
+    // when the rolled-back tool is cig or cigo and a cigo is installed: tell cigo to lower itself
+    // through its shim (cig-orchestrator#142). Nothing here can fail the rollback.
+    let changed_cig_or_cigo = tool == "cig" || tool == "cigo";
+    let cigo_lower = if super::family::lower_wanted(&cx.state, changed_cig_or_cigo) {
+        super::family::cigo_lower(&cx.home)
+    } else {
+        super::family::LowerOutcome::default()
+    };
     let mut rep = Report::done(format!("rolled {tool} back to {pv}, from carton {prev}"));
     for w in warnings {
         rep = rep.detail(format!("warning {w}"));
     }
-    let rep = rep
-        .next("ciginstaller which --why")
-        .data(json!({ "tool": tool, "version": pv, "from_carton": prev, "txn": id }));
+    if let Some(line) = cigo_lower.line.clone() {
+        rep = rep.detail(line);
+    }
+    let rep = rep.next("ciginstaller which --why").data(json!({
+        "tool": tool,
+        "version": pv,
+        "from_carton": prev,
+        "txn": id,
+        "cigo_lower": cigo_lower.json,
+    }));
     Ok(tripwire::finish(
         &cx.home,
         tripwire::Wire::AfterRollback,

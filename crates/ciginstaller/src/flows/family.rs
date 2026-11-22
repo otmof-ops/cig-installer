@@ -5,6 +5,9 @@
 //!
 //! - `cigo guard uninstall --yes`, run before cigo is removed, when the guard is installed;
 //! - `cig crash announce-fixed`, run after an update that changed cig;
+//! - `cigo __lower --json`, run through the shim after a committed transaction that changed
+//!   which build of cig or cigo the shims start, when a cigo build is installed
+//!   (cig-orchestrator#142);
 //! - the product caches `uninstall` clears: cigar's run cache and cigcompile's fetched runtimes.
 //!
 //! None of this touches user data. A cache is rebuilt by the product that owns it.
@@ -12,7 +15,7 @@
 use std::path::{Path, PathBuf};
 
 use cig_compat::Version;
-use cigi_home::{installed, Home, State, Txn};
+use cigi_home::{installed, shim_path, Home, State, Txn};
 use cigi_ui::{InstallerError, EXIT_FAILED};
 
 use super::{doctor, tool_exe};
@@ -171,6 +174,221 @@ pub fn announce_fixed(home: &Home, cig: &Version) -> Vec<String> {
         Err(why) => vec![format!(
             "`cig crash announce-fixed` could not be run: {why}"
         )],
+    }
+}
+
+// ------------------------------------------------------------------ cigo __lower
+
+/// The default time limit on `cigo __lower --json`. A test can shorten it by setting
+/// `CIGI_LOWER_TIMEOUT_SECS`. Lowering cigo takes well under a second on a fast machine and a few
+/// on a slow one: the limit is there for a cigo that hangs, not as a budget.
+const LOWER_TIMEOUT_DEFAULT_SECS: u64 = 120;
+
+/// The env var a test uses to shorten the lowering step's time limit.
+pub const LOWER_TIMEOUT_ENV: &str = "CIGI_LOWER_TIMEOUT_SECS";
+
+fn lower_timeout_secs() -> u64 {
+    std::env::var(LOWER_TIMEOUT_ENV)
+        .ok()
+        .and_then(|s| s.parse::<u64>().ok())
+        .filter(|n| *n > 0)
+        .unwrap_or(LOWER_TIMEOUT_DEFAULT_SECS)
+}
+
+/// What the lowering step came to, for the caller's `Report`: a line to print (none when the step
+/// did not run or an older cigo did not answer at all) and cigo's `--json` document when it
+/// answered one (for the installer's own `--json` field).
+#[derive(Debug, Clone, Default)]
+pub struct LowerOutcome {
+    /// One line of text to show. `None` means nothing is shown: cigo is not installed, the install
+    /// did not change cig or cigo, or cigo answered nothing a person needs to read (an older cigo
+    /// that lacks `__lower`).
+    pub line: Option<String>,
+    /// The JSON document cigo printed, for the installer's own `--json` output. `None` means cigo
+    /// did not answer one.
+    pub json: Option<serde_json::Value>,
+}
+
+/// A new, unique, empty directory under the process's temp folder, the person's alone. The caller
+/// removes it. Nothing of the home or the installer's state goes in, and nothing inside survives
+/// this run.
+fn make_scratch_dir() -> std::io::Result<PathBuf> {
+    let base = std::env::temp_dir();
+    let pid = std::process::id();
+    let nanos = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_nanos())
+        .unwrap_or_default();
+    for n in 0u32..32 {
+        let p = base.join(format!("cigi-lower-{pid}-{nanos}-{n}"));
+        #[cfg_attr(not(unix), allow(unused_mut))]
+        let mut made = std::fs::DirBuilder::new();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::DirBuilderExt;
+            made.mode(0o700);
+        }
+        match made.create(&p) {
+            Ok(()) => return Ok(p),
+            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => continue,
+            Err(e) => return Err(e),
+        }
+    }
+    Err(std::io::Error::new(
+        std::io::ErrorKind::AlreadyExists,
+        "could not make a unique scratch folder",
+    ))
+}
+
+/// Run `cigo __lower --json` through the shim `<home>/bin/cigo`, after a transaction that changed
+/// which build of cig or cigo the shims start. Never fails: the transaction has already committed
+/// by the time this is called.
+///
+/// - A new empty temporary directory is the working directory, removed afterwards. cigo's script
+///   takes the working directory as its pack, so the home must never be it.
+/// - The home's `bin/` goes first on `PATH`, as [`guard_uninstall`] does for `cigo guard`.
+/// - The time limit is [`LOWER_TIMEOUT_DEFAULT_SECS`] by default; a test shortens it with the
+///   [`LOWER_TIMEOUT_ENV`] environment variable.
+///
+/// `None` from the shim, or no cigo installed, is `LowerOutcome::default()`.
+pub fn cigo_lower(home: &Home) -> LowerOutcome {
+    // the shim is <home>/bin/cigo; it starts the installed cigo through the shim index, so it
+    // chooses what a person's next `cigo` would choose
+    let shim = shim_path(home, "cigo");
+    if !shim.is_file() {
+        return LowerOutcome::default();
+    }
+    // a new empty temp folder, and nothing of the home: cigo's script treats the working directory
+    // as the pack; cig's own home must never be that
+    let scratch = match make_scratch_dir() {
+        Ok(p) => p,
+        Err(e) => {
+            return LowerOutcome {
+                line: Some(format!(
+                    "cigo's `__lower` was skipped: could not make a scratch folder ({e})"
+                )),
+                json: None,
+            };
+        }
+    };
+    let bin = home.bin();
+    let secs = lower_timeout_secs();
+    let ran = doctor::run_args(&shim, &["__lower", "--json"], &scratch, secs, Some(&bin));
+    // the scratch folder is removed, before the outcome is returned
+    let _ = std::fs::remove_dir_all(&scratch);
+    match ran {
+        Ok(r) if r.code == Some(0) => parse_lower(&r.stdout),
+        Ok(r) if matches!(r.code, Some(2 | 3)) => {
+            // a cigo from before `__lower` does not know the command: its own refusal exits 2,
+            // and cig's, for a script it will not run, exits 3. Neither is worth a line.
+            LowerOutcome::default()
+        }
+        Ok(r) => LowerOutcome {
+            line: Some(format!(
+                "`cigo __lower --json` did not finish well ({}): {}",
+                r.code
+                    .map_or("ended by a signal".to_string(), |c| format!("exit {c}")),
+                tail_of(&format!("{}{}", r.stdout, r.stderr))
+            )),
+            json: None,
+        },
+        Err(why) => LowerOutcome {
+            line: Some(format!("`cigo __lower --json` could not be run: {why}")),
+            json: None,
+        },
+    }
+}
+
+/// cigo's `__lower --json` answer: one line to show (from `tool/engine/reason`), and the document
+/// itself for the installer's `--json` field. An answer that is not cigo's document is a note.
+fn parse_lower(text: &str) -> LowerOutcome {
+    let trimmed = text.trim();
+    if trimmed.is_empty() {
+        return LowerOutcome::default();
+    }
+    let v: serde_json::Value = match serde_json::from_str(trimmed) {
+        Ok(v) => v,
+        Err(_) => {
+            return LowerOutcome {
+                line: Some(format!(
+                    "cigo answered its lowering step in a shape I cannot read: {}",
+                    tail_of(trimmed)
+                )),
+                json: None,
+            };
+        }
+    };
+    let engine = v.get("engine").and_then(|x| x.as_str()).unwrap_or("");
+    let reason = v.get("reason").and_then(|x| x.as_str()).map(str::to_string);
+    let kept = v.get("kept").and_then(|x| x.as_bool()).unwrap_or(false);
+    let line = match engine {
+        "vm" => {
+            if kept {
+                "cigo runs on cig's VM from its next call: its module is kept in cig's tin"
+                    .to_string()
+            } else {
+                "cigo runs on cig's VM from its next call".to_string()
+            }
+        }
+        "tree" => match reason.as_deref() {
+            Some(r) if !r.is_empty() => format!("cigo runs on cig's tree-walker: {r}"),
+            _ => "cigo runs on cig's tree-walker".to_string(),
+        },
+        _ => {
+            return LowerOutcome {
+                line: Some(format!(
+                    "cigo's lowering step answered in a shape I cannot read: {}",
+                    tail_of(trimmed)
+                )),
+                json: None,
+            };
+        }
+    };
+    LowerOutcome {
+        line: Some(line),
+        json: Some(v),
+    }
+}
+
+/// True when the install, update or switch changed which build of cig or cigo the shims start, and
+/// a cigo build is installed now: the caller runs `cigo __lower` in that case, never otherwise.
+pub fn lower_wanted(state: &State, cig_or_cigo_changed: bool) -> bool {
+    cig_or_cigo_changed && installed_version(state, "cigo").is_some()
+}
+
+#[cfg(all(test, unix))]
+mod lower_tests {
+    use super::*;
+
+    #[test]
+    fn parse_lower_reads_cigos_document() {
+        let text = r#"{"tool":"cigo","version":"1.18.0","cig":"1.25.0","engine":"vm","kept":true,"lowered":true,"reason":null}"#;
+        let out = parse_lower(text);
+        assert!(out
+            .line
+            .as_deref()
+            .unwrap_or("")
+            .contains("cig's VM from its next call"));
+        assert!(out.json.is_some());
+    }
+
+    #[test]
+    fn parse_lower_reads_tree_with_a_reason() {
+        let text = r#"{"tool":"cigo","engine":"tree","kept":false,"lowered":false,"reason":"cig 1.24.0 is older than 1.25.0"}"#;
+        let out = parse_lower(text);
+        assert!(out
+            .line
+            .as_deref()
+            .unwrap_or("")
+            .contains("tree-walker: cig 1.24.0 is older"));
+        assert!(out.json.is_some());
+    }
+
+    #[test]
+    fn parse_lower_calls_bad_shape_a_note_and_keeps_no_json() {
+        let out = parse_lower("not json at all");
+        assert!(out.json.is_none());
+        assert!(out.line.unwrap().contains("shape I cannot read"));
     }
 }
 
