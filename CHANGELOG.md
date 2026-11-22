@@ -14,18 +14,23 @@ project follows semantic versioning.
   VM, which starts it in about a quarter of the time once its script has
   been lowered and the module kept; the lowering itself takes several times
   a normal start, and cigo's launcher asks for the VM only when a module is
-  already kept. So after `install`, `update`, `rollback`, `use`, `repair`
-  and `self update` commit a change to what the `cig` or `cigo` shims
-  start, and a cigo is installed, the installer runs `cigo __lower --json`
-  through cigo's shim, the way the person's next `cigo` will start: in a new
-  empty temporary folder that is removed afterwards, with the home's `bin/`
-  first on PATH, for at most 120 s. The step cannot fail the transaction,
-  which is committed before it runs: a cigo from before `__lower` says it
-  does not know the command and the installer says nothing; a timeout, a
-  crash or an answer it cannot read is one line. What cigo answered is one
-  line of the report and the `cigo_lower` field of `--json`. A dry run,
-  `--check`, a transaction that moved neither cig nor cigo, and a machine
-  with no cigo skip it.
+  already kept for the cig and the cigo it sees. So the installer notes
+  what the launcher sees of the two before a transaction (the builds the
+  shims choose, the shims, the builds' own files, the shim index) and,
+  where that differs once the transaction has committed and a cigo is
+  installed, runs `cigo __lower --json`: after `install`, `update`,
+  `rollback`, `use`, `repair`, `self update` and `shims sync`. It runs
+  through cigo's shim, the way the person's next `cigo` will start, in a
+  new empty temporary folder that is removed afterwards, with the home's
+  `bin/` first on PATH, for at most 120 s. The step cannot fail the
+  transaction: a cigo from before `__lower` says it does not know the
+  command and the installer says nothing; a timeout, a crash or an answer
+  it cannot read is one line, printed without control characters. The
+  report gains a line only when cigo lowered its script during this
+  transaction; what cigo answered is always the `cigo_lower` field of
+  `--json`, and `cigo doctor` says which engine cigo runs on and why. A dry
+  run, `--check`, a transaction that left what the launcher sees as it was,
+  and a machine with no cigo skip it.
 
 ### Changed
 

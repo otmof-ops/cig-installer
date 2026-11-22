@@ -1,53 +1,62 @@
 // SPDX-FileCopyrightText: 2026 Jay Taylor (https://github.com/otmof-ops/cig-installer)
 // SPDX-License-Identifier: FSL-1.1-ALv2
-//! `cigo __lower --json` after a committed transaction that changed which build of cig or cigo
-//! the shims start (cig-orchestrator#142). The transaction has already finished, so this step
-//! never fails it: an older cigo without the subcommand is silent, a crash or a timeout is one
-//! line and nothing in the exit code. The fixture's cigo is a shell script that records how it
-//! was called.
+//! `cigo __lower --json` after a committed transaction that changed what cigo's launcher sees of
+//! the cig and the cigo it starts (cig-orchestrator#142). The transaction has already finished, so
+//! the step never changes its result: a cigo from before the command is silent, a crash, a timeout
+//! or an answer that is not cigo's document is one line and nothing in the exit code.
 //!
 //! The products are the fixture's fakes, so these tests are Unix only.
 #![cfg(unix)]
 
 mod common;
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::Output;
 
 use cigi_testkit::Fixture;
 use common::{cigi, fixture, ok, text};
 use serde_json::Value;
 
-/// A cigo shell hook that records every `__lower` call as one line in `$HOME/lower.log`
-/// (args, cwd, and whether the cwd was empty when it was called) and answers as cigo's `__lower
-/// --json` does.
-const LOWER_OK: &str = r#"if [ "$1" = "__lower" ]; then
+/// Lines for the fake cigo: every `__lower` call is recorded as one line in `$HOME/lower.log`
+/// (its arguments, the folder it ran in, and how many entries that folder held), and answered
+/// with `answer`, as cigo's `__lower --json` answers.
+fn answers(answer: &str) -> String {
+    format!(
+        r#"if [ "$1" = "__lower" ]; then
   n=$(ls -A . 2>/dev/null | wc -l)
-  printf '%s|cwd=%s|empty=%s\n' "$*" "$PWD" "$n" >> "$HOME/lower.log"
-  printf '{"tool":"cigo","version":"1.17.0","cig":"1.25.0","engine":"vm","kept":true,"lowered":true,"reason":null}\n'
+  printf '%s|cwd=%s|entries=%s\n' "$*" "$PWD" "$n" >> "$HOME/lower.log"
+  printf '%s\n' '{answer}'
   exit 0
-fi"#;
+fi"#
+    )
+}
 
-/// `__lower` that exits 2 as an older cigo would (an unknown subcommand, clap's usage code).
-const LOWER_UNKNOWN: &str = r#"if [ "$1" = "__lower" ]; then
-  printf 'unrecognized subcommand: __lower\n' >&2
+/// cigo lowered its script on this call and kept the module.
+const LOWERED: &str = r#"{"tool":"cigo","version":"1.17.0","cig":"1.25.0","engine":"vm","kept":true,"lowered":true,"reason":null}"#;
+/// The module was already kept: nothing was lowered.
+const KEPT: &str = r#"{"tool":"cigo","version":"1.17.0","cig":"1.25.0","engine":"vm","kept":true,"lowered":false,"reason":null}"#;
+/// cigo stays on the tree-walker, and says why.
+const TREE: &str = r#"{"tool":"cigo","version":"1.17.0","cig":"1.24.0","engine":"tree","kept":false,"lowered":false,"reason":"cig 1.24.0 runs scripts on the tree-walker only"}"#;
+
+/// A cigo from before `__lower`: it does not know the command.
+const UNKNOWN: &str = r#"if [ "$1" = "__lower" ]; then
+  echo 'error: unknown command `__lower`' >&2
   exit 2
 fi"#;
 
-/// `__lower` that prints something that is not JSON.
-const LOWER_NONSENSE: &str = r#"if [ "$1" = "__lower" ]; then
-  printf 'I am not JSON\n'
+/// An answer that is not cigo's document, with an escape sequence in it.
+const NONSENSE: &str = r#"if [ "$1" = "__lower" ]; then
+  printf 'not the document \033[2J at all\n'
   exit 0
 fi"#;
 
-/// `__lower` that sleeps past the shortened limit (`CIGI_LOWER_TIMEOUT_SECS`).
-const LOWER_SLEEP: &str = r#"if [ "$1" = "__lower" ]; then
-  echo "started" > "$HOME/lower.started"
+/// A cigo that does not come back within the limit a test sets.
+const SLEEPS: &str = r#"if [ "$1" = "__lower" ]; then
+  echo started > "$HOME/lower.started"
   sleep 20
   exit 0
 fi"#;
 
-/// Run the installer with `--yes`, the extra env, the arguments. Returns the output.
 fn run(fx: &Fixture, env: &[(&str, &str)], args: &[&str]) -> Output {
     let mut c = fx.cigi();
     c.env("CIGI_ALLOW_SINGLE_SOURCE", "true").arg("--yes");
@@ -58,7 +67,8 @@ fn run(fx: &Fixture, env: &[(&str, &str)], args: &[&str]) -> Output {
     cigi_testkit::output_retrying(&mut c).expect("run ciginstaller")
 }
 
-fn data(o: &Output) -> Value {
+/// The one JSON document of a `--json` run.
+fn doc(o: &Output) -> Value {
     let line = String::from_utf8_lossy(&o.stdout)
         .lines()
         .last()
@@ -67,23 +77,46 @@ fn data(o: &Output) -> Value {
     serde_json::from_str(&line).unwrap_or_else(|e| panic!("{e}: {}", text(o)))
 }
 
-fn log(fx: &Fixture) -> String {
-    std::fs::read_to_string(fx.user_home.join("lower.log")).unwrap_or_default()
+/// The report's detail lines that are about cigo's lowering.
+fn said(d: &Value) -> Vec<String> {
+    d["detail"]
+        .as_array()
+        .map(|a| {
+            a.iter()
+                .filter_map(Value::as_str)
+                .filter(|l| l.contains("lower") || l.contains("cig's VM"))
+                .map(str::to_string)
+                .collect()
+        })
+        .unwrap_or_default()
 }
 
-fn log_lines(fx: &Fixture) -> Vec<String> {
-    log(fx)
+fn calls(fx: &Fixture) -> Vec<String> {
+    std::fs::read_to_string(fx.user_home.join("lower.log"))
+        .unwrap_or_default()
         .lines()
         .filter(|l| !l.is_empty())
         .map(str::to_string)
         .collect()
 }
 
-/// A fixture with one carton that has cig, cigo and cigcompile; the cigo answers `__lower --json`
-/// with the given shell snippet. The carton is published but not installed.
-fn setup(cigo_hook: &str) -> Fixture {
+fn forget_calls(fx: &Fixture) {
+    let _ = std::fs::remove_file(fx.user_home.join("lower.log"));
+}
+
+/// The folder a recorded call ran in.
+fn cwd_of(line: &str) -> PathBuf {
+    PathBuf::from(
+        line.split('|')
+            .find_map(|p| p.strip_prefix("cwd="))
+            .unwrap_or_else(|| panic!("no cwd in {line}")),
+    )
+}
+
+/// One published carton, 0.1.0, with cig, cigo and cigcompile; cigo runs `cigo_lines` first.
+fn setup(cigo_lines: &str) -> Fixture {
     let mut fx = fixture();
-    fx.product("cigo", "1.17.0").shell(cigo_hook);
+    fx.product("cigo", "1.17.0").shell(cigo_lines);
     fx.product("cig", "1.20.0");
     fx.product("cigcompile", "0.2.0");
     fx.carton(
@@ -98,221 +131,179 @@ fn setup(cigo_hook: &str) -> Fixture {
     fx
 }
 
-// ------------------------------------------------------------------ install: cigo ran
-
-#[test]
-fn an_install_of_a_carton_with_cigo_runs_lower_once_in_an_empty_folder_outside_the_home() {
-    let fx = setup(LOWER_OK);
-    let o = run(
-        &fx,
-        &[],
-        &["--json", "install", "carton", "--carton", "0.1.0"],
-    );
-    ok(&o);
-    let lines = log_lines(&fx);
-    assert_eq!(lines.len(), 1, "one `__lower` call: {lines:?}");
-    let line = &lines[0];
-    assert!(line.starts_with("__lower --json|"), "{line}");
-    assert!(line.contains("|empty=0"), "cwd was empty: {line}");
-    // the cwd was not the home or anything under it
-    let cwd_str = line
-        .split('|')
-        .find_map(|p| p.strip_prefix("cwd="))
-        .expect("cwd");
-    let cwd = std::fs::canonicalize(Path::new(cwd_str))
-        .unwrap_or_else(|_| Path::new(cwd_str).to_path_buf());
-    let user_home = std::fs::canonicalize(&fx.user_home).unwrap_or_else(|_| fx.user_home.clone());
-    let cig_home = std::fs::canonicalize(fx.cigscript()).unwrap_or_else(|_| fx.cigscript());
-    assert!(
-        !cwd.starts_with(&user_home) && !cwd.starts_with(&cig_home),
-        "cwd {} must not be in the home ({})",
-        cwd.display(),
-        user_home.display()
-    );
-    // the installer tells the person, and carries the JSON document
-    let d = data(&o);
-    let detail = d["detail"].to_string();
-    assert!(
-        detail.contains("cig's VM from its next call"),
-        "install's detail: {detail}"
-    );
-    assert_eq!(d["data"]["cigo_lower"]["engine"], "vm");
-    assert_eq!(d["data"]["cigo_lower"]["kept"], true);
-}
-
-// ------------------------------------------------------------------ update: cig alone changed
-
-#[test]
-fn an_update_that_changed_cig_alone_runs_lower_once() {
-    let mut fx = setup(LOWER_OK);
-    // the first carton goes in, no lower log yet after we reset
-    ok(&cigi(&fx, &["install", "carton", "--carton", "0.1.0"]));
-    let _ = std::fs::remove_file(fx.user_home.join("lower.log"));
-    // the second carton bumps cig only; cigo stays at 1.17.0, cigcompile at 0.2.0
-    fx.product("cig", "1.21.0");
+/// A second carton, 0.2.0, published beside the first.
+fn second_carton(fx: &mut Fixture, cig: &str, cigcompile: &str) {
+    if cig != "1.20.0" {
+        fx.product("cig", cig);
+    }
+    if cigcompile != "0.2.0" {
+        fx.product("cigcompile", cigcompile);
+    }
     fx.carton(
         "0.2.0",
-        &[
-            ("cig", "1.21.0"),
-            ("cigo", "1.17.0"),
-            ("cigcompile", "0.2.0"),
-        ],
+        &[("cig", cig), ("cigo", "1.17.0"), ("cigcompile", cigcompile)],
     );
     fx.publish("stable");
+}
+
+const INSTALL: [&str; 5] = ["--json", "install", "carton", "--carton", "0.1.0"];
+
+// ------------------------------------------------------------------ when it runs
+
+#[test]
+fn an_install_runs_it_once_in_an_empty_folder_outside_the_home_and_says_what_cigo_did() {
+    let fx = setup(&answers(LOWERED));
+    let o = run(&fx, &[], &INSTALL);
+    ok(&o);
+    let calls = calls(&fx);
+    assert_eq!(calls.len(), 1, "{calls:?}");
+    assert!(calls[0].starts_with("__lower --json|"), "{}", calls[0]);
+    assert!(calls[0].ends_with("|entries=0"), "{}", calls[0]);
+    let cwd = cwd_of(&calls[0]);
+    let real = |p: &Path| std::fs::canonicalize(p).unwrap_or_else(|_| p.to_path_buf());
+    for home in [real(&fx.user_home), real(&fx.cigscript())] {
+        assert!(
+            !cwd.starts_with(&home),
+            "{} is inside {}",
+            cwd.display(),
+            home.display()
+        );
+    }
+    // the folder was the step's alone, and is gone
+    assert!(!cwd.exists(), "{} is still there", cwd.display());
+    let d = doc(&o);
+    let said = said(&d);
+    assert_eq!(said.len(), 1, "{d:#}");
+    assert!(said[0].contains("lowered for cig's VM"), "{}", said[0]);
+    assert_eq!(d["data"]["cigo_lower"]["engine"], "vm");
+    assert_eq!(d["data"]["cigo_lower"]["lowered"], true);
+}
+
+#[test]
+fn an_update_of_cig_alone_runs_it_once() {
+    let mut fx = setup(&answers(LOWERED));
+    ok(&cigi(&fx, &["install", "carton", "--carton", "0.1.0"]));
+    forget_calls(&fx);
+    second_carton(&mut fx, "1.21.0", "0.2.0");
     let o = run(&fx, &[], &["--json", "update", "--no-trial"]);
     ok(&o);
-    let lines = log_lines(&fx);
-    assert_eq!(lines.len(), 1, "one `__lower` call: {lines:?}");
-    assert_eq!(data(&o)["data"]["cigo_lower"]["engine"], "vm");
+    assert_eq!(calls(&fx).len(), 1, "{:?}", calls(&fx));
+    assert_eq!(doc(&o)["data"]["cigo_lower"]["engine"], "vm");
 }
 
-// ------------------------------------------------------------------ no cig or cigo change
+#[test]
+fn an_update_of_another_tool_runs_it_too_and_says_nothing_when_the_module_was_kept() {
+    // the shim index is written again by every update, and cigo's launcher reads its size and
+    // time: cigo is asked, finds its module still kept, and there is nothing to tell the person
+    let mut fx = setup(&answers(KEPT));
+    ok(&cigi(&fx, &["install", "carton", "--carton", "0.1.0"]));
+    forget_calls(&fx);
+    second_carton(&mut fx, "1.20.0", "0.3.0");
+    let o = run(&fx, &[], &["--json", "update", "--no-trial"]);
+    ok(&o);
+    assert_eq!(calls(&fx).len(), 1, "{:?}", calls(&fx));
+    let d = doc(&o);
+    assert!(said(&d).is_empty(), "{d:#}");
+    assert_eq!(d["data"]["cigo_lower"]["kept"], true);
+    assert_eq!(d["data"]["cigo_lower"]["lowered"], false);
+}
 
 #[test]
-fn an_update_that_changed_neither_cig_nor_cigo_does_not_run_lower() {
-    let mut fx = setup(LOWER_OK);
+fn a_rollback_that_undoes_an_update_runs_it_once() {
+    let mut fx = setup(&answers(LOWERED));
     ok(&cigi(&fx, &["install", "carton", "--carton", "0.1.0"]));
-    let _ = std::fs::remove_file(fx.user_home.join("lower.log"));
-    // bump cigcompile only
-    fx.product("cigcompile", "0.3.0");
-    fx.carton(
-        "0.2.0",
-        &[
-            ("cig", "1.20.0"),
-            ("cigo", "1.17.0"),
-            ("cigcompile", "0.3.0"),
-        ],
-    );
-    fx.publish("stable");
+    second_carton(&mut fx, "1.21.0", "0.2.0");
     ok(&run(&fx, &[], &["update", "--no-trial"]));
-    assert_eq!(log(&fx), "", "no `__lower` call");
-}
-
-// ------------------------------------------------------------------ --dry-run
-
-#[test]
-fn an_install_dry_run_does_not_run_lower() {
-    let fx = setup(LOWER_OK);
-    let o = run(
-        &fx,
-        &[],
-        &["install", "carton", "--carton", "0.1.0", "--dry-run"],
-    );
+    forget_calls(&fx);
+    let o = run(&fx, &[], &["--json", "rollback"]);
     ok(&o);
-    assert_eq!(log(&fx), "");
+    assert_eq!(calls(&fx).len(), 1, "{:?}", calls(&fx));
+    assert_eq!(doc(&o)["data"]["cigo_lower"]["engine"], "vm");
 }
 
-// ------------------------------------------------------------------ --check
-
 #[test]
-fn an_update_check_does_not_run_lower() {
-    let mut fx = setup(LOWER_OK);
+fn a_switch_to_a_carton_with_another_cig_runs_it_once() {
+    let mut fx = setup(&answers(LOWERED));
     ok(&cigi(&fx, &["install", "carton", "--carton", "0.1.0"]));
-    let _ = std::fs::remove_file(fx.user_home.join("lower.log"));
-    fx.product("cig", "1.21.0");
-    fx.carton(
-        "0.2.0",
-        &[
-            ("cig", "1.21.0"),
-            ("cigo", "1.17.0"),
-            ("cigcompile", "0.2.0"),
-        ],
-    );
-    fx.publish("stable");
-    ok(&run(&fx, &[], &["update", "--check"]));
-    assert_eq!(log(&fx), "");
-}
-
-// ------------------------------------------------------------------ older cigo (exit 2)
-
-#[test]
-fn an_older_cigo_that_answers_unknown_leaves_the_install_alone_and_is_silent() {
-    let fx = setup(LOWER_UNKNOWN);
-    let o = run(
-        &fx,
-        &[],
-        &["--json", "install", "carton", "--carton", "0.1.0"],
-    );
-    ok(&o); // exit 0: the install committed, and the lower step never changes that
-    let d = data(&o);
-    // nothing shown to the person, nothing recorded in the --json field
-    let detail = d["detail"].to_string();
-    assert!(!detail.contains("cigo runs on cig"), "{detail}");
-    assert!(d["data"]["cigo_lower"].is_null(), "{d:#}");
-}
-
-// ------------------------------------------------------------------ nonsense answer
-
-#[test]
-fn a_cigo_that_prints_nonsense_leaves_the_install_alone_and_a_note_in_its_place() {
-    let fx = setup(LOWER_NONSENSE);
-    let o = run(
-        &fx,
-        &[],
-        &["--json", "install", "carton", "--carton", "0.1.0"],
-    );
+    second_carton(&mut fx, "1.21.0", "0.2.0");
+    ok(&run(&fx, &[], &["install", "carton", "--carton", "0.2.0"]));
+    let machine = |fx: &Fixture| -> String {
+        let s = std::fs::read_to_string(fx.cigscript().join("installer/state.json")).unwrap();
+        let v: Value = serde_json::from_str(&s).unwrap();
+        v["machine_carton"].as_str().unwrap_or("").to_string()
+    };
+    // whichever of the two the machine runs now, switch to the other
+    let other = if machine(&fx) == "0.1.0" {
+        "0.2.0"
+    } else {
+        "0.1.0"
+    };
+    forget_calls(&fx);
+    let o = run(&fx, &[], &["--json", "use", other]);
     ok(&o);
-    let d = data(&o);
-    assert!(d["data"]["cigo_lower"].is_null(), "{d:#}");
-    let detail = d["detail"].to_string();
-    assert!(
-        detail.contains("cannot read") || detail.contains("not json") || detail.contains("shape"),
-        "a note about the shape: {detail}"
-    );
+    assert_eq!(machine(&fx), other);
+    assert_eq!(calls(&fx).len(), 1, "{:?}", calls(&fx));
+    assert_eq!(doc(&o)["data"]["cigo_lower"]["engine"], "vm");
 }
 
-// ------------------------------------------------------------------ timeout
-
 #[test]
-fn a_cigo_that_sleeps_past_the_limit_is_killed_and_the_install_stays_ok() {
-    let fx = setup(LOWER_SLEEP);
-    // 1 second is plenty: the fake sleeps 20
-    let o = run(
-        &fx,
-        &[("CIGI_LOWER_TIMEOUT_SECS", "1")],
-        &["--json", "install", "carton", "--carton", "0.1.0"],
-    );
-    ok(&o);
-    assert!(
-        fx.user_home.join("lower.started").exists(),
-        "`__lower` was started"
-    );
-    let d = data(&o);
-    assert!(d["data"]["cigo_lower"].is_null(), "{d:#}");
-    let detail = d["detail"].to_string();
-    assert!(
-        detail.contains("did not finish") || detail.contains("could not be run"),
-        "a note about the timeout: {detail}"
-    );
-}
-
-// ------------------------------------------------------------------ repair and self update
-
-#[test]
-fn a_repair_that_relinks_a_shim_runs_lower_once_and_one_with_nothing_to_do_does_not() {
-    let fx = setup(LOWER_OK);
+fn a_repair_that_links_a_shim_again_runs_it_once_and_one_with_nothing_to_do_does_not() {
+    let fx = setup(&answers(LOWERED));
     ok(&cigi(&fx, &["install", "carton", "--carton", "0.1.0"]));
-    let _ = std::fs::remove_file(fx.user_home.join("lower.log"));
-    // nothing is damaged: the repair changes nothing and does not run the step
+    forget_calls(&fx);
     ok(&run(&fx, &[], &["repair"]));
-    assert_eq!(
-        log(&fx),
-        "",
-        "no `__lower` call from a repair with nothing to do"
-    );
-    // the cig shim is gone: the repair links it again, and cigo is told
+    assert!(calls(&fx).is_empty(), "{:?}", calls(&fx));
     std::fs::remove_file(fx.cigscript().join("bin").join("cig")).unwrap();
     let o = run(&fx, &[], &["--json", "repair"]);
     ok(&o);
-    let lines = log_lines(&fx);
-    assert_eq!(lines.len(), 1, "one `__lower` call: {lines:?}");
-    assert_eq!(data(&o)["data"]["cigo_lower"]["engine"], "vm");
+    assert_eq!(calls(&fx).len(), 1, "{:?}", calls(&fx));
+    assert_eq!(doc(&o)["data"]["cigo_lower"]["engine"], "vm");
 }
 
 #[test]
-fn a_self_update_runs_lower_once_after_the_shims_follow_the_new_build() {
+fn a_repair_of_another_tool_runs_it_only_if_it_wrote_what_the_launcher_reads() {
+    let fx = setup(&answers(LOWERED));
+    ok(&cigi(&fx, &["install", "carton", "--carton", "0.1.0"]));
+    forget_calls(&fx);
+    let stray = fx
+        .cigscript()
+        .join("toolchains")
+        .join("cigcompile/0.2.0/bin/stray");
+    std::fs::write(&stray, "extra").unwrap();
+    let index = fx.cigscript().join("installer/shim-index");
+    let stamp = |p: &Path| {
+        let m = std::fs::metadata(p).unwrap();
+        (m.len(), m.modified().unwrap())
+    };
+    let before = stamp(&index);
+    let o = run(&fx, &[], &["--json", "repair", "--tool", "cigcompile"]);
+    ok(&o);
+    assert!(!stray.exists(), "the repair removed the stray file");
+    if stamp(&index) == before {
+        assert!(calls(&fx).is_empty(), "{:?}", calls(&fx));
+        assert!(doc(&o)["data"]["cigo_lower"].is_null());
+    } else {
+        // the repair wrote the index again, which cigo's launcher reads: cigo is asked
+        assert_eq!(calls(&fx).len(), 1, "{:?}", calls(&fx));
+    }
+}
+
+#[test]
+fn shims_sync_runs_it_when_it_links_a_shim_again() {
+    let fx = setup(&answers(LOWERED));
+    ok(&cigi(&fx, &["install", "carton", "--carton", "0.1.0"]));
+    forget_calls(&fx);
+    std::fs::remove_file(fx.cigscript().join("bin").join("cig")).unwrap();
+    let o = run(&fx, &[], &["--json", "shims", "sync"]);
+    ok(&o);
+    assert_eq!(calls(&fx).len(), 1, "{:?}", calls(&fx));
+    assert_eq!(doc(&o)["data"]["cigo_lower"]["engine"], "vm");
+}
+
+#[test]
+fn a_self_update_runs_it_once_after_the_shims_follow_the_new_build() {
     let mut fx = fixture();
-    fx.product("cigo", "1.17.0").shell(LOWER_OK);
+    fx.product("cigo", "1.17.0").shell(&answers(LOWERED));
     fx.product("cig", "1.20.0");
     fx.product("ciginstaller", "0.1.1");
     fx.carton("0.1.0", &[("cig", "1.20.0"), ("cigo", "1.17.0")]);
@@ -349,9 +340,100 @@ fn a_self_update_runs_lower_once_after_the_shims_follow_the_new_build() {
     // the fixture's new shim is a stand-in that starts no tool: it records the name it was started
     // under and its arguments, and answers nothing, which the installer takes without a word
     let seen = std::fs::read_to_string(&shim_log).unwrap_or_default();
-    let calls: Vec<&str> = seen.lines().filter(|l| l.starts_with("cigo ")).collect();
-    assert_eq!(calls, ["cigo __lower --json"], "{seen}");
-    let d = data(&o);
+    let started: Vec<&str> = seen.lines().filter(|l| l.starts_with("cigo ")).collect();
+    assert_eq!(started, ["cigo __lower --json"], "{seen}");
+    let d = doc(&o);
     assert!(d["data"]["cigo_lower"].is_null(), "{d:#}");
-    assert!(!d["detail"].to_string().contains("__lower"), "{d:#}");
+    assert!(said(&d).is_empty(), "{d:#}");
+}
+
+// ------------------------------------------------------------------ when it does not
+
+#[test]
+fn a_dry_run_and_a_check_do_not_run_it() {
+    let mut fx = setup(&answers(LOWERED));
+    ok(&run(
+        &fx,
+        &[],
+        &["install", "carton", "--carton", "0.1.0", "--dry-run"],
+    ));
+    assert!(calls(&fx).is_empty(), "{:?}", calls(&fx));
+    ok(&cigi(&fx, &["install", "carton", "--carton", "0.1.0"]));
+    forget_calls(&fx);
+    second_carton(&mut fx, "1.21.0", "0.2.0");
+    ok(&run(&fx, &[], &["update", "--check"]));
+    assert!(calls(&fx).is_empty(), "{:?}", calls(&fx));
+}
+
+#[test]
+fn a_machine_with_no_cigo_runs_nothing() {
+    let mut fx = fixture();
+    fx.product("cig", "1.20.0");
+    fx.carton("0.1.0", &[("cig", "1.20.0")]);
+    fx.publish("stable");
+    let o = run(&fx, &[], &INSTALL);
+    ok(&o);
+    let d = doc(&o);
+    assert!(d["data"]["cigo_lower"].is_null(), "{d:#}");
+    assert!(said(&d).is_empty(), "{d:#}");
+}
+
+// ------------------------------------------------------------------ it never changes the result
+
+#[test]
+fn a_cigo_from_before_the_command_is_silent() {
+    let fx = setup(UNKNOWN);
+    let o = run(&fx, &[], &INSTALL);
+    ok(&o);
+    let d = doc(&o);
+    assert!(said(&d).is_empty(), "{d:#}");
+    assert!(d["data"]["cigo_lower"].is_null(), "{d:#}");
+}
+
+#[test]
+fn a_cigo_that_stays_on_the_tree_walker_is_in_the_document_and_not_in_the_report() {
+    let fx = setup(&answers(TREE));
+    let o = run(&fx, &[], &INSTALL);
+    ok(&o);
+    let d = doc(&o);
+    assert!(said(&d).is_empty(), "{d:#}");
+    assert_eq!(d["data"]["cigo_lower"]["engine"], "tree");
+    assert_eq!(
+        d["data"]["cigo_lower"]["reason"],
+        "cig 1.24.0 runs scripts on the tree-walker only"
+    );
+}
+
+#[test]
+fn an_answer_that_is_not_the_document_is_one_line_without_control_characters() {
+    let fx = setup(NONSENSE);
+    let o = run(&fx, &[], &INSTALL);
+    ok(&o);
+    let d = doc(&o);
+    assert!(d["data"]["cigo_lower"].is_null(), "{d:#}");
+    let said = said(&d);
+    assert_eq!(said.len(), 1, "{d:#}");
+    assert!(said[0].contains("cannot read"), "{}", said[0]);
+    assert!(said[0].contains("not the document"), "{}", said[0]);
+    assert!(!said[0].chars().any(char::is_control), "{:?}", said[0]);
+}
+
+#[test]
+fn a_cigo_that_does_not_come_back_is_stopped_at_the_limit_and_the_install_stands() {
+    let fx = setup(SLEEPS);
+    let o = run(&fx, &[("CIGI_LOWER_TIMEOUT_SECS", "1")], &INSTALL);
+    ok(&o);
+    assert!(
+        fx.user_home.join("lower.started").exists(),
+        "the step was started"
+    );
+    let d = doc(&o);
+    assert!(d["data"]["cigo_lower"].is_null(), "{d:#}");
+    let said = said(&d);
+    assert_eq!(said.len(), 1, "{d:#}");
+    assert!(said[0].contains("__lower"), "{}", said[0]);
+    // the install is what it would have been
+    let state = std::fs::read_to_string(fx.cigscript().join("installer/state.json")).unwrap();
+    let state: Value = serde_json::from_str(&state).unwrap();
+    assert_eq!(state["machine_carton"], "0.1.0", "{state:#}");
 }

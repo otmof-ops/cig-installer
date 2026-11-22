@@ -141,8 +141,19 @@ fn tail_of(text: &str) -> String {
     if joined.is_empty() {
         "it said nothing".to_string()
     } else {
-        joined.chars().take(400).collect()
+        printable(&joined, 400)
     }
+}
+
+/// What a product said, as the installer prints it: no control characters (an escape sequence in a
+/// product's output never reaches the terminal as one), and no longer than `max` characters.
+fn printable(text: &str, max: usize) -> String {
+    text.chars()
+        .map(|c| if c.is_control() { ' ' } else { c })
+        .take(max)
+        .collect::<String>()
+        .trim()
+        .to_string()
 }
 
 // ------------------------------------------------------------------ announce-fixed
@@ -299,8 +310,8 @@ pub fn cigo_lower(home: &Home) -> LowerOutcome {
     }
 }
 
-/// cigo's `__lower --json` answer: one line to show (from `tool/engine/reason`), and the document
-/// itself for the installer's `--json` field. An answer that is not cigo's document is a note.
+/// cigo's `__lower --json` answer: the line to show, when there is one, and the document itself
+/// for the installer's `--json` field. An answer that is not cigo's document is a note.
 fn parse_lower(text: &str) -> LowerOutcome {
     let trimmed = text.trim();
     if trimmed.is_empty() {
@@ -319,41 +330,79 @@ fn parse_lower(text: &str) -> LowerOutcome {
         }
     };
     let engine = v.get("engine").and_then(|x| x.as_str()).unwrap_or("");
-    let reason = v.get("reason").and_then(|x| x.as_str()).map(str::to_string);
-    let kept = v.get("kept").and_then(|x| x.as_bool()).unwrap_or(false);
-    let line = match engine {
-        "vm" => {
-            if kept {
-                "cigo runs on cig's VM from its next call: its module is kept in cig's tin"
-                    .to_string()
-            } else {
-                "cigo runs on cig's VM from its next call".to_string()
-            }
-        }
-        "tree" => match reason.as_deref() {
-            Some(r) if !r.is_empty() => format!("cigo runs on cig's tree-walker: {r}"),
-            _ => "cigo runs on cig's tree-walker".to_string(),
-        },
-        _ => {
-            return LowerOutcome {
-                line: Some(format!(
-                    "cigo's lowering step answered in a shape I cannot read: {}",
-                    tail_of(trimmed)
-                )),
-                json: None,
-            };
-        }
-    };
+    if engine != "vm" && engine != "tree" {
+        return LowerOutcome {
+            line: Some(format!(
+                "cigo's lowering step answered in a shape I cannot read: {}",
+                tail_of(trimmed)
+            )),
+            json: None,
+        };
+    }
+    // one line when cigo lowered its script just now, which is what this transaction paid for;
+    // where its module was already kept, or it stays on the tree-walker, the document says so
+    // in `--json` and `cigo doctor` gives the reason
+    let lowered = v.get("lowered").and_then(|x| x.as_bool()).unwrap_or(false);
+    let line = (engine == "vm" && lowered).then(|| {
+        "cigo's script is lowered for cig's VM and the module kept: its next call starts there"
+            .to_string()
+    });
     LowerOutcome {
-        line: Some(line),
+        line,
         json: Some(v),
     }
 }
 
-/// True when the install, update or switch changed which build of cig or cigo the shims start, and
-/// a cigo build is installed now: the caller runs `cigo __lower` in that case, never otherwise.
-pub fn lower_wanted(state: &State, cig_or_cigo_changed: bool) -> bool {
-    cig_or_cigo_changed && installed_version(state, "cigo").is_some()
+/// What cigo's launcher sees of the cig and the cigo it starts: the builds the shims choose, and the
+/// size and time of each file the launcher reads them from (the two shims, the two builds' own files
+/// and the shim index). cigo keeps its lowered module for exactly that; when a transaction changes
+/// any of it, the module it kept no longer counts and cigo lowers again.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LauncherView(Vec<String>);
+
+fn stamp(p: &Path) -> String {
+    match std::fs::metadata(p) {
+        Ok(m) => {
+            let t = m
+                .modified()
+                .ok()
+                .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+                .map_or(0, |d| d.as_nanos());
+            format!("{}:{t}", m.len())
+        }
+        Err(_) => "-".to_string(),
+    }
+}
+
+/// Taken before a transaction begins, and compared after it by [`lower_after`].
+pub fn launcher_view(home: &Home, state: &State) -> LauncherView {
+    let mut v = Vec::new();
+    for tool in ["cig", "cigo"] {
+        let ver = installed_version(state, tool);
+        v.push(format!(
+            "{tool} {}",
+            ver.as_ref().map_or_else(String::new, ToString::to_string)
+        ));
+        v.push(stamp(&shim_path(home, tool)));
+        if let Some(exe) = ver.as_ref().and_then(|ver| tool_exe(home, tool, ver)) {
+            v.push(stamp(&exe));
+            // cigo's script sits beside its launcher's folder
+            if let Some(top) = exe.parent().and_then(Path::parent) {
+                v.push(stamp(&top.join("orchestrate.cig")));
+            }
+        }
+    }
+    v.push(stamp(&home.shim_index_path()));
+    LauncherView(v)
+}
+
+/// The step, after a committed transaction: run when a cigo is installed and what its launcher sees
+/// is not what it was before the transaction ([`launcher_view`]); nothing otherwise.
+pub fn lower_after(home: &Home, before: &LauncherView, state: &State) -> LowerOutcome {
+    if installed_version(state, "cigo").is_none() || launcher_view(home, state) == *before {
+        return LowerOutcome::default();
+    }
+    cigo_lower(home)
 }
 
 #[cfg(all(test, unix))]
@@ -361,34 +410,38 @@ mod lower_tests {
     use super::*;
 
     #[test]
-    fn parse_lower_reads_cigos_document() {
-        let text = r#"{"tool":"cigo","version":"1.18.0","cig":"1.25.0","engine":"vm","kept":true,"lowered":true,"reason":null}"#;
+    fn a_lowering_done_now_is_one_line_and_the_document() {
+        let text = r#"{"tool":"cigo","version":"1.20.0","cig":"1.25.0","engine":"vm","kept":true,"lowered":true,"reason":null}"#;
         let out = parse_lower(text);
-        assert!(out
-            .line
-            .as_deref()
-            .unwrap_or("")
-            .contains("cig's VM from its next call"));
+        assert!(out.line.as_deref().unwrap_or("").contains("cig's VM"));
         assert!(out.json.is_some());
     }
 
     #[test]
-    fn parse_lower_reads_tree_with_a_reason() {
-        let text = r#"{"tool":"cigo","engine":"tree","kept":false,"lowered":false,"reason":"cig 1.24.0 is older than 1.25.0"}"#;
-        let out = parse_lower(text);
-        assert!(out
-            .line
-            .as_deref()
-            .unwrap_or("")
-            .contains("tree-walker: cig 1.24.0 is older"));
-        assert!(out.json.is_some());
+    fn a_module_already_kept_and_a_tree_walker_answer_are_the_document_alone() {
+        for text in [
+            r#"{"tool":"cigo","engine":"vm","kept":true,"lowered":false,"reason":null}"#,
+            r#"{"tool":"cigo","engine":"tree","kept":false,"lowered":false,"reason":"engine is set to tree"}"#,
+        ] {
+            let out = parse_lower(text);
+            assert_eq!(out.line, None, "{text}");
+            assert!(out.json.is_some(), "{text}");
+        }
     }
 
     #[test]
-    fn parse_lower_calls_bad_shape_a_note_and_keeps_no_json() {
-        let out = parse_lower("not json at all");
-        assert!(out.json.is_none());
-        assert!(out.line.unwrap().contains("shape I cannot read"));
+    fn an_answer_that_is_not_the_document_is_a_note_without_control_characters() {
+        for text in [
+            "not json at all",
+            r#"{"engine":"warp"}"#,
+            "red \u{1b}[31malert\u{7}",
+        ] {
+            let out = parse_lower(text);
+            assert!(out.json.is_none(), "{text}");
+            let line = out.line.unwrap();
+            assert!(line.contains("shape I cannot read"), "{line}");
+            assert!(!line.chars().any(char::is_control), "{line:?}");
+        }
     }
 }
 

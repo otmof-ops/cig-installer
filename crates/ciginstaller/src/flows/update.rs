@@ -279,6 +279,7 @@ pub fn run(cx: &mut Cx, a: &UpdateArgs) -> Result<Updated, InstallerError> {
     if crate::advisories::visible(&cx.ui) {
         crate::advisories::mark(&mut cx.state, &shown.iter().collect::<Vec<_>>());
     }
+    let lower_before = super::family::launcher_view(&cx.home, &cx.state);
     let mut txn = cx.begin(&format!("update carton {cur} to {tv}"))?;
     let txn_id = txn.id().to_string();
     let txn_dir = txn.dir().to_path_buf();
@@ -363,16 +364,10 @@ pub fn run(cx: &mut Cx, a: &UpdateArgs) -> Result<Updated, InstallerError> {
         .chain(fixed.iter().map(|f| super::fixed::line(f, true)))
         .collect();
 
-    // when the update changed cig or cigo and a cigo is installed: tell cigo to lower itself
-    // through its shim (cig-orchestrator#142). It never fails the update.
-    let changed_cig_or_cigo = changes
-        .iter()
-        .any(|c| (c.tool == "cig" || c.tool == "cigo") && c.from != c.to);
-    let cigo_lower = if super::family::lower_wanted(&cx.state, changed_cig_or_cigo) {
-        super::family::cigo_lower(&cx.home)
-    } else {
-        super::family::LowerOutcome::default()
-    };
+    // cigo's launcher tells one cig and one cigo from another by what it sees of them; where this
+    // transaction changed that, cigo lowers itself now, not on its next call (cig-orchestrator#142).
+    // The transaction is committed: nothing here can change its result.
+    let cigo_lower = super::family::lower_after(&cx.home, &lower_before, &cx.state);
 
     // report, with the rollback hint
     let mut r = Report::done(format!("updated carton {cur} to {tv}")).detail(fresh.clone());

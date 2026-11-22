@@ -66,6 +66,7 @@ pub fn run(cx: &mut Cx, a: &RollbackArgs) -> Result<Report, InstallerError> {
         return Ok(r.data(json!({ "from": cur, "to": prev, "dry_run": true })));
     }
     let before = cx.state.clone();
+    let lower_before = super::family::launcher_view(&cx.home, &cx.state);
     let mut txn = cx.begin(&format!("rollback to carton {prev}"))?;
     let id = txn.id().to_string();
     let r = apply_carton(cx, &mut txn, &before, &cur, &prev, undo.as_ref());
@@ -74,20 +75,10 @@ pub fn run(cx: &mut Cx, a: &RollbackArgs) -> Result<Report, InstallerError> {
     // points at a deleted toolchain
     super::gc::finish_pending(cx, &doomed)?;
     cx.state = State::load(&cx.home).map_err(ie)?;
-    // the rollback changed which cig or cigo the shims start when the two cartons differ on them;
-    // tell cigo to lower itself when a cigo is installed after (cig-orchestrator#142)
-    let cur_rec = before.cartons.get(&cur);
-    let prev_rec = cx.state.cartons.get(&prev);
-    let changed_cig_or_cigo = ["cig", "cigo"].iter().any(|t| {
-        let a = cur_rec.and_then(|r| r.tools.get(*t));
-        let b = prev_rec.and_then(|r| r.tools.get(*t));
-        a != b
-    });
-    let cigo_lower = if super::family::lower_wanted(&cx.state, changed_cig_or_cigo) {
-        super::family::cigo_lower(&cx.home)
-    } else {
-        super::family::LowerOutcome::default()
-    };
+    // cigo's launcher tells one cig and one cigo from another by what it sees of them; where this
+    // transaction changed that, cigo lowers itself now, not on its next call (cig-orchestrator#142).
+    // The transaction is committed: nothing here can change its result.
+    let cigo_lower = super::family::lower_after(&cx.home, &lower_before, &cx.state);
     let mut rep = Report::done(format!("rolled back carton {cur} to {prev}"));
     if undo.is_some() {
         rep = rep.detail(format!(
@@ -258,6 +249,7 @@ fn tool_back(
         return Ok(r.data(json!({ "tool": tool, "version": pv, "dry_run": true })));
     }
     let before = cx.state.clone();
+    let lower_before = super::family::launcher_view(&cx.home, &cx.state);
     let mut txn = cx.begin(&format!("rollback {tool} to {pv}"))?;
     let id = txn.id().to_string();
     let r = (|| {
@@ -287,14 +279,10 @@ fn tool_back(
     })();
     settle(txn, r)?;
     cx.state = State::load(&cx.home).map_err(ie)?;
-    // when the rolled-back tool is cig or cigo and a cigo is installed: tell cigo to lower itself
-    // through its shim (cig-orchestrator#142). Nothing here can fail the rollback.
-    let changed_cig_or_cigo = tool == "cig" || tool == "cigo";
-    let cigo_lower = if super::family::lower_wanted(&cx.state, changed_cig_or_cigo) {
-        super::family::cigo_lower(&cx.home)
-    } else {
-        super::family::LowerOutcome::default()
-    };
+    // cigo's launcher tells one cig and one cigo from another by what it sees of them; where this
+    // transaction changed that, cigo lowers itself now, not on its next call (cig-orchestrator#142).
+    // The transaction is committed: nothing here can change its result.
+    let cigo_lower = super::family::lower_after(&cx.home, &lower_before, &cx.state);
     let mut rep = Report::done(format!("rolled {tool} back to {pv}, from carton {prev}"));
     for w in warnings {
         rep = rep.detail(format!("warning {w}"));

@@ -405,6 +405,7 @@ fn update_to(
         .with_fix("close running ciginstaller windows, then run `ciginstaller self update` again")
         .with_exit(EXIT_FAILED));
     }
+    let lower_before = super::family::launcher_view(&cx.home, &cx.state);
     let mut txn = cx.begin(&format!("self update {have} to {want}"))?;
     let applied = apply(cx, &mut txn, m, want, carton, have, &staged, &files);
     let txn_id = txn.id().to_string();
@@ -412,14 +413,10 @@ fn update_to(
     let _ = prune_txns(&cx.home, cx.lock_ref()?, Duration::from_secs(7 * 24 * 3600));
     let _ = std::fs::remove_file(&staged.path);
     cx.state = State::load(&cx.home).map_err(ie)?;
-    // the shims are links to the new `cigi-shim` now, so cigo's launcher no longer sees the cig
-    // it kept a module for: tell cigo to lower itself again (cig-orchestrator#142). The update is
-    // committed; nothing here can fail it.
-    let cigo_lower = if super::family::lower_wanted(&cx.state, true) {
-        super::family::cigo_lower(&cx.home)
-    } else {
-        super::family::LowerOutcome::default()
-    };
+    // cigo's launcher tells one cig and one cigo from another by what it sees of them; where this
+    // transaction changed that, cigo lowers itself now, not on its next call (cig-orchestrator#142).
+    // The transaction is committed: nothing here can change its result.
+    let cigo_lower = super::family::lower_after(&cx.home, &lower_before, &cx.state);
     let mut done = Report::done(format!("ciginstaller updated {have} -> {want}"));
     if let Some(line) = cigo_lower.line.clone() {
         done = done.detail(line);

@@ -412,6 +412,7 @@ pub fn run(cx: &mut Cx, a: &RepairArgs) -> Result<Report, InstallerError> {
     let mut report_lines: Vec<String> = Vec::new();
     let mut restored: Vec<serde_json::Value> = Vec::new();
     let mut removed: Vec<serde_json::Value> = Vec::new();
+    let lower_before = super::family::launcher_view(&cx.home, &cx.state);
     let mut txn = cx.begin("repair")?;
     let txn_id = txn.id().to_string();
     let mut new_state: State = state.clone();
@@ -549,14 +550,10 @@ pub fn run(cx: &mut Cx, a: &RepairArgs) -> Result<Report, InstallerError> {
     store.sweep_tmp();
     cx.state = State::load(&home).map_err(ie)?;
 
-    // a repair restores files and re-links shims, so cigo's launcher no longer sees the cig and
-    // cigo it kept a module for: tell cigo to lower itself again (cig-orchestrator#142). The
-    // repair is committed; nothing here can fail it.
-    let cigo_lower = if super::family::lower_wanted(&cx.state, true) {
-        super::family::cigo_lower(&home)
-    } else {
-        super::family::LowerOutcome::default()
-    };
+    // cigo's launcher tells one cig and one cigo from another by what it sees of them; where this
+    // transaction changed that, cigo lowers itself now, not on its next call (cig-orchestrator#142).
+    // The transaction is committed: nothing here can change its result.
+    let cigo_lower = super::family::lower_after(&cx.home, &lower_before, &cx.state);
 
     let mut r = Report::new(
         Icon::Done,

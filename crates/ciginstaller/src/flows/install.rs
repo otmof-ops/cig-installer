@@ -673,6 +673,7 @@ pub fn run_locked(cx: &mut Cx, a: &InstallArgs) -> Result<Report, InstallerError
     if crate::advisories::visible(&cx.ui) {
         crate::advisories::mark(&mut cx.state, &newly_shown.iter().collect::<Vec<_>>());
     }
+    let lower_before = super::family::launcher_view(&cx.home, &cx.state);
     let mut txn = cx.begin(&format!("install {what_text}"))?;
     let applied = apply(
         cx,
@@ -707,16 +708,10 @@ pub fn run_locked(cx: &mut Cx, a: &InstallArgs) -> Result<Report, InstallerError
     }
     cx.state = State::load(&cx.home).map_err(ie)?;
 
-    // after the commit, when this install changed the cig or cigo the shims start and a cigo is
-    // installed: tell cigo to lower itself through its shim, so its next call starts on cig's VM
-    // (cig-orchestrator#142). It never fails the install (the transaction is already done); its
-    // one line and `--json` field tell the person what came of it.
-    let changed_cig_or_cigo = want.iter().any(|(t, _)| t == "cig" || t == "cigo");
-    let cigo_lower = if super::family::lower_wanted(&cx.state, changed_cig_or_cigo) {
-        super::family::cigo_lower(&cx.home)
-    } else {
-        super::family::LowerOutcome::default()
-    };
+    // cigo's launcher tells one cig and one cigo from another by what it sees of them; where this
+    // transaction changed that, cigo lowers itself now, not on its next call (cig-orchestrator#142).
+    // The transaction is committed: nothing here can change its result.
+    let cigo_lower = super::family::lower_after(&cx.home, &lower_before, &cx.state);
 
     // the report
     let levels: Vec<TrustLevel> = fetched.iter().map(|f| f.staged.verified.level).collect();

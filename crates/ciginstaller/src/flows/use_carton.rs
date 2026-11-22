@@ -67,6 +67,7 @@ pub fn run_locked(cx: &mut Cx, a: &UseArgs) -> Result<Report, InstallerError> {
     if let Some(rec) = state.cartons.get_mut(&target) {
         rec.last_used = Some(now.clone());
     }
+    let lower_before = super::family::launcher_view(&cx.home, &cx.state);
     let mut txn = cx.begin(&format!("use carton {target}"))?;
     let id = txn.id().to_string();
     state.push_history(HistoryEntry {
@@ -86,20 +87,10 @@ pub fn run_locked(cx: &mut Cx, a: &UseArgs) -> Result<Report, InstallerError> {
     let r = save_and_flip(&mut txn, &home, &state, yanked);
     settle(txn, r)?;
     cx.state = cigi_home::State::load(&cx.home).map_err(ie)?;
-    // the switch changed which build the shims start when the two cartons differ on cig or cigo;
-    // tell cigo to lower itself (cig-orchestrator#142). It never fails the switch.
-    let old_tools = old.as_deref().and_then(|c| state.cartons.get(c));
-    let new_tools = state.cartons.get(&target);
-    let changed_cig_or_cigo = ["cig", "cigo"].iter().any(|t| {
-        let a = old_tools.and_then(|r| r.tools.get(*t));
-        let b = new_tools.and_then(|r| r.tools.get(*t));
-        a != b
-    });
-    let cigo_lower = if super::family::lower_wanted(&cx.state, changed_cig_or_cigo) {
-        super::family::cigo_lower(&cx.home)
-    } else {
-        super::family::LowerOutcome::default()
-    };
+    // cigo's launcher tells one cig and one cigo from another by what it sees of them; where this
+    // transaction changed that, cigo lowers itself now, not on its next call (cig-orchestrator#142).
+    // The transaction is committed: nothing here can change its result.
+    let cigo_lower = super::family::lower_after(&cx.home, &lower_before, &cx.state);
     let mut rep =
         Report::done(format!("carton {target} is now this machine's carton")).data(json!({
             "carton": target,
