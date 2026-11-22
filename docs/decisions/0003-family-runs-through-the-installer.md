@@ -74,6 +74,28 @@ what must work without the installer.
 - **`cig crash announce-fixed`** runs from the new cig after an update that
   changed cig. It never fails the update; a cig without the subcommand is
   skipped without a word.
+- **`cigo __lower --json`** (cig-orchestrator#142) runs after a committed
+  transaction that changed what cigo's launcher sees of the cig and the
+  cigo it starts, when a cigo is installed. From cig 1.25.0 cigo can run
+  on cig's bytecode VM, and its launcher asks for that only when a module
+  of this cigo is kept for this cig; it tells one pair from another by the
+  size and time of the files it starts them from. So the installer notes
+  those before a transaction (the builds the shims choose, the two shims,
+  the builds' own files, the shim index) and, where they differ afterwards,
+  has cigo lower itself then, not on its next call: `install`, `update`,
+  `rollback`, `use`, `repair`, `self update` and `shims sync` all do it.
+  It runs through the shim `<home>/bin/cigo`, the way the person's next
+  `cigo` will start, with the home's `bin/` first on PATH as for `cigo
+  guard uninstall`, in a new empty temporary folder that is the person's
+  alone and removed afterwards, because cigo's script takes its working
+  directory as its pack and the home must never be that. The transaction
+  is committed first, so the step cannot fail it: a cigo from before
+  `__lower` is silent, and a timeout (120 s; `CIGI_LOWER_TIMEOUT_SECS`
+  shortens it for tests), a crash or an answer that is not cigo's document
+  is one line, printed without control characters. The report gains a line
+  only when cigo lowered its script during the transaction; its document is
+  always the `cigo_lower` field of `--json` output, and the standing answer
+  (which engine, and why) is `cigo doctor`'s.
 - **Product caches** are removed by `uninstall`, journaled like the other deletes
   and listed in the output: cigar's run cache (`$XDG_CACHE_HOME`, else
   `~/.cache`, or `LOCALAPPDATA` on Windows, under `cigar/run`) with `uninstall

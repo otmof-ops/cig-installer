@@ -279,6 +279,7 @@ pub fn run(cx: &mut Cx, a: &UpdateArgs) -> Result<Updated, InstallerError> {
     if crate::advisories::visible(&cx.ui) {
         crate::advisories::mark(&mut cx.state, &shown.iter().collect::<Vec<_>>());
     }
+    let lower_before = super::family::launcher_view(&cx.home, &cx.state);
     let mut txn = cx.begin(&format!("update carton {cur} to {tv}"))?;
     let txn_id = txn.id().to_string();
     let txn_dir = txn.dir().to_path_buf();
@@ -363,6 +364,11 @@ pub fn run(cx: &mut Cx, a: &UpdateArgs) -> Result<Updated, InstallerError> {
         .chain(fixed.iter().map(|f| super::fixed::line(f, true)))
         .collect();
 
+    // cigo's launcher tells one cig and one cigo from another by what it sees of them; where this
+    // transaction changed that, cigo lowers itself now, not on its next call (cig-orchestrator#142).
+    // The transaction is committed: nothing here can change its result.
+    let cigo_lower = super::family::lower_after(&cx.home, &lower_before, &cx.state);
+
     // report, with the rollback hint
     let mut r = Report::done(format!("updated carton {cur} to {tv}")).detail(fresh.clone());
     for l in &announced {
@@ -399,6 +405,9 @@ pub fn run(cx: &mut Cx, a: &UpdateArgs) -> Result<Updated, InstallerError> {
     for w in &warnings {
         r = r.detail(w.clone());
     }
+    if let Some(line) = cigo_lower.line.clone() {
+        r = r.detail(line);
+    }
     r = r
         .detail(format!(
             "carton {cur} stays installed until the next update, so you can go back"
@@ -417,6 +426,7 @@ pub fn run(cx: &mut Cx, a: &UpdateArgs) -> Result<Updated, InstallerError> {
         "fetched": fetched.iter().map(|f| json!({"tool": f.tool, "version": f.version.to_string()})).collect::<Vec<_>>(),
         "trial": trial_json(&staged.trial),
         "rollout": rollout,
+        "cigo_lower": cigo_lower.json,
     }));
     // the promises of an update, read back from disk
     done(super::tripwire::finish(

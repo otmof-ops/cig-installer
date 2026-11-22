@@ -71,6 +71,11 @@ pub(crate) struct Built {
     pub sidecar: Option<String>,
 }
 
+/// What the fake cigo says to `cigo __lower`, the step the installer runs after a transaction
+/// (cig-orchestrator#142): what a cigo from before that step says to a command it does not know.
+/// A test's own lines ([`ProductBuilder::shell`]) run first and may answer instead.
+const OLDER_CIGO_LOWER: &str = "if [ \"$1\" = \"__lower\" ]; then echo 'error: unknown command `__lower`; `cigo help` lists them' >&2; exit 2; fi\n";
+
 impl ProductBuilder {
     pub(crate) fn new(tool: &str, version: &str) -> ProductBuilder {
         ProductBuilder {
@@ -223,7 +228,7 @@ impl ProductBuilder {
                 t.dir(&format!("{top}/"));
                 t.file(
                     &format!("{top}/bin/cigo"),
-                    format!("#!/bin/sh\n{}echo \"cigo {v} uses $(cig --version)\"\nexit \"${{FAKE_EXIT:-0}}\"\n", self.shell).as_bytes(),
+                    format!("#!/bin/sh\n{}{OLDER_CIGO_LOWER}echo \"cigo {v} uses $(cig --version)\"\nexit \"${{FAKE_EXIT:-0}}\"\n", self.shell).as_bytes(),
                     true,
                 );
                 t.file(
@@ -258,7 +263,9 @@ impl ProductBuilder {
                 );
                 t.file(
                     "cigi-shim",
-                    b"#!/bin/sh\n# fixture shim object, the same in every version\nexit 0\n",
+                    // the same in every version; a test that sets CIGI_FAKE_SHIM_LOG reads there
+                    // which name it was started under and with what
+                    b"#!/bin/sh\n# fixture shim object, the same in every version\nif [ -n \"${CIGI_FAKE_SHIM_LOG:-}\" ]; then printf '%s %s\\n' \"${0##*/}\" \"$*\" >> \"$CIGI_FAKE_SHIM_LOG\"; fi\nexit 0\n",
                     true,
                 );
                 for (p, b) in &self.extra_files {

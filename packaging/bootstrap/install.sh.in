@@ -118,7 +118,7 @@ fi
 tmp=''
 stage=''
 created=''
-# shellcheck disable=SC2317  # runs from the trap below
+# shellcheck disable=SC2317,SC2329  # runs from the trap below
 cleanup() {
   rc=$?
   trap - EXIT

@@ -67,6 +67,7 @@ pub fn run_locked(cx: &mut Cx, a: &UseArgs) -> Result<Report, InstallerError> {
     if let Some(rec) = state.cartons.get_mut(&target) {
         rec.last_used = Some(now.clone());
     }
+    let lower_before = super::family::launcher_view(&cx.home, &cx.state);
     let mut txn = cx.begin(&format!("use carton {target}"))?;
     let id = txn.id().to_string();
     state.push_history(HistoryEntry {
@@ -86,10 +87,22 @@ pub fn run_locked(cx: &mut Cx, a: &UseArgs) -> Result<Report, InstallerError> {
     let r = save_and_flip(&mut txn, &home, &state, yanked);
     settle(txn, r)?;
     cx.state = cigi_home::State::load(&cx.home).map_err(ie)?;
-    let mut rep = Report::done(format!("carton {target} is now this machine's carton"))
-        .data(json!({ "carton": target, "previous": old, "changed": true }));
+    // cigo's launcher tells one cig and one cigo from another by what it sees of them; where this
+    // transaction changed that, cigo lowers itself now, not on its next call (cig-orchestrator#142).
+    // The transaction is committed: nothing here can change its result.
+    let cigo_lower = super::family::lower_after(&cx.home, &lower_before, &cx.state);
+    let mut rep =
+        Report::done(format!("carton {target} is now this machine's carton")).data(json!({
+            "carton": target,
+            "previous": old,
+            "changed": true,
+            "cigo_lower": cigo_lower.json,
+        }));
     if let Some(o) = old {
         rep = rep.detail(format!("carton {o} stays installed"));
+    }
+    if let Some(line) = cigo_lower.line.clone() {
+        rep = rep.detail(line);
     }
     for w in warnings {
         rep = rep.detail(format!("warning {w}"));

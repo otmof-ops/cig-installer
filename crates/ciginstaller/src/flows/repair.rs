@@ -412,6 +412,7 @@ pub fn run(cx: &mut Cx, a: &RepairArgs) -> Result<Report, InstallerError> {
     let mut report_lines: Vec<String> = Vec::new();
     let mut restored: Vec<serde_json::Value> = Vec::new();
     let mut removed: Vec<serde_json::Value> = Vec::new();
+    let lower_before = super::family::launcher_view(&cx.home, &cx.state);
     let mut txn = cx.begin("repair")?;
     let txn_id = txn.id().to_string();
     let mut new_state: State = state.clone();
@@ -549,6 +550,11 @@ pub fn run(cx: &mut Cx, a: &RepairArgs) -> Result<Report, InstallerError> {
     store.sweep_tmp();
     cx.state = State::load(&home).map_err(ie)?;
 
+    // cigo's launcher tells one cig and one cigo from another by what it sees of them; where this
+    // transaction changed that, cigo lowers itself now, not on its next call (cig-orchestrator#142).
+    // The transaction is committed: nothing here can change its result.
+    let cigo_lower = super::family::lower_after(&cx.home, &lower_before, &cx.state);
+
     let mut r = Report::new(
         Icon::Done,
         format!(
@@ -563,10 +569,14 @@ pub fn run(cx: &mut Cx, a: &RepairArgs) -> Result<Report, InstallerError> {
     if path_edited {
         r = r.detail("the PATH block was edited by hand and is left alone (E1862)");
     }
+    if let Some(line) = cigo_lower.line.clone() {
+        r = r.detail(line);
+    }
     Ok(r.data(json!({
         "changed": true,
         "restored": restored,
         "removed": removed,
+        "cigo_lower": cigo_lower.json,
     })))
 }
 

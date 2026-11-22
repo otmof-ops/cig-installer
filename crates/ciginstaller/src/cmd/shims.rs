@@ -64,6 +64,7 @@ fn sync(cx: &mut Cx) -> Result<Outcome, InstallerError> {
         .collect();
     let index_before = std::fs::read_to_string(cx.home.shim_index_path()).ok();
     let yanked = cached_yanked(cx);
+    let lower_before = crate::flows::family::launcher_view(&cx.home, &state);
     let mut txn = cx.begin("shims sync")?;
     let done = (|| {
         sync_shims(&mut txn, &cx.home, &refs, &obj).map_err(ie)?;
@@ -74,6 +75,9 @@ fn sync(cx: &mut Cx) -> Result<Outcome, InstallerError> {
     settle(txn, done)?;
     let index_after = std::fs::read_to_string(cx.home.shim_index_path()).ok();
     let index_rewritten = index_before != index_after;
+    // cigo's launcher tells one cig and one cigo from another by what it sees of them; where the
+    // sync changed that, cigo lowers itself now, not on its next call (cig-orchestrator#142)
+    let cigo_lower = crate::flows::family::lower_after(&cx.home, &lower_before, &state);
     let mut r = Report::done(format!("{} shim(s) match what is installed", names.len()));
     if !redone.is_empty() {
         r = r.detail(format!("made again: {}", redone.join(", ")));
@@ -90,11 +94,15 @@ fn sync(cx: &mut Cx) -> Result<Outcome, InstallerError> {
     if redone.is_empty() && stale.is_empty() && !index_rewritten {
         r = r.detail("nothing had drifted");
     }
+    if let Some(line) = cigo_lower.line.clone() {
+        r = r.detail(line);
+    }
     Ok(r.data(json!({
         "shims": names,
         "relinked": redone,
         "removed": stale,
         "index_rewritten": index_rewritten,
+        "cigo_lower": cigo_lower.json,
     }))
     .into())
 }

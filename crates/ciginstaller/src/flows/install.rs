@@ -673,6 +673,7 @@ pub fn run_locked(cx: &mut Cx, a: &InstallArgs) -> Result<Report, InstallerError
     if crate::advisories::visible(&cx.ui) {
         crate::advisories::mark(&mut cx.state, &newly_shown.iter().collect::<Vec<_>>());
     }
+    let lower_before = super::family::launcher_view(&cx.home, &cx.state);
     let mut txn = cx.begin(&format!("install {what_text}"))?;
     let applied = apply(
         cx,
@@ -706,6 +707,11 @@ pub fn run_locked(cx: &mut Cx, a: &InstallArgs) -> Result<Report, InstallerError
         let _ = std::fs::remove_file(&f.staged.path);
     }
     cx.state = State::load(&cx.home).map_err(ie)?;
+
+    // cigo's launcher tells one cig and one cigo from another by what it sees of them; where this
+    // transaction changed that, cigo lowers itself now, not on its next call (cig-orchestrator#142).
+    // The transaction is committed: nothing here can change its result.
+    let cigo_lower = super::family::lower_after(&cx.home, &lower_before, &cx.state);
 
     // the report
     let levels: Vec<TrustLevel> = fetched.iter().map(|f| f.staged.verified.level).collect();
@@ -819,6 +825,9 @@ pub fn run_locked(cx: &mut Cx, a: &InstallArgs) -> Result<Report, InstallerError
             ));
         }
     }
+    if let Some(line) = cigo_lower.line.clone() {
+        rep = rep.detail(line);
+    }
     Ok(rep.data(json!({
         "carton": cv.to_string(),
         "changed": true,
@@ -838,6 +847,7 @@ pub fn run_locked(cx: &mut Cx, a: &InstallArgs) -> Result<Report, InstallerError
             _ => "skipped",
         },
         "path_registry": registry_word,
+        "cigo_lower": cigo_lower.json,
     })))
 }
 

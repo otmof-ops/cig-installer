@@ -5,6 +5,9 @@
 //!
 //! - `cigo guard uninstall --yes`, run before cigo is removed, when the guard is installed;
 //! - `cig crash announce-fixed`, run after an update that changed cig;
+//! - `cigo __lower --json`, run through the shim after a committed transaction that changed
+//!   which build of cig or cigo the shims start, when a cigo build is installed
+//!   (cig-orchestrator#142);
 //! - the product caches `uninstall` clears: cigar's run cache and cigcompile's fetched runtimes.
 //!
 //! None of this touches user data. A cache is rebuilt by the product that owns it.
@@ -12,7 +15,7 @@
 use std::path::{Path, PathBuf};
 
 use cig_compat::Version;
-use cigi_home::{installed, Home, State, Txn};
+use cigi_home::{installed, shim_path, Home, State, Txn};
 use cigi_ui::{InstallerError, EXIT_FAILED};
 
 use super::{doctor, tool_exe};
@@ -138,8 +141,19 @@ fn tail_of(text: &str) -> String {
     if joined.is_empty() {
         "it said nothing".to_string()
     } else {
-        joined.chars().take(400).collect()
+        printable(&joined, 400)
     }
+}
+
+/// What a product said, as the installer prints it: no control characters (an escape sequence in a
+/// product's output never reaches the terminal as one), and no longer than `max` characters.
+fn printable(text: &str, max: usize) -> String {
+    text.chars()
+        .map(|c| if c.is_control() { ' ' } else { c })
+        .take(max)
+        .collect::<String>()
+        .trim()
+        .to_string()
 }
 
 // ------------------------------------------------------------------ announce-fixed
@@ -171,6 +185,263 @@ pub fn announce_fixed(home: &Home, cig: &Version) -> Vec<String> {
         Err(why) => vec![format!(
             "`cig crash announce-fixed` could not be run: {why}"
         )],
+    }
+}
+
+// ------------------------------------------------------------------ cigo __lower
+
+/// The default time limit on `cigo __lower --json`. A test can shorten it by setting
+/// `CIGI_LOWER_TIMEOUT_SECS`. Lowering cigo takes well under a second on a fast machine and a few
+/// on a slow one: the limit is there for a cigo that hangs, not as a budget.
+const LOWER_TIMEOUT_DEFAULT_SECS: u64 = 120;
+
+/// The env var a test uses to shorten the lowering step's time limit.
+pub const LOWER_TIMEOUT_ENV: &str = "CIGI_LOWER_TIMEOUT_SECS";
+
+fn lower_timeout_secs() -> u64 {
+    std::env::var(LOWER_TIMEOUT_ENV)
+        .ok()
+        .and_then(|s| s.parse::<u64>().ok())
+        .filter(|n| *n > 0)
+        .unwrap_or(LOWER_TIMEOUT_DEFAULT_SECS)
+}
+
+/// What the lowering step came to, for the caller's `Report`: a line to print (none when the step
+/// did not run or an older cigo did not answer at all) and cigo's `--json` document when it
+/// answered one (for the installer's own `--json` field).
+#[derive(Debug, Clone, Default)]
+pub struct LowerOutcome {
+    /// One line of text to show. `None` means nothing is shown: cigo is not installed, the install
+    /// did not change cig or cigo, or cigo answered nothing a person needs to read (an older cigo
+    /// that lacks `__lower`).
+    pub line: Option<String>,
+    /// The JSON document cigo printed, for the installer's own `--json` output. `None` means cigo
+    /// did not answer one.
+    pub json: Option<serde_json::Value>,
+}
+
+/// A new, unique, empty directory under the process's temp folder, the person's alone. The caller
+/// removes it. Nothing of the home or the installer's state goes in, and nothing inside survives
+/// this run.
+fn make_scratch_dir() -> std::io::Result<PathBuf> {
+    let base = std::env::temp_dir();
+    let pid = std::process::id();
+    let nanos = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_nanos())
+        .unwrap_or_default();
+    for n in 0u32..32 {
+        let p = base.join(format!("cigi-lower-{pid}-{nanos}-{n}"));
+        #[cfg_attr(not(unix), allow(unused_mut))]
+        let mut made = std::fs::DirBuilder::new();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::DirBuilderExt;
+            made.mode(0o700);
+        }
+        match made.create(&p) {
+            Ok(()) => return Ok(p),
+            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => continue,
+            Err(e) => return Err(e),
+        }
+    }
+    Err(std::io::Error::new(
+        std::io::ErrorKind::AlreadyExists,
+        "could not make a unique scratch folder",
+    ))
+}
+
+/// Run `cigo __lower --json` through the shim `<home>/bin/cigo`, after a transaction that changed
+/// which build of cig or cigo the shims start. Never fails: the transaction has already committed
+/// by the time this is called.
+///
+/// - A new empty temporary directory is the working directory, removed afterwards. cigo's script
+///   takes the working directory as its pack, so the home must never be it.
+/// - The home's `bin/` goes first on `PATH`, as [`guard_uninstall`] does for `cigo guard`.
+/// - The time limit is [`LOWER_TIMEOUT_DEFAULT_SECS`] by default; a test shortens it with the
+///   [`LOWER_TIMEOUT_ENV`] environment variable.
+///
+/// `None` from the shim, or no cigo installed, is `LowerOutcome::default()`.
+pub fn cigo_lower(home: &Home) -> LowerOutcome {
+    // the shim is <home>/bin/cigo; it starts the installed cigo through the shim index, so it
+    // chooses what a person's next `cigo` would choose
+    let shim = shim_path(home, "cigo");
+    if !shim.is_file() {
+        return LowerOutcome::default();
+    }
+    // a new empty temp folder, and nothing of the home: cigo's script treats the working directory
+    // as the pack; cig's own home must never be that
+    let scratch = match make_scratch_dir() {
+        Ok(p) => p,
+        Err(e) => {
+            return LowerOutcome {
+                line: Some(format!(
+                    "cigo's `__lower` was skipped: could not make a scratch folder ({e})"
+                )),
+                json: None,
+            };
+        }
+    };
+    let bin = home.bin();
+    let secs = lower_timeout_secs();
+    let ran = doctor::run_args(&shim, &["__lower", "--json"], &scratch, secs, Some(&bin));
+    // the scratch folder is removed, before the outcome is returned
+    let _ = std::fs::remove_dir_all(&scratch);
+    match ran {
+        Ok(r) if r.code == Some(0) => parse_lower(&r.stdout),
+        Ok(r) if matches!(r.code, Some(2 | 3)) => {
+            // a cigo from before `__lower` does not know the command: its own refusal exits 2,
+            // and cig's, for a script it will not run, exits 3. Neither is worth a line.
+            LowerOutcome::default()
+        }
+        Ok(r) => LowerOutcome {
+            line: Some(format!(
+                "`cigo __lower --json` did not finish well ({}): {}",
+                r.code
+                    .map_or("ended by a signal".to_string(), |c| format!("exit {c}")),
+                tail_of(&format!("{}{}", r.stdout, r.stderr))
+            )),
+            json: None,
+        },
+        Err(why) => LowerOutcome {
+            line: Some(format!("`cigo __lower --json` could not be run: {why}")),
+            json: None,
+        },
+    }
+}
+
+/// cigo's `__lower --json` answer: the line to show, when there is one, and the document itself
+/// for the installer's `--json` field. An answer that is not cigo's document is a note.
+fn parse_lower(text: &str) -> LowerOutcome {
+    let trimmed = text.trim();
+    if trimmed.is_empty() {
+        return LowerOutcome::default();
+    }
+    let v: serde_json::Value = match serde_json::from_str(trimmed) {
+        Ok(v) => v,
+        Err(_) => {
+            return LowerOutcome {
+                line: Some(format!(
+                    "cigo answered its lowering step in a shape I cannot read: {}",
+                    tail_of(trimmed)
+                )),
+                json: None,
+            };
+        }
+    };
+    let engine = v.get("engine").and_then(|x| x.as_str()).unwrap_or("");
+    if engine != "vm" && engine != "tree" {
+        return LowerOutcome {
+            line: Some(format!(
+                "cigo's lowering step answered in a shape I cannot read: {}",
+                tail_of(trimmed)
+            )),
+            json: None,
+        };
+    }
+    // one line when cigo lowered its script just now, which is what this transaction paid for;
+    // where its module was already kept, or it stays on the tree-walker, the document says so
+    // in `--json` and `cigo doctor` gives the reason
+    let lowered = v.get("lowered").and_then(|x| x.as_bool()).unwrap_or(false);
+    let line = (engine == "vm" && lowered).then(|| {
+        "cigo's script is lowered for cig's VM and the module kept: its next call starts there"
+            .to_string()
+    });
+    LowerOutcome {
+        line,
+        json: Some(v),
+    }
+}
+
+/// What cigo's launcher sees of the cig and the cigo it starts: the builds the shims choose, and the
+/// size and time of each file the launcher reads them from (the two shims, the two builds' own files
+/// and the shim index). cigo keeps its lowered module for exactly that; when a transaction changes
+/// any of it, the module it kept no longer counts and cigo lowers again.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LauncherView(Vec<String>);
+
+fn stamp(p: &Path) -> String {
+    match std::fs::metadata(p) {
+        Ok(m) => {
+            let t = m
+                .modified()
+                .ok()
+                .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+                .map_or(0, |d| d.as_nanos());
+            format!("{}:{t}", m.len())
+        }
+        Err(_) => "-".to_string(),
+    }
+}
+
+/// Taken before a transaction begins, and compared after it by [`lower_after`].
+pub fn launcher_view(home: &Home, state: &State) -> LauncherView {
+    let mut v = Vec::new();
+    for tool in ["cig", "cigo"] {
+        let ver = installed_version(state, tool);
+        v.push(format!(
+            "{tool} {}",
+            ver.as_ref().map_or_else(String::new, ToString::to_string)
+        ));
+        v.push(stamp(&shim_path(home, tool)));
+        if let Some(exe) = ver.as_ref().and_then(|ver| tool_exe(home, tool, ver)) {
+            v.push(stamp(&exe));
+            // cigo's script sits beside its launcher's folder
+            if let Some(top) = exe.parent().and_then(Path::parent) {
+                v.push(stamp(&top.join("orchestrate.cig")));
+            }
+        }
+    }
+    v.push(stamp(&home.shim_index_path()));
+    LauncherView(v)
+}
+
+/// The step, after a committed transaction: run when a cigo is installed and what its launcher sees
+/// is not what it was before the transaction ([`launcher_view`]); nothing otherwise.
+pub fn lower_after(home: &Home, before: &LauncherView, state: &State) -> LowerOutcome {
+    if installed_version(state, "cigo").is_none() || launcher_view(home, state) == *before {
+        return LowerOutcome::default();
+    }
+    cigo_lower(home)
+}
+
+#[cfg(all(test, unix))]
+mod lower_tests {
+    use super::*;
+
+    #[test]
+    fn a_lowering_done_now_is_one_line_and_the_document() {
+        let text = r#"{"tool":"cigo","version":"1.20.0","cig":"1.25.0","engine":"vm","kept":true,"lowered":true,"reason":null}"#;
+        let out = parse_lower(text);
+        assert!(out.line.as_deref().unwrap_or("").contains("cig's VM"));
+        assert!(out.json.is_some());
+    }
+
+    #[test]
+    fn a_module_already_kept_and_a_tree_walker_answer_are_the_document_alone() {
+        for text in [
+            r#"{"tool":"cigo","engine":"vm","kept":true,"lowered":false,"reason":null}"#,
+            r#"{"tool":"cigo","engine":"tree","kept":false,"lowered":false,"reason":"engine is set to tree"}"#,
+        ] {
+            let out = parse_lower(text);
+            assert_eq!(out.line, None, "{text}");
+            assert!(out.json.is_some(), "{text}");
+        }
+    }
+
+    #[test]
+    fn an_answer_that_is_not_the_document_is_a_note_without_control_characters() {
+        for text in [
+            "not json at all",
+            r#"{"engine":"warp"}"#,
+            "red \u{1b}[31malert\u{7}",
+        ] {
+            let out = parse_lower(text);
+            assert!(out.json.is_none(), "{text}");
+            let line = out.line.unwrap();
+            assert!(line.contains("shape I cannot read"), "{line}");
+            assert!(!line.chars().any(char::is_control), "{line:?}");
+        }
     }
 }
 
