@@ -23,7 +23,7 @@ use serde_json::Value;
 fn answers(answer: &str) -> String {
     format!(
         r#"if [ "$1" = "__lower" ]; then
-  n=$(ls -A . 2>/dev/null | wc -l)
+  n=$(($(ls -A . 2>/dev/null | wc -l)))
   printf '%s|cwd=%s|entries=%s\n' "$*" "$PWD" "$n" >> "$HOME/lower.log"
   printf '%s\n' '{answer}'
   exit 0
